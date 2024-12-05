@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Трансмаштомск</title>
+     <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <div class="header">
+        <div class="uptime-section">
+            <h2>РУ380 - Реле утечки. Панель администратора</h2>
+        </div>
+    </div>
+    <div class="container_admin">
+        <div class="right-section_admin">
+		<form class="mac-form">
+		  <label class="mac-label">MAC Адрес:</label>
+		  <div class="mac-input">
+			<input type="text" value="00" disabled>
+			<span></span>
+			<input type="text" value="10" disabled>
+			<span></span>
+			<input type="text" value="A1" disabled>
+			<span></span>
+			<input type="text" value="80" disabled>
+			<span></span>
+			<input type="text" maxlength="2" pattern="[0-9A-Fa-f]{2}" required id="mac1">
+			<span></span>
+			<input type="text" maxlength="2" pattern="[0-9A-Fa-f]{2}" required id="mac2">
+		  </div>
+		</form>
+            <form class="mac-form">
+                <label for="field6">Серийный номер устройства:</label>
+				<div class="serial-input">
+				<input type="text" maxlength="6" pattern="[0-9A-Fa-f]{6}" required id="serial">
+				</div>
+            </form>
+            <button class="submit-button" onclick="saveChangesAdmin()">Применить</button>
+        </div>		
+		<div id="customModal" class="modal">
+			<div class="modal-content">
+				<p>Вы уверены, что хотите применить изменения?</p>
+				<button class="ok-button" onclick="confirmChangesAdmin()">OK</button>
+				<button class="cancel-button" onclick="closeCustomModal()">Отмена</button>
+			</div>
+		</div>		
+		<div id="notification" class="modal">
+			<div class="modal-content">
+				<p>Сетевые параметры изменены, через 30 сек. устройство будет перезагружено.<br>Убедитесь что вы записали новые значения</p>
+				<ul id="changed-values"></ul>
+			</div>
+		</div>		
+		<div id="invalid" class="modal">
+			<div class="modal-content">
+				<p>Веденные вами данные недействительны.<br>Убедитесь что вы вписали верные значения</p>
+				<button class="ok-button" onclick="closemodal()">OK</button>
+			</div>		
+		</div>
+	</div>		
+<script src="myScript.js"></script>
+</body>
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+</html>

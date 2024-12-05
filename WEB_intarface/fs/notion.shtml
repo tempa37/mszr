@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Трансмаштомск</title>
+	 <link rel="stylesheet" href="styles.css" />
+</head>
+
+
+
+
+<body>
+	<div id="main-content" style="display: block;">
+        <div class="header">
+        <div class="uptime-section">
+            <h2>Микроконтроллерная система защиты рудничная МСЗР-380</h2>
+        </div>
+    </div>
+	<div class = "container">
+		<div class="info-section">
+		<p><p>Параметры изменены, через 30 сек. устройство будет перезагружено.<br>Убедитесь что вы записали новые значения</p></p>
+		
+		</div>
+	</div>
+	
+    <div class="container">
+        <div class="right-section">
+            <div class="info-field">
+                <label for="field1">MAC:</label>
+                <input type="text" id="field1" name="field1" value="<!--#MAC-->">
+            </div>
+            <div class="info-field">
+                <label for="field2">IP:</label>
+                <input type="text" id="field2" name="field2" value="<!--#IP-->">
+            </div>
+            <div class="info-field">
+                <label for="field3">МАСКА:</label>
+                <input type="text" id="field3" name="field3" value="<!--#MASK-->">
+            </div>
+            <div class="info-field">
+                <label for="field4">ШЛЮЗ:</label>
+                <input type="text" id="field4" name="field4" value="<!--#GETAWEY-->">
+            </div>
+			<div class="info-field">
+                <label for="field6">Серийный номер устройства:</label>
+                <input type="text" id="field6" name="field6" value="<!--#SERIAL-->">
+            </div>
+			<div class="info-field" style="display: none;">
+			<input type="hidden" id="field5" name="field5" value="<!--#PIN-->">
+			</div>
+        </div>			
+	</div>
+</div>
+
+
+	<div class="container" id="error-page" style="display: none;">
+			<div class="info-section">
+				<p>Ошибка: введен неверный PIN-код</p>
+			</div>
+		</div>
+
+	</body>
+
+
+	
+<script src="myScript.js"></script>
+</body>
+</html>
+<!--#SOME_CODE_2387412874712864812764812763812638127638127juwygsdjhgawydg76481276-->

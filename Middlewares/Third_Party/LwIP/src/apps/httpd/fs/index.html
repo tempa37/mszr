@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Организация</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #232323;
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            padding: 20px;
+            background-color: #303030;
+            border-bottom: 2px solid #ffffff;
+        }
+
+        .logo {
+            margin-right: 20px;
+        }
+
+        .logo img {
+            height: 60px;
+        }
+
+        .organization-info {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+			margin-left: auto;
+        }
+
+        .organization-info p {
+            margin: 0;
+            font-size: 18px;
+            color: #ffffff;
+        }
+
+        .container {
+            display: flex;
+            padding: 20px;
+        }
+
+        .left-section {
+            flex: 1;
+            margin-right: 20px;
+            border: 2px solid #444;
+            height: 400px; /* высота для спидометра */
+            background-color: #333;
+        }
+
+        .right-section {
+            flex: 1;
+            padding: 20px;
+            border: 2px solid #444;
+            background-color: #333;
+        }
+
+        .info-field {
+            margin-bottom: 20px;
+        }
+
+        .info-field label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ffffff;
+        }
+
+        .info-field input {
+            width: 100%;
+            padding: 10px;
+            background-color: #444;
+            border: none;
+            color: #ffffff;
+        }
+
+        .submit-button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background-color: #555;
+            border: none;
+            color: #ffffff;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .submit-button:hover {
+            background-color: #666;
+        }
+		
+		/* ------------------------------------------Стиль для фона модального окна---------------------------------------------- */
+		
+		.modal {
+			display: none; /* Изначально скрыто */
+			position: fixed;
+			z-index: 1000;
+			left: 0;
+			top: 0;
+			width: 100%;
+			height: 100%;
+			background-color: rgba(0, 0, 0, 0.5); /* Полупрозрачный черный фон */
+		}
+
+		/* Контент модального окна */
+		.modal-content {
+			background-color: #fff;
+			margin: 15% auto; /* Центрирование по вертикали */
+			padding: 20px;
+			border: 1px solid #888;
+			width: 30%; /* Ширина модального окна */
+			text-align: center;
+			border-radius: 10px;
+		}
+
+		/* Стиль кнопок */
+		.ok-button, .cancel-button {
+			padding: 10px 20px;
+			margin: 10px;
+			border: none;
+			cursor: pointer;
+			font-size: 16px;
+			border-radius: 5px;
+		}
+
+		.ok-button {
+			background-color: #4CAF50; /* Зеленая кнопка */
+			color: white;
+		}
+
+		.cancel-button {
+			background-color: #f44336; /* Красная кнопка */
+			color: white;
+		}
+
+		/* При наведении меняем цвет */
+		.ok-button:hover {
+			background-color: #45a049;
+		}
+
+		.cancel-button:hover {
+			background-color: #e53935;
+		}
+		
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="logo">
+            <img src="logo.png" alt="Трансмаш-Томск">
+        </div>
+        <div class="organization-info">
+            <p>+7 (3822)-990-555</p>
+            <p>info@transmash-tomsk.ru</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="left-section">
+            <!-- Здесь будет спидометр -->
+        </div>
+
+        <div class="right-section">
+            <div class="info-field">
+                <label for="field1">MAC:</label>
+                <input type="text" id="field1" name="field1" value="DEFAULT">
+            </div>
+            <div class="info-field">
+                <label for="field2">IP:</label>
+                <input type="text" id="field2" name="field2" value="DEFAULT">
+            </div>
+            <div class="info-field">
+                <label for="field3">ПОРТ:</label>
+                <input type="text" id="field3" name="field3" value="DEFAULT">
+            </div>
+            <div class="info-field">
+                <label for="field4">ШЛЮЗ:</label>
+                <input type="text" id="field4" name="field4" value="DEFAULT">
+            </div>
+            <button class="submit-button" onclick="saveChanges()">Изменить данные</button>
+        </div>
+		
+		<div id="customModal" class="modal">
+			<div class="modal-content">
+				<p>Вы уверены, что хотите изменить данные?</p>
+				<button class="ok-button" onclick="confirmChanges()">OK</button>
+				<button class="cancel-button" onclick="closeCustomModal()">Отмена</button>
+			</div>
+		</div>
+		
+		<div id="notification" class="modal">
+			<div class="modal-content">
+				<p>Сетевые параметры изменены, через 30 сек. устройство будет перезагружено.<br>Убедитесь что вы записали новые значения</p>
+				<ul id="changed-values"></ul>
+			</div>
+		
+		</div>
+	</div>
+		
+<script src="myScript.js"></script>
+</body>
+</html>
