@@ -38,19 +38,22 @@ extern uint32_t usart_speed;
 extern char uartStopBits[];
 extern char uartPARITY[];
 
-void OLED_1in5_rgb_run(void *argument);
+void DrawCenteredSemiCircle();
+void DrawCenteredSemiCircle2(UWORD percent);
+void OLED_1in5_rgb_run();
 void OLED_TimerCallback(TimerHandle_t xTimer);
 #define HOLDING_TIME 3000
 #define INIT_TIME 8000
 uint8_t OLED_START = 1;
-
+#define WIDTH 128   
+#define HEIGHT 128
 
 
 uint8_t OLED_RESET1 = 0;
 
 
-void OLED_1in5_rgb_run(void *argument) {
-  (void) argument;
+void OLED_1in5_rgb_run() {
+
 
     TimerHandle_t myTimer = xTimerCreate
   (
@@ -116,20 +119,20 @@ void OLED_1in5_rgb_run(void *argument) {
     Paint_DrawString_EN(33, 4, "IP АДРЕС", &Courier12R, WHITE, BACKGROUND_COLOR);
     sprintf(cStr, "%d.%d.%d.%d",  IP_ADDRESS[0], IP_ADDRESS[1], IP_ADDRESS[2], IP_ADDRESS[3]);
     Paint_DrawString_EN(15, 22, cStr, &Courier12R, WHITE, BACKGROUND_COLOR);
-    Paint_DrawLine(0, 40, 128, 40, WHITE, 1, 0);
+    Paint_DrawLine(0, 40, 128, 40, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
 
     
     Paint_DrawString_EN(45, 42, "МАСКА", &Courier12R, WHITE, BACKGROUND_COLOR);
     sprintf(cStr, "%d.%d.%d.%d",  NETMASK_ADDRESS[0], NETMASK_ADDRESS[1], NETMASK_ADDRESS[2], NETMASK_ADDRESS[3]);
     Paint_DrawString_EN(15, 62, cStr, &Courier12R, WHITE, BACKGROUND_COLOR);
-    Paint_DrawLine(0, 80, 128, 80, WHITE, 1, 0);
+    Paint_DrawLine(0, 80, 128, 80, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
     
 
       
     Paint_DrawString_EN(45, 82, "ШЛЮЗ", &Courier12R, WHITE, BACKGROUND_COLOR);
     sprintf(cStr, "%d.%d.%d.%d", GATEWAY_ADDRESS[0], GATEWAY_ADDRESS[1], GATEWAY_ADDRESS[2], GATEWAY_ADDRESS[3]);
     Paint_DrawString_EN(15, 102, cStr, &Courier12R, WHITE, BACKGROUND_COLOR);
-    Paint_DrawLine(0, 120, 128, 120, WHITE, 1, 0);
+    Paint_DrawLine(0, 120, 128, 120, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
     
     OLED_1in5_rgb_Display(BlackImage);
     
@@ -138,7 +141,7 @@ void OLED_1in5_rgb_run(void *argument) {
     Fill_DarkGrayGradient();
     
     Paint_DrawString_EN(10, 4, "настройки RS-485", &Courier12R, WHITE, BACKGROUND_COLOR);
-    Paint_DrawLine(0, 24, 128, 24, WHITE, 1, 0);   // 0 or LINE_STYLE_DOTTED
+    Paint_DrawLine(0, 24, 128, 24, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);   // 0 or LINE_STYLE_DOTTED
     
     
     
@@ -168,7 +171,7 @@ void OLED_1in5_rgb_run(void *argument) {
     
     Paint_DrawString_EN(5, 102, cStr, &Courier12R, WHITE, BACKGROUND_COLOR);
     
-    Paint_DrawLine(0, 120, 128, 120, WHITE, 1, 0);
+    Paint_DrawLine(0, 120, 128, 120, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
     
     
     
@@ -220,23 +223,23 @@ void OLED_1in5_rgb_run(void *argument) {
           OLED_1in5_rgb_Clear();
           
           Fill_DarkGrayGradient();
-          Paint_DrawPoint(40, 64, WHITE, 5, DOT_FILL_AROUND);
-          Paint_DrawPoint(64, 64, WHITE, 2, DOT_FILL_AROUND);
-          Paint_DrawPoint(88, 64, WHITE, 2, DOT_FILL_AROUND);
+          Paint_DrawPoint(40, 64, WHITE, DOT_PIXEL_5X5, DOT_FILL_AROUND);
+          Paint_DrawPoint(64, 64, WHITE, DOT_PIXEL_2X2, DOT_FILL_AROUND);
+          Paint_DrawPoint(88, 64, WHITE, DOT_PIXEL_2X2, DOT_FILL_AROUND);
           OLED_1in5_rgb_Display(BlackImage);
           osDelay(600);
           
           Fill_DarkGrayGradient();
-          Paint_DrawPoint(40, 64, WHITE, 2, DOT_FILL_AROUND);
-          Paint_DrawPoint(64, 64, WHITE, 5, DOT_FILL_AROUND);
-          Paint_DrawPoint(88, 64, WHITE, 2, DOT_FILL_AROUND);          
+          Paint_DrawPoint(40, 64, WHITE, DOT_PIXEL_2X2, DOT_FILL_AROUND);
+          Paint_DrawPoint(64, 64, WHITE, DOT_PIXEL_5X5, DOT_FILL_AROUND);
+          Paint_DrawPoint(88, 64, WHITE, DOT_PIXEL_2X2, DOT_FILL_AROUND);          
           OLED_1in5_rgb_Display(BlackImage);
           osDelay(600);
           
           Fill_DarkGrayGradient();
-          Paint_DrawPoint(40, 64, WHITE, 2, DOT_FILL_AROUND);
-          Paint_DrawPoint(64, 64, WHITE, 2, DOT_FILL_AROUND);
-          Paint_DrawPoint(88, 64, WHITE, 5, DOT_FILL_AROUND);          
+          Paint_DrawPoint(40, 64, WHITE, DOT_PIXEL_2X2, DOT_FILL_AROUND);
+          Paint_DrawPoint(64, 64, WHITE, DOT_PIXEL_2X2, DOT_FILL_AROUND);
+          Paint_DrawPoint(88, 64, WHITE, DOT_PIXEL_5X5, DOT_FILL_AROUND);          
           OLED_1in5_rgb_Display(BlackImage);
           osDelay(600);
           Fill_DarkGrayGradient();
@@ -287,8 +290,8 @@ void OLED_1in5_rgb_run(void *argument) {
        }
        
        
-       Paint_DrawLine(8, 90, 120, 90, WHITE, 1, 0);
-       Paint_DrawLine(64, 90, 64, 120, WHITE, 1, 0);
+       Paint_DrawLine(8, 90, 120, 90, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+       Paint_DrawLine(64, 90, 64, 120, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
        
        
        if(RS485)
@@ -312,7 +315,7 @@ void OLED_1in5_rgb_run(void *argument) {
        DrawCenteredSemiCircle2(percent);
        
        
-       Paint_DrawRectangle(120, 70, 8, 120, WHITE, 1, 0);
+       Paint_DrawRectangle(120, 70, 8, 120, WHITE, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
        OLED_1in5_rgb_Display(BlackImage);
        //update = false;
        osDelay(200); //the image will be transmitted in ~188ms (for 1.4MBits/sec)
@@ -351,6 +354,27 @@ void OLED_1in5_rgb_run(void *argument) {
 }
 
 
+}
+
+
+
+void DrawCenteredSemiCircle() 
+{
+  UWORD centerX = WIDTH / 2;
+  UWORD centerY = HEIGHT / 2; 
+  UWORD color = 0xA001; 
+  DOT_PIXEL lineWidth = DOT_PIXEL_5X5;
+  
+  Paint_DrawSemiCircle(centerX, centerY, color, lineWidth, 100);
+}
+void DrawCenteredSemiCircle2(UWORD percent) 
+{
+  UWORD centerX = WIDTH / 2;
+  UWORD centerY = HEIGHT / 2; 
+  UWORD color = 0xFFFF; 
+  DOT_PIXEL lineWidth = DOT_PIXEL_5X5;
+ 
+  Paint_DrawSemiCircle(centerX, centerY, color, lineWidth, percent);
 }
 
 void Fill_DarkGrayGradient() 

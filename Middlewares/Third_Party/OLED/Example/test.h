@@ -45,7 +45,7 @@ int OLED_0in96_test(void);
 int OLED_1in3_test(void);
 int OLED_1in3_c_test(void);
 int OLED_1in5_test(void);
-void OLED_1in5_rgb_test(void);
+void OLED_1in5_rgb_test();
 void Fill_DarkGrayGradient();
 
 #endif
