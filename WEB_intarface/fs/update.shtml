@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Трансмаштомск</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <div class="header">
+        <div class="uptime-section">
+            <h2>Микроконтроллерная система защиты рудничная МСЗР-380. Панель администратора. Обновление прошивки.</h2>
+        </div>
+    </div>
+    <div class="container_admin">
+        <div class="right-section_admin">
+            <div class="dropzone" id="dropzone" style="display: block;">
+                <p>Перетащите нужный файл прошивки или <span style="color: #1983FF;">выберите вручную</span></p>
+                <input type="file" id="fileInput" accept=".bin,.hex" style="display: none;">
+            </div>
+            <div id="fileDetails" style="display: none; margin-top: 20px; border: 2px solid #444; padding: 10px; border-radius: 10px; background-color: #333; width: 300px; margin: 0 auto;">
+				<p id="fileName"></p>
+				<p id="fileSize"></p>
+				
+				<div id="progressContainer" style="display: none; width: 100%; background-color: #555; border-radius: 10px; margin-top: 10px; height: 20px;">
+					<div id="progressBar" style="height: 100%; width: 0; background-color: #76c7c0; border-radius: 10px;"></div>
+				</div>
+				
+				<div style="display: flex; justify-content: space-between; gap: 10px; margin-top: 10px;">
+					<button id="deleteButton" class="styled-button">Удалить</button>
+					<button id="confirmButton" class="styled-button">Подтвердить</button>
+				</div>
+			</div>
+        </div>
+
+        <div id="uploadModal" class="modal">
+            <div class="modal-content">
+                <p>Файл успешно загружен. Устройство перезагрузится для применения изменений.</p>
+                <button class="ok-button styled-button" onclick="closeUploadModal()">OK</button>
+            </div>
+        </div>
+
+        <div id="uploadError" class="modal">
+            <div class="modal-content">
+                <p>Ошибка загрузки файла. Проверьте формат и попробуйте снова.</p>
+                <button class="ok-button styled-button" onclick="closeUploadError()">OK</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const fileDetails = document.getElementById('fileDetails');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const deleteButton = document.getElementById('deleteButton');
+        const confirmButton = document.getElementById('confirmButton');
+
+        dropzone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('dragover');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            handleFile(files[0]);
+        });
+
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            handleFile(file);
+        });
+
+        deleteButton.addEventListener('click', () => {
+            fileInput.value = '';
+            fileDetails.style.display = 'none';
+            dropzone.style.display = 'block';
+        });
+
+        confirmButton.addEventListener('click', () => {
+			document.getElementById('progressContainer').style.display = 'block';
+			document.getElementById('confirmButton').style.display = 'none';
+			document.getElementById('deleteButton').style.display = 'none';
+            sendFilePackets()
+        });
+		
+		function updateProgress(value) {
+			var progressBar = document.getElementById("progressBar");
+			progressBar.style.width = value + "%";
+			
+			
+			if (value >= 100) {
+				window.location.href = "update-process.shtml";
+			}
+		}
+
+        function handleFile(file) 
+		{
+            if (file) 
+			{
+				// Устанавливаем допустимые расширения
+				const allowedExtensions = ['.shtml', '.hex', '.bin'];
+
+				// Получаем расширение файла
+				const fileExtension = file.name.slice(((file.name.lastIndexOf(".") - 1) >>> 0) + 2).toLowerCase();
+
+				// Проверяем, что расширение файла допустимое
+				if (!allowedExtensions.includes(`.${fileExtension}`)) {
+					alert('Неверный формат файла. Разрешены только .bin');
+					return;
+				}
+
+				// Проверяем размер файла (например, не более 1 МБ)
+				const maxSizeKb = 384;
+				if (file.size > maxSizeKb * 1024 ) {
+					alert(`Файл слишком большой. Максимальный размер: ${maxSizeKb} Kb`);
+					return;
+				}
+
+				// Если все проверки пройдены
+                fileName.textContent = `Имя файла: ${file.name}`;
+                fileSize.textContent = `Размер файла: ${(file.size / 1024).toFixed(2)} KB`;
+                fileDetails.style.display = 'block';
+                dropzone.style.display = 'none';
+            }
+        }
+		
+		
+		
+
+		let acknowledgedPackets = 0;
+
+		function sendFilePackets() {
+			const file = document.getElementById("fileInput").files[0];
+			const packetSize = 512;
+			const totalPackets = Math.ceil(file.size / packetSize);
+			const reader = new FileReader();
+			let offset = 0;
+			let packetIndex = 0;
+
+			reader.onload = function (event) {
+				let packet = event.target.result;
+
+				// Добавляем знак "/0" к каждому пакету
+				const zeroTerminator = new Uint8Array([0]);
+				const packetWithZero = new Uint8Array(packet.byteLength + 1);
+				packetWithZero.set(new Uint8Array(packet), 0);
+				packetWithZero.set(zeroTerminator, packet.byteLength);
+
+				// Отправляем пакет на сервер с дополнительными параметрами
+				fetch(`/upload?packetIndex=${packetIndex}&totalPackets=${totalPackets}`, {
+					method: "POST",
+					body: packetWithZero,
+				})
+				.then(response => {
+					if (response.ok) {
+						packetIndex++;
+						updateProgress((packetIndex / totalPackets) * 100);
+						if (packetIndex < totalPackets) {
+							readNextPacket();
+						}
+					} else {
+						console.error("Ошибка при отправке пакета");
+					}
+				})
+				.catch(console.error);
+			};
+
+			function readNextPacket() {
+				const blob = file.slice(offset, offset + packetSize);
+				reader.readAsArrayBuffer(blob);
+				offset += packetSize;
+			}
+
+			// Начинаем чтение первого пакета
+			readNextPacket();
+		}
+
+
+
+		// Запуск
+		
+    </script>
+</body>
+</html>
+
+<style>
+ .container_admin {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start; /* Блок прилипает к верху родительского */
+        padding-top: 20px; /* Добавляем отступ сверху */
+        height: 70vh;
+    }
+    .right-section_admin {
+        padding: 20px;
+        border: 2px solid #444;
+        background-color: #333;
+        border-radius: 10px;
+        box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+        width: 70%;
+        height: 90%; /* Увеличена высота блока */
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start; /* Контент выравнивается сверху */
+    }
+    .dropzone {
+        width: 93%; /* Размер зоны увеличен до 90% ширины родителя */
+        height: 94%; /* Размер зоны увеличен до 80% высоты родителя */
+        padding: 20px;
+        border: 2px dashed #666;
+        background-color: #444;
+        border-radius: 10px;
+        cursor: pointer;
+        margin: auto; /* Центрируем внутри блока */
+    }
+    .dropzone.dragover {
+        background-color: #555;
+        border-color: #fff;
+    }
+    .styled-button {
+        margin: 10px 5px;
+        padding: 10px 20px;
+        background-color: #555;
+        border: none;
+        color: #fff;
+        font-size: 16px;
+        cursor: pointer;
+        border-radius: 5px;
+    }
+    .styled-button:hover {
+        background-color: #666;
+    }
+    #fileDetails p {
+        margin: 5px 0;
+    }
+</style>

@@ -4,7 +4,7 @@
 				<h2>Ток утечки</h2>
 			<p><span id="current-value"><!--#AMP--> mA</span> / <span id="threshold-value">25.0 mA</span></p>	
 		</div>	
-					<div class="info-field">
+				<div class="info-field">
                 <label for="field1">MAC:</label>
                 <input type="text" id="field1" name="field1" value="<!--#MAC-->" disabled>
             </div>
@@ -19,6 +19,7 @@
 			<div class="info-field">
                 <label for="field10">Версия ПО:</label>
                 <input type="text" id="field10" name="field10" value="<!--#SOFT-->" disabled>
+                <button class="edit-button-inline" id="buttonS" onclick="editbuttoninline()">загрузить новую версию П.О.</button>
             </div>
 			<div class="info-field">
                 <label for="field11">Подключение RS-485</label>
@@ -65,13 +66,13 @@
 					<option value="odd">Нечетный</option>
 				</select>
 			</div>
-						<div class="info-field" style="display: none;">
+					<div class="info-field" style="display: none;">
 			<input type="hidden" id="field20" name="field20" value="<!--#SPEED-->">
 			</div>
-						<div class="info-field" style="display: none;">
+					<div class="info-field" style="display: none;">
 			<input type="hidden" id="field21" name="field21" value="<!--#PARITY-->">
 			</div>
-						<div class="info-field" style="display: none;">
+					<div class="info-field" style="display: none;">
 			<input type="hidden" id="field22" name="field22" value="<!--#STOPB-->">
 			</div>
 			<div class="info-field">

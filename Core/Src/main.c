@@ -357,7 +357,6 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 void vTimerCallback(TimerHandle_t xTimer)
 {
-
       time_raw.seconds++;
       
         if (time_raw.seconds >= 60)
@@ -368,7 +367,7 @@ void vTimerCallback(TimerHandle_t xTimer)
              
              if(t == TIME_RESET_OLED)
              {
-               t =0;
+               t = 0;
                OLED = 0;              
              }
 

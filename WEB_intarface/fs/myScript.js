@@ -75,7 +75,7 @@ window.onload = function() {
 	initialData.ip = document.getElementById('field2').value;
 	initialData.gateway = document.getElementById('field4').value;
 
-
+	changeButtonTextBasedOnResolution();
 
 
 	var inputField99 = document.getElementById("field20");
@@ -386,5 +386,21 @@ function confirmChangesAdmin() {
     saveDataAdmin(); 
 }
 
+  function redirectToUpdatePage() {
+    window.location.href = 'update.shtml'; // Перенаправление на update.shtml
+  }
 
+function editbuttoninline() {
+	window.location.href = 'update.shtml';
+}
 
+function changeButtonTextBasedOnResolution() {
+        var button = document.getElementById('buttonS');
+        
+        // Проверяем разрешение экрана
+        if (window.innerWidth < 1920 && window.innerHeight < 1080) {
+            button.textContent = "Обновить П.О.";
+        } else {
+            button.textContent = "Загрузить новую версию П.О.";
+        }
+    }

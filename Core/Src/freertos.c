@@ -156,17 +156,40 @@ uint8_t TERGET_VALUE = 25;
 uint8_t PIN[6] = {0x34, 0x37, 0x32, 0x32, 0x30, 0x31};   // pin in ASCII - 4-7-2-2-0-1
 uint8_t pinaccept = 0;
 
-#define FLASH_ADDRESS_MAC 0x08100000
-#define FLASH_ADDRESS_IP  0x08100010
-#define FLASH_ADDRESS_NETMASK 0x08100020
-#define FLASH_ADDRESS_GATEWAY 0x08100030
-#define FLASH_ADDRESS_SERIAL 0x08100040
 
-#define FLASH_ADDRESS_RS485_SPEED 0x08100050
-#define FLASH_ADDRESS_RS485_PARITIY 0x08100060
-#define FLASH_ADDRESS_RS485_STOPBIT 0x08100070
+
+
+#define FLASH_ADDRESS_MAC 0x0800C000
+#define FLASH_ADDRESS_IP  0x0800C010
+#define FLASH_ADDRESS_NETMASK 0x0800C020
+#define FLASH_ADDRESS_GATEWAY 0x0800C030
+#define FLASH_ADDRESS_SERIAL 0x0800C040
+
+#define FLASH_ADDRESS_RS485_SPEED 0x0800C050
+#define FLASH_ADDRESS_RS485_PARITIY 0x0800C060
+#define FLASH_ADDRESS_RS485_STOPBIT 0x0800C070
 #define TIMEOUT_MS 8000
 
+
+#define BOOT_OS_OK_ADDRESS 0x0800C080
+#define BOOT_FLAG_CRC_ADDRESS 0x0800C082
+#define BOOT_FLAG_NEW_ADDRESS 0x0800C084
+#define SECTOR_1_ADDRESS 0x08020000 //end in 0x08080000 (sector 5/6/7) 384kb in total
+#define SECTOR_2_ADDRESS 0x08080000 // end in 0x080E0000 (sector 8/9/10) 384kb in total
+#define BOOTLOADER_ADDRESS 0x08010000 //end in 0x0801FFFF (sector 4)  64kb in total
+#define SECTOR_ENABLED_ADDRESS 0x0800C088 //активный сектор
+#define SECTOR_1_LEN 0x0800C090
+#define SECTOR_2_LEN 0x0800C100
+
+//--------------------------(critical flags)------------------------------------
+uint8_t client_accepted = 0;
+uint8_t boot_os_ok = 0;
+uint8_t boot_flag_crc = 0;
+uint8_t boot_flag_new = 0;
+uint8_t sector_enabled = 0;
+uint32_t sector_1_len = 0;
+uint32_t sector_2_len = 0;
+//--------------------------(should be saved in FLASH)--------------------------
 
 
 
@@ -186,6 +209,7 @@ uint8_t fff = 0;
 uint8_t ch = 0;
 volatile uint32_t er = 0;
 uint8_t response_data[20] = {0};
+static uint32_t next_free_addr = 0;
 //-------------------------------------------------------------------------------------------------------------------
 /* USER CODE END PM */
 
@@ -252,9 +276,14 @@ void vMyTimerCallback(TimerHandle_t xTimer);
 void convert_str_to_uint8_array_serial(const char* input, uint8_t* output);
 void EXTI12_Init(void);
 void EXTI15_10_IRQHandler(void);
+void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
+void UpdateSector3();
+void load_flags_from_flash(void);
+HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size);
+uint16_t get_body_length(uint8_t *packet, uint16_t packet_size);
+char* extract_body(uint8_t *packet);
 
-
-
+void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
 void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
@@ -365,6 +394,7 @@ void StartDefaultTask(void *argument)
   http_set_cgi_handlers(CGI_TAB, 1);
   xPacketSemaphore = xSemaphoreCreateBinary();
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
+  load_flags_from_flash();
   /* Infinite loop */
   
   
@@ -442,6 +472,7 @@ void StartTask02(void *argument)
       startMyTimer_RESET(25000);
       restart = 0;
     }  
+    
     
     osDelay(25);
     
@@ -636,25 +667,27 @@ void StartTask04(void *argument)
   /* Infinite loop */
   for(;;)
   {
+    
     switch(REGISTERS[2])
     {
     case 0:
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
+      //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
       break;
       
     case 1:
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+      //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
       break;  
     }
     if(fff)
     {
-      setrelay(1);
+      setrelay(0);
       osDelay(5000);
       start = 0;
       fff = 0;
     }
+
     osDelay(10);
   }
   /* USER CODE END StartTask04 */
@@ -677,6 +710,7 @@ void StartTask05(void *argument)
     if(start == 0)
     {
       OLED_1in5_rgb_run();
+      
     }
     
     osDelay(10);
@@ -712,6 +746,40 @@ void StartTask06(void *argument)
     {
       RS485 = 1;
     }
+    
+          if(ch == 1)
+          {
+            HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
+            setrelay(0);
+            
+            
+            osDelay(1000);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+            osDelay(100);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+            osDelay(1000);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+            osDelay(100);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+            osDelay(1000);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+            osDelay(100);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+            osDelay(1000);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+            osDelay(100);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+            osDelay(1000);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+            osDelay(100);
+            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+
+            
+            HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+            setrelay(1);
+            ch = 0;
+          }
+    
   }
   /* USER CODE END StartTask06 */
   
@@ -1018,6 +1086,40 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     restart = 1;
     return 0;
   }
+  //------------------------------------------------------------------------------------------------------save new os
+    if (iNumParams > 0 && strcmp(pcParam[0], "file") == 0) {
+        uint32_t packetIndex = atoi(pcParam[1]);  // Номер текущего пакета
+        uint32_t totalPackets = atoi(pcParam[2]);  // Общее количество пакетов
+        char *packetData = pcValue[0];  // Данные пакета
+        
+        static uint32_t received_size;
+        static uint32_t received_size_now;
+      
+        received_size += strlen(packetData);
+        
+        uint16_t packet_size = strlen(packetData);
+        packet_size = get_body_length(packetData, packet_size);
+        packetData = extract_body(packetData);
+        
+        
+        Flash_WritePacket(packetData, packet_size);
+        
+        // Если мы получили все пакеты
+        if (packetIndex == (totalPackets-1)) {
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nFile uploaded successfully!";
+            received_size = 0;          
+            boot_flag_new  = 1;  
+        }
+
+        // Ответ на успешный прием пакета
+        return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nPacket received";
+    
+    }
+  
+  
+  
+  
+  
   return 0;
 }
 
@@ -1028,6 +1130,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
 
 //---------------------------------------------------------------------------------FLASH-LOGICS-START--------
 
+/*
 void WriteFlash(FlashDataType type, uint8_t* data)
 {
   uint32_t address = 0;
@@ -1106,7 +1209,7 @@ void WriteFlash(FlashDataType type, uint8_t* data)
   osMutexRelease(flashMutexHandle);
   
 }
-
+*/
 
 
 void ReadFlash(FlashDataType type, uint8_t* buffer) 
@@ -1484,12 +1587,15 @@ void EXTI15_10_IRQHandler(void)
 {
   if (EXTI->PR & EXTI_PR_PR12) 
   { 
-    ch = 1;
     EXTI->PR |= EXTI_PR_PR12; 
-    setrelay(0);
+    //setrelay(0);
     if(start == 1)
     {
       fff = 1;
+    }
+    else
+    {
+      ch = 1;
     }
     for (int i = 0; i < 100; i++) 
     {
@@ -1549,6 +1655,231 @@ void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf
         buf = NULL;
     } 
 }
+
+
+void load_flags_from_flash(void)
+{
+    boot_os_ok = *(volatile uint8_t *)BOOT_OS_OK_ADDRESS;
+    boot_flag_crc = *(volatile uint8_t *)BOOT_FLAG_CRC_ADDRESS;
+    boot_flag_new = *(volatile uint8_t *)BOOT_FLAG_NEW_ADDRESS;
+    sector_enabled = *(volatile uint8_t *)SECTOR_ENABLED_ADDRESS;
+}
+
+/*
+void UpdateSector3()
+{
+    uint8_t sectorData[0x1000]; // Буфер для данных сектора (4 KB)
+
+    // Чтение всего 3-го сектора во флеш
+    for (uint32_t i = 0; i < 0x1000; i++) {
+        sectorData[i] = *(volatile uint8_t*)(0x0800C000 + i);
+    }
+
+    // Изменение значений в буфере
+    sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
+    sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
+    sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
+    sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
+
+    // Запись обратно в 3-й сектор
+    WriteToFlash(0x0800C000, sectorData, 0x1000);
+}
+*/
+        
+        
+HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
+{
+    HAL_StatusTypeDef status = HAL_OK;
+    uint32_t address = 0;
+    uint16_t len = 0;
+    
+    switch(sector_enabled)
+        {
+          case 1:
+            address = SECTOR_2_ADDRESS;
+            len = SECTOR_2_LEN;
+            next_free_addr = SECTOR_2_ADDRESS;
+            break;
+          
+          case 2:
+            address = SECTOR_1_ADDRESS;
+            len = SECTOR_1_LEN;
+            next_free_addr = SECTOR_1_ADDRESS;
+            break;
+        }
+    
+    
+    
+    
+    
+    // Проверка на переполнение области
+    if ((next_free_addr + packet_size) > (address + len))
+    {
+        return HAL_ERROR; // Флеш память переполнена
+    }
+
+    // Разблокировка флеш памяти для записи
+    HAL_FLASH_Unlock();
+
+    // Запись пакета во флеш по байтам (или словам, в зависимости от требований)
+    for (uint16_t i = 0; i < packet_size; i += 4)
+    {
+        uint32_t data_word = 0xFFFFFFFF;
+
+        // Копируем данные пакета в 32-битное слово
+        memcpy(&data_word, &packet[i], (packet_size - i >= 4) ? 4 : (packet_size - i));
+
+        // Записываем слово во флеш
+        status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, next_free_addr + i, data_word);
+        if (status != HAL_OK)
+        {
+            HAL_FLASH_Lock();
+            return status; // Ошибка при записи
+        }
+    }
+
+    // Сохраняем указатель на свободную ячейку для следующего пакета ------------------------------------------установить в 0 после обработки всех пакетов
+    next_free_addr += packet_size;
+
+    // Блокировка флеш памяти после записи
+    HAL_FLASH_Lock();
+
+    return status;
+}
+
+
+
+// Функция для извлечения тела HTTP POST-запроса
+char* extract_body(uint8_t *packet) 
+{
+
+    int total_read = 0;
+
+    // Проверка на NULL и наличие \r\n\r\n
+    char* header_end = strstr(packet, "\r\n\r\n");
+    if (header_end == NULL) {
+        return NULL; // Вернуть NULL, если конец заголовка не найден
+    }
+
+    // Указатель на тело запроса
+    char* body = header_end + 4;
+
+    return body;
+}
+
+
+uint16_t get_body_length(uint8_t *packet, uint16_t packet_size) 
+{
+
+    // Проверка на NULL и наличие \r\n\r\n
+    char* header_end = strstr(packet, "\r\n\r\n");
+    if (header_end == NULL) {
+        return -1; // Вернуть -1, если конец заголовка не найден
+    }
+
+    // Указатель на тело запроса
+    char* body = header_end + 4;
+
+    // Подсчёт длины тела
+    int body_length = packet_size - (body - (char*)packet);
+
+    return (body_length - 1);
+}
+
+
+void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
+{
+   
+    // Разблокируем область флеш для записи
+    HAL_FLASH_Unlock();
+    FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
+    
+    // Процесс записи по адресу
+    for (uint32_t i = 0; i < length; i++) {
+        // Записываем данные
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, data[i]) != HAL_OK) {
+            // Ошибка записи
+            HAL_FLASH_Lock();
+            return;
+        }
+    }
+
+    // Блокируем флеш после записи
+    HAL_FLASH_Lock();
+}
+
+// Основная функция для работы с сектором
+void WriteFlash(FlashDataType type, uint8_t* data)
+{
+    taskENTER_CRITICAL();
+    uint8_t sectorData[0x1000]; // Буфер для данных сектора (4 KB)
+    uint32_t *address = 0;
+    uint32_t dataSize = 0;
+  
+    // Чтение всего 3-го сектора во флеш
+    for (uint32_t i = 0; i < 0x1000; i++) {
+        sectorData[i] = *(volatile uint8_t*)(0x0800C000 + i);
+    }
+    
+    // Изменение значений в буфере
+    sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
+    sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
+    sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
+    sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
+    
+    
+    
+    
+      switch (type) 
+      {
+      case MAC:
+        address = (uint32_t *)FLASH_ADDRESS_MAC;
+        dataSize = 6;
+        break;
+      case IP:
+        address = (uint32_t *)FLASH_ADDRESS_IP;
+        dataSize = 4;
+        break;
+      case NETMASK:
+        address = (uint32_t *)FLASH_ADDRESS_NETMASK;
+        dataSize = 4;
+        break;
+      case GATEWAY:
+        address = (uint32_t *)FLASH_ADDRESS_GATEWAY;
+        dataSize = 4;
+        break;
+      case SERIAL:
+        address = (uint32_t *)FLASH_ADDRESS_SERIAL;
+        dataSize = 6;
+        break;
+      case RS485SPEED:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_SPEED;
+        dataSize = 3;
+        break;
+      case RS485PARITIY:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_PARITIY;
+        dataSize = 10;
+        break;
+      case RS485STOPBIT:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_STOPBIT;
+        dataSize = 1;
+        break;
+      default:
+        return; 
+      }
+    
+    memcpy(address, data, dataSize);
+    
+    
+    
+    
+    // Запись обратно в 3-й сектор
+    WriteToFlash(0x0800C000, sectorData, 0x1000);
+    taskEXIT_CRITICAL();
+}
+
+
+
 
 //---------------------------------------------------------------------------------ANOTHER-CODE-END---
 

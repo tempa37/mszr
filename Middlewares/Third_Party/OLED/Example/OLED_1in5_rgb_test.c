@@ -190,9 +190,9 @@ void OLED_1in5_rgb_run() {
   while (OLED) 
     {
       
+      int OLED_RESET2 = 0;
       
-      
-      if(OLED_RESET) //OLED_RESET2 - OFF
+      if(OLED_RESET2) //OLED_RESET2 - OFF 
       {
         
 

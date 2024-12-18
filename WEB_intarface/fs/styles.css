@@ -48,6 +48,7 @@
             background-color: #333;
         }
         .right-section {
+			position: relative;
             flex: 1;
             padding: 20px;
             border: 2px solid #444;
@@ -218,8 +219,8 @@
 			cursor: pointer;
 			transition: background-color 0.3s ease, color 0.3s ease;
 			    position: absolute;
-				top: 26%;
-				left: 37%;
+				top: 15%;
+				left: 75%;
 				transform: translate(-50%, -50%);
 		}
 
@@ -329,8 +330,67 @@ select:focus {
 }
 
 
+.file-input {
+    display: none;
+}
 
+	.ver-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-family: Arial, sans-serif;
+    background-color: #333; /* Тёмный фон для соответствия стилю */
+    border: 2px solid #444; /* Граница для соответствия стилю */
+    border-radius: 5px; /* Закругленные углы */
+    padding: 10px; /* Внутренний отступ */
+    text-align: center; /* Центровка текста */
+    margin: 0 auto; /* Центровка блока */
+    margin-bottom: 20px;
+}
+
+.form-row {
+    display: flex;
+	justify-content: space-between; /* Распределение пространства между элементами */
+    align-items: center; /* Выравнивание по вертикали */
+	padding: 0 260px;
+
+}
+
+.update-btn {
+    padding: 5px 10px; /* Внутренний отступ кнопки */
+    font-size: 14px; /* Размер текста */
+    border: none; /* Убираем стандартную границу */
+    border-radius: 3px; /* Закругляем углы */
+    background-color: #555; /* Цвет фона кнопки */
+    color: white; /* Цвет текста кнопки */
+    cursor: pointer; /* Курсор при наведении */
+    transition: background-color 0.3s; /* Плавный переход */
+}
+
+.update-btn:hover {
+    background-color: #777; /* Цвет при наведении */
+}
+
+.edit-button-inline {
+	padding: 5px 10px; /* Внутренний отступ кнопки */
+    font-size: 14px; /* Размер текста */
+    border: none; /* Убираем стандартную границу */
+    border-radius: 3px; /* Закругляем углы */
+    background-color: #555; /* Цвет фона кнопки */
+    color: white; /* Цвет текста кнопки */
+    cursor: pointer; /* Курсор при наведении */
+    transition: background-color 0.3s; /* Плавный переход */
+		position: absolute;
+		top: 79%;
+		left: 70%;
+		transform: translate(-50%, -50%);
+}
+
+.edit-button-inline:hover {
+    background-color: #777; /* Цвет при наведении */
+}
 		
 		
 		
     </style>
+	
