@@ -140,7 +140,9 @@
             }
 
             const soft_accepted_value = parseInt(soft_accepted.value, 10); // Преобразование значения в число
-
+			
+			
+			soft_accepted_value = 1;
             if (soft_accepted_value === 0) {
                 document.getElementById('log-section').style.display = 'none';
                 document.getElementById('error-section').style.display = 'block';

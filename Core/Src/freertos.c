@@ -43,8 +43,6 @@
 #include "timers.h"
 /* USER CODE END Includes */
 #include "test.h"
-
-
 #include "lwip/tcp.h"
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
@@ -97,7 +95,9 @@ struct netconn * in_nc;
 struct netbuf * nb;
 struct netconn *newconn = NULL;
 
-const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN", "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY", "STOPB"};
+
+
+const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN", "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY", "STOPB", "SOFTACCEPT"};
 typedef enum 
 {
   MAC,
@@ -127,8 +127,14 @@ uint16_t BACKGROUND_COLOR = 0x0000;   //0x4A49;
 uint8_t brightness = 0xFF;  // 0x00-0xFF
 uint32_t TIME_RESET_OLED = 18000; // in miliseconds
 
+//---------------------------------------FLASH-OS----------------------------------------------------
+static uint16_t iteration = 0;
+static uint32_t address = 0;
+static uint32_t len = 0;
+static uint32_t next_free_addr = 0;
+uint8_t error_flash = 0;
+//---------------------------------------------------------------------------------------------------
 
-//----------------------------------------------------------------------------------------------
 
 uint8_t TERGET_VALUE = 25;
 
@@ -172,7 +178,7 @@ uint8_t pinaccept = 0;
 
 
 #define BOOT_OS_OK_ADDRESS 0x0800C080
-#define BOOT_FLAG_CRC_ADDRESS 0x0800C082
+#define BOOT_CRC_ADDRESS 0x0800C200
 #define BOOT_FLAG_NEW_ADDRESS 0x0800C084
 #define SECTOR_1_ADDRESS 0x08020000 //end in 0x08080000 (sector 5/6/7) 384kb in total
 #define SECTOR_2_ADDRESS 0x08080000 // end in 0x080E0000 (sector 8/9/10) 384kb in total
@@ -182,6 +188,8 @@ uint8_t pinaccept = 0;
 #define SECTOR_2_LEN 0x0800C100
 
 //--------------------------(critical flags)------------------------------------
+//после изменения этих флагов нужно вызвать WriteFlash(0, 0); 
+//для их автоматической запиши во флеш
 uint8_t client_accepted = 0;
 uint8_t boot_os_ok = 0;
 uint8_t boot_flag_crc = 0;
@@ -189,10 +197,10 @@ uint8_t boot_flag_new = 0;
 uint8_t sector_enabled = 0;
 uint32_t sector_1_len = 0;
 uint32_t sector_2_len = 0;
-//--------------------------(should be saved in FLASH)--------------------------
+uint32_t crc_os = 0;
+//------------------------------------------------------------------------------
 
-
-
+uint8_t os_accepted = 0;
 uint32_t adc_value = 0;
 uint32_t adc_value_2 = 0;
 uint8_t tim = 0;
@@ -200,6 +208,8 @@ uint8_t restart = 0;
 uint8_t connectionFLAG = 0;
 SemaphoreHandle_t xPacketSemaphore;
 SemaphoreHandle_t xxMutex;
+SemaphoreHandle_t xPacketSaved;
+CRC_HandleTypeDef hcrc;
 uint16_t start = 1;
 uint8_t OLED_RESET = 1;
 uint8_t RS485 = 0;
@@ -209,7 +219,7 @@ uint8_t fff = 0;
 uint8_t ch = 0;
 volatile uint32_t er = 0;
 uint8_t response_data[20] = {0};
-static uint32_t next_free_addr = 0;
+
 //-------------------------------------------------------------------------------------------------------------------
 /* USER CODE END PM */
 
@@ -282,18 +292,43 @@ void load_flags_from_flash(void);
 HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size);
 uint16_t get_body_length(uint8_t *packet, uint16_t packet_size);
 char* extract_body(uint8_t *packet);
-
+const char *handle_file_upload(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
 void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
+
+//crc32 func
+uint32_t test();
+uint32_t crc32_formula_normal_STM32( size_t len, void *data );
+static uint8_t *reorder4 (uint8_t *src, uint32_t len);
+static uint8_t reverse (uint8_t val8);
+static uint32_t reflect32 (uint32_t val32);
+uint32_t crc32_formula_normal( size_t len, const void *data );
+uint32_t crc32_hw_equivalent(size_t len, const void *data);
+
+uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
+void CRC_Config(void);
+uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str);
+char *parser(uint8_t *buf, uint16_t len, const char *str);
+
+
+
+err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
+                       u16_t http_request_len, int content_len, char *response_uri,
+                       u16_t response_uri_len, u8_t *post_auto_wnd);
+err_t httpd_post_receive_data(void *connection, struct pbuf *p);
+void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len);
+
+
+
 
 
 extern void OLED_1in5_rgb_run();
 
 
 const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
-const tCGI LEDS_CGI={"/save", SAVE_CGI_Handler};
+const tCGI LEDS_CGI = {"/save", SAVE_CGI_Handler};
 tCGI CGI_TAB[1];
 /* USER CODE END FunctionPrototypes */
 
@@ -387,16 +422,20 @@ void StartDefaultTask(void *argument)
     httpd_ssi_init();
   }
   
+  __HAL_RCC_CRC_CLK_ENABLE();
+  CRC_Config(); 
   
   /* USER CODE BEGIN StartDefaultTask */
   
   CGI_TAB[0] = LEDS_CGI;
   http_set_cgi_handlers(CGI_TAB, 1);
   xPacketSemaphore = xSemaphoreCreateBinary();
+  xPacketSaved = xSemaphoreCreateBinary();
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
   load_flags_from_flash();
+  xSemaphoreGive(xPacketSaved);
   /* Infinite loop */
-  
+
   
   
   for(;;)     //------------------------------------------------------modbus_RTU------------------------------
@@ -471,9 +510,100 @@ void StartTask02(void *argument)
     {
       startMyTimer_RESET(25000);
       restart = 0;
-    }  
+    } 
+//-------------------------------------------------------------------------------------------------------CRC-TEST-AREA-----------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------------CRC-TEST-AREA-----------------------------------------------------------------------------------------
+     sector_enabled = 1;
+    
+     osDelay(100); 
+     CRC->CR |= CRC_CR_RESET;
+     osDelay(200); 
+     uint32_t tet = test();
     
     
+    if(boot_flag_new == 1)
+    {
+      
+      uint32_t array[50] = {0};
+      
+      for (size_t i = 0; i < 50; i++) 
+      {
+        array[i] = *((uint32_t*)address + i);
+      }
+      
+      
+      
+      
+      
+      uint32_t crc_app_arr =  crc32_formula_normal(50, array);
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);
+      
+      uint32_t crc_app_arr2 =  crc32_formula_normal(49, array);
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);
+      
+      uint32_t crc_stm_arr = calculate_flash_crc(address, address+(50 * 4));  
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);
+      
+      uint32_t crc_stm_arr2 = calculate_flash_crc(address, address+(49 * 4));  
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);
+
+     
+      uint32_t crc_stm_arr3 = HAL_CRC_Calculate(&hcrc, array, 50);  
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);      
+      
+      uint32_t crc_stm_arr4 = HAL_CRC_Calculate(&hcrc, array, 49);  
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);      
+      
+      
+      uint32_t crc_app_2 = crc32_formula_normal_STM32(50, array);
+      uint32_t crc_app_2_2 = crc32_formula_normal_STM32(49, array);
+      uint32_t crc_app_2_reverce = ~crc32_formula_normal_STM32(50, array);
+      
+      uint32_t crc_chatGPT = crc32_hw_equivalent(50, array);
+      uint32_t crc_chatGPT2 = crc32_hw_equivalent(49, array);
+      uint32_t crc_chatGPT_reverce = ~crc32_hw_equivalent(50, array);
+      
+      
+      
+      
+      
+      uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);
+      uint32_t crc_stm2 = calculate_flash_crc(address, (next_free_addr-5));
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);
+      uint32_t crc_stm3 = calculate_flash_crc(address, (next_free_addr-3));
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);
+      uint32_t crc_static = calculate_flash_crc(0x08080000, 0x080DFFFB);   //start address + 5FFFB (as in IAR opt)
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);   
+      uint32_t crc_static2 = calculate_flash_crc(0x08080000, 0x080DFFFC);
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);
+      uint32_t crc_static3 = calculate_flash_crc(0x08080000, 0x080DFFFA);
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100);
+      uint32_t crc_static4 = calculate_flash_crc(0x08080000, 0x080DFFFD);
+      uint32_t crc_reverce = ~calculate_flash_crc(address, (next_free_addr-4));
+      CRC->CR |= CRC_CR_RESET;
+      osDelay(100); 
+      
+      
+      if(crc_os == crc_stm)
+      {
+        startMyTimer_RESET(2500);
+      }
+    }
+    
+//--------------------------------------------------------------------------------------------------------TEST-AREA-END------------------------------------------------------------------------------------
     osDelay(25);
     
     
@@ -687,6 +817,7 @@ void StartTask04(void *argument)
       start = 0;
       fff = 0;
     }
+  
 
     osDelay(10);
   }
@@ -710,7 +841,6 @@ void StartTask05(void *argument)
     if(start == 0)
     {
       OLED_1in5_rgb_run();
-      
     }
     
     osDelay(10);
@@ -899,6 +1029,10 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   {
     snprintf((char*)buffer, bufferSize, "%d", uartStopBits[0]);
   }
+  else if(iIndex == 17)
+  {
+    snprintf((char*)buffer, bufferSize, "%d", time.days);
+  }
   
   snprintf(pcInsert, iInsertLen, "%s", buffer);
   return strlen(pcInsert);
@@ -907,7 +1041,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 
 void httpd_ssi_init(void) 
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 17);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 18);
 }
 
 
@@ -1086,36 +1220,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     restart = 1;
     return 0;
   }
-  //------------------------------------------------------------------------------------------------------save new os
-    if (iNumParams > 0 && strcmp(pcParam[0], "file") == 0) {
-        uint32_t packetIndex = atoi(pcParam[1]);  // Номер текущего пакета
-        uint32_t totalPackets = atoi(pcParam[2]);  // Общее количество пакетов
-        char *packetData = pcValue[0];  // Данные пакета
-        
-        static uint32_t received_size;
-        static uint32_t received_size_now;
-      
-        received_size += strlen(packetData);
-        
-        uint16_t packet_size = strlen(packetData);
-        packet_size = get_body_length(packetData, packet_size);
-        packetData = extract_body(packetData);
-        
-        
-        Flash_WritePacket(packetData, packet_size);
-        
-        // Если мы получили все пакеты
-        if (packetIndex == (totalPackets-1)) {
-            return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nFile uploaded successfully!";
-            received_size = 0;          
-            boot_flag_new  = 1;  
-        }
 
-        // Ответ на успешный прием пакета
-        return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nPacket received";
-    
-    }
-  
   
   
   
@@ -1550,9 +1655,13 @@ void vMyTimerCallback(TimerHandle_t xTimer)
   HAL_NVIC_SystemReset();
 }
 
+
+char stackOverflowTaskName[64];
 //Переполнение стека
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
+  strncpy(stackOverflowTaskName, pcTaskName, 64 - 1);
+  stackOverflowTaskName[64 - 1] = '\0';
   uint16_t TTT = 0;
   
   while(1)
@@ -1660,7 +1769,7 @@ void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf
 void load_flags_from_flash(void)
 {
     boot_os_ok = *(volatile uint8_t *)BOOT_OS_OK_ADDRESS;
-    boot_flag_crc = *(volatile uint8_t *)BOOT_FLAG_CRC_ADDRESS;
+    //boot_flag_crc = *(volatile uint8_t *)BOOT_FLAG_CRC_ADDRESS;
     boot_flag_new = *(volatile uint8_t *)BOOT_FLAG_NEW_ADDRESS;
     sector_enabled = *(volatile uint8_t *)SECTOR_ENABLED_ADDRESS;
 }
@@ -1677,7 +1786,7 @@ void UpdateSector3()
 
     // Изменение значений в буфере
     sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
-    sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
+    sectorData[BOOT_FLAG__ADDRESS - 0x0800C000] = boot_flag_;
     sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
     sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
 
@@ -1685,39 +1794,45 @@ void UpdateSector3()
     WriteToFlash(0x0800C000, sectorData, 0x1000);
 }
 */
-        
+
         
 HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
 {
     HAL_StatusTypeDef status = HAL_OK;
-    uint32_t address = 0;
-    uint16_t len = 0;
     
+    if(next_free_addr == 0)
+    {
     switch(sector_enabled)
         {
           case 1:
             address = SECTOR_2_ADDRESS;
-            len = SECTOR_2_LEN;
+            len = 393216;
             next_free_addr = SECTOR_2_ADDRESS;
+            FLASH_Erase_Sector(FLASH_SECTOR_8, VOLTAGE_RANGE_3);
+            FLASH_Erase_Sector(FLASH_SECTOR_9, VOLTAGE_RANGE_3);
+            FLASH_Erase_Sector(FLASH_SECTOR_10, VOLTAGE_RANGE_3);
             break;
           
           case 2:
             address = SECTOR_1_ADDRESS;
-            len = SECTOR_1_LEN;
+            len = 393216;
             next_free_addr = SECTOR_1_ADDRESS;
+            FLASH_Erase_Sector(FLASH_SECTOR_5, VOLTAGE_RANGE_3);
+            FLASH_Erase_Sector(FLASH_SECTOR_6, VOLTAGE_RANGE_3);
+            FLASH_Erase_Sector(FLASH_SECTOR_7, VOLTAGE_RANGE_3);
             break;
         }
-    
+    }
     
     
     
     
     // Проверка на переполнение области
-    if ((next_free_addr + packet_size) > (address + len))
+    if ((next_free_addr + packet_size) == (address + len + 1))
     {
         return HAL_ERROR; // Флеш память переполнена
     }
-
+    taskENTER_CRITICAL();
     // Разблокировка флеш памяти для записи
     HAL_FLASH_Unlock();
 
@@ -1739,16 +1854,22 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
     }
 
     // Сохраняем указатель на свободную ячейку для следующего пакета ------------------------------------------установить в 0 после обработки всех пакетов
-    next_free_addr += packet_size;
-
+    next_free_addr += packet_size;  // ---invalid
     // Блокировка флеш памяти после записи
+    iteration++;
     HAL_FLASH_Lock();
-
+    /*
+    uint32_t _stm = calculate_flash_(address, (next_free_addr));
+    uint32_t _stm_reverce = ~(calculate_flash_(address, (next_free_addr)));
+    uint32_t _stm_down = calculate_flash_(address, (next_free_addr-1));
+    */
+    taskEXIT_CRITICAL();
+    //xSemaphoreGive(xPacketSaved);
     return status;
 }
 
 
-
+/*
 // Функция для извлечения тела HTTP POST-запроса
 char* extract_body(uint8_t *packet) 
 {
@@ -1785,6 +1906,7 @@ uint16_t get_body_length(uint8_t *packet, uint16_t packet_size)
 
     return (body_length - 1);
 }
+*/
 
 
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
@@ -1808,9 +1930,11 @@ void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
     HAL_FLASH_Lock();
 }
 
+
 // Основная функция для работы с сектором
 void WriteFlash(FlashDataType type, uint8_t* data)
 {
+    size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
     taskENTER_CRITICAL();
     uint8_t sectorData[0x1000]; // Буфер для данных сектора (4 KB)
     uint32_t *address = 0;
@@ -1823,9 +1947,10 @@ void WriteFlash(FlashDataType type, uint8_t* data)
     
     // Изменение значений в буфере
     sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
-    sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
+    //sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
     sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
     sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
+    sectorData[BOOT_CRC_ADDRESS - 0x0800C000] = crc_os;
     
     
     
@@ -1868,8 +1993,10 @@ void WriteFlash(FlashDataType type, uint8_t* data)
         return; 
       }
     
+    if(data)
+    {
     memcpy(address, data, dataSize);
-    
+    }
     
     
     
@@ -1879,10 +2006,398 @@ void WriteFlash(FlashDataType type, uint8_t* data)
 }
 
 
+/*
+const char * UPLOAD_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]) {
+  
+        setrelay(0);
+      
+      if (iNumParams > 0 && strcmp(pcParam[0], "file") == 0) {
+        uint32_t packetIndex = atoi(pcParam[1]);  // Номер текущего пакета
+        uint32_t totalPackets = atoi(pcParam[2]);  // Общее количество пакетов
+        char *packetData = pcValue[0];  // Данные пакета
+        
+        static uint32_t received_size;
+        static uint32_t received_size_now;
+      
+        received_size += strlen(packetData);
+        
+        uint16_t packet_size = strlen(packetData);
+        packet_size = get_body_length(packetData, packet_size);
+        packetData = extract_body(packetData);
+        
+        
+        Flash_WritePacket(packetData, packet_size);
+        
+        // Если мы получили все пакеты
+        if (packetIndex == (totalPackets-1)) {
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nFile uploaded successfully!";
+            received_size = 0;          
+            boot_flag_new  = 1;  
+        }
+
+        // Ответ на успешный прием пакета
+        return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nPacket received";
+    
+    }
+}
+*/
+
+
+
+/*
+err_t httpd_post_receive_data(void *connection, struct pbuf *p) 
+{
+
+
+    struct file_upload_context *context = (struct file_upload_context *)connection;
+
+    // Извлечение данных из pbuf
+    uint16_t packet_size = p->tot_len; // Общий размер данных пакета
+    char *packetData = (char *)p->payload; // Указатель на полезные данные
+    
+    if (Flash_WritePacket(packetData, packet_size) != HAL_OK)
+    {
+      return ERR_BUF;
+    }
+
+
+
+    return ERR_OK; // Информируем об успешной обработке пакета
+}
+
+err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
+                       u16_t http_request_len, int content_len, char *response_uri,
+                       u16_t response_uri_len, u8_t *post_auto_wnd)
+{
+    // Начало обработки POST-запроса
+    return ERR_OK;
+}
+
+
+
+void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len) 
+{
+    // Завершение обработки POST-запроса
+
+}
+
+
 
 
 //---------------------------------------------------------------------------------ANOTHER-CODE-END---
+*/
+//возвращает указатель на элемент массива[указанный тег + 0x0d 0x0a 0x0d 0x0a]
+char *parser(uint8_t *buf, uint16_t len, const char *str) {
+    uint8_t flags[] = {0x0D, 0x0A, 0x0D, 0x0A};
+    size_t str_len = strlen(str);
+    size_t buf_len = len; 
+
+    for (size_t i = 0; i < buf_len; i++) {
+        if (strncmp((char *)&buf[i], str, str_len) == 0) {
+            // Проверяем флаги после строки
+            if (memcmp(&buf[i + str_len], flags, sizeof(flags)) == 0) {
+                // Возвращаем указатель на элемент после флагов
+                return &buf[i + str_len + sizeof(flags)];
+            }
+        }
+    }
+    error_flash = 1;
+    return NULL;
+}
+
+//вытаскивает числовые значения, переданные в multipart/form-data пакете по тегу
+uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str) {
+    uint8_t flags[] = {0x22, 0x0D, 0x0A, 0x0D, 0x0A};
+    size_t str_len = strlen(str);
+    size_t buf_len = len;
+
+    for (size_t i = 0; i < buf_len; i++) {
+        if (strncmp((char *)&buf[i], str, str_len) == 0) {
+            // Проверяем флаги после строки
+            if (i + str_len + sizeof(flags) >= buf_len) {
+                // Данные выходят за пределы буфера
+                return 0;
+                error_flash = 1;
+            }
+
+            if (memcmp(&buf[i + str_len], flags, sizeof(flags)) == 0) {
+                // Позиция начала числа
+                size_t num_start = i + str_len + sizeof(flags);
+
+                // Ищем конец числа (0x0D 0x0A)
+                size_t num_end = num_start;
+                while (num_end + 1 < buf_len && !(buf[num_end] == 0x0D && buf[num_end + 1] == 0x0A)) {
+                    num_end++;
+                }
+
+                if (num_end + 1 >= buf_len) {
+                    // Конец строки не найден
+                    return 0;
+                    error_flash = 1;
+                }
+
+                // Извлекаем строку числа
+                size_t num_len = num_end - num_start;
+                if (num_len == 0 || num_len > 5) { // Число не может быть больше 65535
+                    return 0;
+                    error_flash = 1;
+                }
+
+                char num_str[6] = {0}; // Максимум 5 символов + \0
+                memcpy(num_str, &buf[num_start], num_len);
+                num_str[num_len] = '\0';
+
+                // Преобразуем строку в число
+                uint16_t result = (uint16_t)atoi(num_str);
+                return result;
+            }
+        }
+    }
+    error_flash = 1;
+    return 0; // Если строка не найдена
+}
 
 
+
+err_t httpd_post_receive_data(void *connection, struct pbuf *p) 
+{
+
+    // Извлечение данных из pbuf
+    uint16_t packet_size = p->tot_len; // Общий размер данных пакета
+    char *packetData = (char *)p->payload; // Указатель на полезные данные
+    
+    uint16_t packetNow = parser_num(packetData, packet_size, "chunkIndex");
+    uint16_t packetTotal = parser_num(packetData, packet_size, "totalChunks");
+    uint16_t BinDataLength = parser_num(packetData, packet_size, "rawDataLength");
+    
+    
+    packetData = parser(packetData, packet_size, "stream");
+    
+    if(packetNow == (packetTotal-1))
+    {
+      crc_os = 
+      ((uint32_t)packetData[BinDataLength-4] << 24) |  // Старший байт
+      ((uint32_t)packetData[BinDataLength-3] << 16) |  
+      ((uint32_t)packetData[BinDataLength-2] << 8)  |  
+      ((uint32_t)packetData[BinDataLength-1]); 
+      packetData[BinDataLength-4] = 0xFF;
+      packetData[BinDataLength-1] = 0xFF;
+      packetData[BinDataLength-2] = 0xFF;
+      packetData[BinDataLength-3] = 0xFF;
+      boot_flag_new = 1;
+      WriteFlash(0, 0);
+    }
+    
+    // Обработка данных (например, запись во флеш)
+    if (Flash_WritePacket(packetData, BinDataLength) != HAL_OK)
+    {
+        pbuf_free(p);
+        return ERR_BUF;
+        error_flash = 1;
+        
+    }
+
+
+    httpd_post_data_recved(connection, packet_size);
+    pbuf_free(p);
+    return ERR_OK;
+}
+
+err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
+                       u16_t http_request_len, int content_len, char *response_uri,
+                       u16_t response_uri_len, u8_t *post_auto_wnd)
+{
+    //xSemaphoreTake(xPacketSaved, portMAX_DELAY);
+    *post_auto_wnd = 0;
+    return ERR_OK;
+}
+
+void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len) 
+{
+
+    const char *success_message = "/updateprocess.shtml"; // Путь к странице успешного ответа
+    size_t message_len = strlen(success_message);
+    
+    strncpy(response_uri, success_message, response_uri_len - 1);
+    response_uri[response_uri_len - 1] = '\0';
+    /*
+      if (xSemaphoreTake(xPacketSaved, portMAX_DELAY) == pdTRUE)
+  {
+  }
+    */
+}
+
+void CRC_Config(void) 
+{
+    // Указываем базовый адрес 
+    hcrc.Instance = CRC;
+
+    // Вызываем инициализацию HAL
+    if (HAL_CRC_Init(&hcrc) != HAL_OK) {
+        // Если что-то пошло не так, можно добавить обработку ошибки
+        while (1);
+    }
+}
+
+uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address) 
+{
+    // Проверяем, что адреса выровнены по 4 байта
+    if (start_address % 4 != 0) {
+        return 0xFFFFFFFF; // Ошибка
+    }
+
+    // Вычисляем длину данных в 32-битных словах
+    uint32_t length = (end_address - start_address) / 4;
+
+    // Преобразуем адреса в указатели на uint32_t
+    uint32_t* data = (uint32_t*)start_address;
+    
+    uint32_t answer = HAL_CRC_Calculate(&hcrc, data, length);
+    // Вычисляем 
+    return answer;
+}
+
+//---------------------------------------------------------------------------------
+static uint8_t reverse (uint8_t val8)
+{
+   uint8_t result = 0;
+   uint8_t maskSRC = 0x01;
+   uint8_t maskDST = 0x80;
+ 
+   for (int i=0; i < 8; i++)
+   {
+      if (val8 & maskSRC)
+         result |= maskDST;
+      maskSRC <<= 1;
+      maskDST >>= 1;
+   }
+   
+   return result;
+}
+ 
+static uint32_t reflect32 (uint32_t val32)
+{
+   uint32_t result = 0;
+   uint32_t maskSRC = 0x00000001;
+   uint32_t maskDST = 0x80000000;
+ 
+   for (int i=0; i < 32; i++)
+   {
+      if (val32 & maskSRC)
+         result |= maskDST;
+      maskSRC <<= 1;
+      maskDST >>= 1;
+   }
+   
+   return result;
+}
+ 
+uint32_t crc32_formula_normal( size_t len,
+                               const void *data )
+{
+#define POLY 0x04C11DB7
+   const unsigned char *buffer = (const unsigned char*) data;
+   uint32_t crc = -1;
+ 
+   while( len-- )
+   {
+      crc = crc ^ ((uint32_t)reverse(*buffer++) << 24);
+      for( int bit = 0; bit < 8; bit++ )
+      {
+         if( crc & (1L << 31)) crc = (crc << 1) ^ POLY;
+         else                  crc = (crc << 1);
+      }
+   }
+   return reflect32( ~crc );
+}
+
+
+
+uint32_t crc32_hw_equivalent(size_t len, const void *data) {
+    #define POLY 0x04C11DB7
+    const unsigned char *buffer = (const unsigned char *)data;
+    uint32_t crc = 0xFFFFFFFF; // Инициализация, как в аппаратном модуле STM32
+    //uint32_t crc = 0x0; 
+    
+    while (len--) {
+        crc ^= ((uint32_t)(*buffer++) << 24); // XOR с входным байтом, смещённым в старший байт
+        for (int bit = 0; bit < 8; bit++) {
+            if (crc & (1U << 31)) {
+                crc = (crc << 1) ^ POLY; // Применение полинома при переполнении
+            } else {
+                crc = (crc << 1); // Простое сдвигание влево
+            }
+        }
+    }
+
+    return crc; // Без финального отражения и инверсии
+}
+
+static uint8_t *reorder4 (uint8_t *src, uint32_t len)
+{
+   static uint8_t dst[4];
+   uint8_t appendlen, idx;
+ 
+   len = (len % 4)+4;
+   appendlen = (len % 4) ? 4-(len % 4) : 0;
+   idx = 0;
+   while(appendlen--)
+   {
+      dst[idx] = 0xFF;
+      idx++;
+   }
+   while(len--)
+   {
+      dst[idx] = src[3-idx];
+      idx++;
+   }
+   return dst;
+}
+ 
+uint32_t crc32_formula_normal_STM32( size_t len,
+                                     void *data )
+{
+#define POLY 0x04C11DB7
+   uint8_t *buffer = (uint8_t*)data;
+   uint32_t crc = -1;
+   uint32_t portion;
+   uint8_t *reordered;
+ 
+   while( len )
+   {
+      portion = len < 4 ? len : 4;
+      reordered = reorder4(buffer, portion);
+      for (uint8_t i=0; i < 4; i++)
+      {
+         crc = crc ^ ((uint32_t)reordered[i] << 24);
+         for( int bit = 0; bit < 8; bit++ )
+         {
+            if( crc & (1L << 31)) crc = (crc << 1) ^ POLY;
+            else                  crc = (crc << 1);
+         }
+      }
+      buffer += portion;
+      len -= portion;
+   }
+   return crc;
+} 
+
+
+
+uint32_t test()
+{
+  uint32_t val_1 = 0x010A03AA;
+  uint32_t val_2 = 0x13B000E1;
+  uint32_t val_3 = 0x001BD050;
+  uint32_t val_FF = 0xFFFFFFFF;
+  
+  //->DR = val_FF;
+  
+  CRC->DR = val_1;
+  CRC->DR = val_2;
+  CRC->DR = val_3;
+    
+  return CRC->DR;
+}
 /* USER CODE END Application */
 

@@ -123,7 +123,7 @@
 
 /** Set this to 1 to support HTTP POST */
 #if !defined LWIP_HTTPD_SUPPORT_POST || defined __DOXYGEN__
-#define LWIP_HTTPD_SUPPORT_POST   0
+#define LWIP_HTTPD_SUPPORT_POST   1
 #endif
 
 /* The maximum number of parameters that the CGI handler can be sent. */
@@ -154,7 +154,7 @@
 #endif
 
 #if !defined LWIP_HTTPD_POST_MANUAL_WND || defined __DOXYGEN__
-#define LWIP_HTTPD_POST_MANUAL_WND  0
+#define LWIP_HTTPD_POST_MANUAL_WND  1
 #endif
 
 /** This string is passed in the HTTP header as "Server: " */

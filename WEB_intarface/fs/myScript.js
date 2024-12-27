@@ -75,7 +75,6 @@ window.onload = function() {
 	initialData.ip = document.getElementById('field2').value;
 	initialData.gateway = document.getElementById('field4').value;
 
-	changeButtonTextBasedOnResolution();
 
 
 	var inputField99 = document.getElementById("field20");
@@ -127,6 +126,8 @@ window.onload = function() {
 			window.location.href = `http://${initialData.ip}`; // Перенаправление 
 		}, 35000);
 	}
+	
+	changeButtonTextBasedOnResolution();
 	
 };
 

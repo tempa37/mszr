@@ -82,6 +82,7 @@
   extern uint8_t uartPARITY[10]; 
   uint32_t usart_speed = 0;
   
+  #define START_ADDR 0x08020000
   
  uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] @ ".ccmram";
   
@@ -121,7 +122,9 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+    __disable_irq();
+    SCB->VTOR = START_ADDR;
+    __enable_irq();
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/

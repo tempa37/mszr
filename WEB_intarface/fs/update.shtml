@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+	<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Трансмаштомск</title>
@@ -91,7 +92,7 @@
 			document.getElementById('progressContainer').style.display = 'block';
 			document.getElementById('confirmButton').style.display = 'none';
 			document.getElementById('deleteButton').style.display = 'none';
-            sendFilePackets()
+            sendFileInChunks(uploadedFile);
         });
 		
 		function updateProgress(value) {
@@ -100,9 +101,11 @@
 			
 			
 			if (value >= 100) {
-				window.location.href = "update-process.shtml";
+				window.location.href = "updateprocess.shtml";
 			}
 		}
+		
+		let uploadedFile = null;
 
         function handleFile(file) 
 		{
@@ -126,6 +129,9 @@
 					alert(`Файл слишком большой. Максимальный размер: ${maxSizeKb} Kb`);
 					return;
 				}
+				
+				
+				uploadedFile = file;
 
 				// Если все проверки пройдены
                 fileName.textContent = `Имя файла: ${file.name}`;
@@ -138,53 +144,43 @@
 		
 		
 
-		let acknowledgedPackets = 0;
 
-		function sendFilePackets() {
-			const file = document.getElementById("fileInput").files[0];
-			const packetSize = 512;
-			const totalPackets = Math.ceil(file.size / packetSize);
-			const reader = new FileReader();
-			let offset = 0;
-			let packetIndex = 0;
+		 async function sendFileInChunks(uploadFile) {
+			  const chunkSize = 700; // Размер пакета в байтах
+			  const totalChunks = Math.ceil(uploadFile.size / chunkSize);
+			  let acknowledgedPackets = 0;
 
-			reader.onload = function (event) {
-				let packet = event.target.result;
+			  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+				const chunk = uploadFile.slice(chunkIndex * chunkSize, (chunkIndex + 1) * chunkSize);
+				const rawDataLength = chunk.size; // Длина данных в чанке
 
-				// Добавляем знак "/0" к каждому пакету
-				const zeroTerminator = new Uint8Array([0]);
-				const packetWithZero = new Uint8Array(packet.byteLength + 1);
-				packetWithZero.set(new Uint8Array(packet), 0);
-				packetWithZero.set(zeroTerminator, packet.byteLength);
+				const formData = new FormData();
+				formData.append('chunk', chunk, `${uploadFile.name}.part${chunkIndex + 1}`);
+				formData.append('chunkIndex', chunkIndex);
+				formData.append('totalChunks', totalChunks);
+				formData.append('rawDataLength', rawDataLength); // Добавляем длину данных
 
-				// Отправляем пакет на сервер с дополнительными параметрами
-				fetch(`/upload?packetIndex=${packetIndex}&totalPackets=${totalPackets}`, {
+				try {
+				  const response = await fetch('/api/upload', {
 					method: "POST",
-					body: packetWithZero,
-				})
-				.then(response => {
-					if (response.ok) {
-						packetIndex++;
-						updateProgress((packetIndex / totalPackets) * 100);
-						if (packetIndex < totalPackets) {
-							readNextPacket();
-						}
-					} else {
-						console.error("Ошибка при отправке пакета");
-					}
-				})
-				.catch(console.error);
-			};
+					body: formData,
+				  });
 
-			function readNextPacket() {
-				const blob = file.slice(offset, offset + packetSize);
-				reader.readAsArrayBuffer(blob);
-				offset += packetSize;
+				  if (!response.ok) {
+					throw new Error(`Ошибка при отправке пакета ${chunkIndex + 1}`);
+				  }
+
+				  acknowledgedPackets++;
+				  console.log(`Пакет ${acknowledgedPackets} из ${totalChunks} успешно отправлен`);
+				  updateProgress((acknowledgedPackets / totalChunks) * 100);
+				} catch (error) {
+				  console.error(`Ошибка при отправке пакета ${chunkIndex + 1}:`, error);
+				  return;
+				}
+			  }
+
+			  console.log('Все пакеты успешно отправлены');
 			}
-
-			// Начинаем чтение первого пакета
-			readNextPacket();
-		}
 
 
 
