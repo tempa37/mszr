@@ -298,14 +298,7 @@ void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
 
-//crc32 func
-uint32_t test();
-uint32_t crc32_formula_normal_STM32( size_t len, void *data );
-static uint8_t *reorder4 (uint8_t *src, uint32_t len);
-static uint8_t reverse (uint8_t val8);
-static uint32_t reflect32 (uint32_t val32);
-uint32_t crc32_formula_normal( size_t len, const void *data );
-uint32_t crc32_hw_equivalent(size_t len, const void *data);
+
 
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
 void CRC_Config(void);
@@ -500,7 +493,7 @@ void StartTask02(void *argument)
     {
       setrelay(0);
     }
-    
+ 
     if (HAL_GPIO_ReadPin(Fixing_the_leak_GPIO_Port, Fixing_the_leak_Pin) == GPIO_PIN_SET)
     {
       setrelay(0);
@@ -514,89 +507,14 @@ void StartTask02(void *argument)
 //-------------------------------------------------------------------------------------------------------CRC-TEST-AREA-----------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------------CRC-TEST-AREA-----------------------------------------------------------------------------------------
      sector_enabled = 1;
-    
-     osDelay(100); 
-     CRC->CR |= CRC_CR_RESET;
-     osDelay(200); 
-     uint32_t tet = test();
+
+
     
     
     if(boot_flag_new == 1)
-    {
-      
-      uint32_t array[50] = {0};
-      
-      for (size_t i = 0; i < 50; i++) 
-      {
-        array[i] = *((uint32_t*)address + i);
-      }
-      
-      
-      
-      
-      
-      uint32_t crc_app_arr =  crc32_formula_normal(50, array);
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);
-      
-      uint32_t crc_app_arr2 =  crc32_formula_normal(49, array);
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);
-      
-      uint32_t crc_stm_arr = calculate_flash_crc(address, address+(50 * 4));  
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);
-      
-      uint32_t crc_stm_arr2 = calculate_flash_crc(address, address+(49 * 4));  
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);
-
-     
-      uint32_t crc_stm_arr3 = HAL_CRC_Calculate(&hcrc, array, 50);  
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);      
-      
-      uint32_t crc_stm_arr4 = HAL_CRC_Calculate(&hcrc, array, 49);  
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);      
-      
-      
-      uint32_t crc_app_2 = crc32_formula_normal_STM32(50, array);
-      uint32_t crc_app_2_2 = crc32_formula_normal_STM32(49, array);
-      uint32_t crc_app_2_reverce = ~crc32_formula_normal_STM32(50, array);
-      
-      uint32_t crc_chatGPT = crc32_hw_equivalent(50, array);
-      uint32_t crc_chatGPT2 = crc32_hw_equivalent(49, array);
-      uint32_t crc_chatGPT_reverce = ~crc32_hw_equivalent(50, array);
-      
-      
-      
-      
-      
+    { 
       uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);
-      uint32_t crc_stm2 = calculate_flash_crc(address, (next_free_addr-5));
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);
-      uint32_t crc_stm3 = calculate_flash_crc(address, (next_free_addr-3));
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);
-      uint32_t crc_static = calculate_flash_crc(0x08080000, 0x080DFFFB);   //start address + 5FFFB (as in IAR opt)
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);   
-      uint32_t crc_static2 = calculate_flash_crc(0x08080000, 0x080DFFFC);
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);
-      uint32_t crc_static3 = calculate_flash_crc(0x08080000, 0x080DFFFA);
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100);
-      uint32_t crc_static4 = calculate_flash_crc(0x08080000, 0x080DFFFD);
-      uint32_t crc_reverce = ~calculate_flash_crc(address, (next_free_addr-4));
-      CRC->CR |= CRC_CR_RESET;
-      osDelay(100); 
-      
-      
+
       if(crc_os == crc_stm)
       {
         startMyTimer_RESET(2500);
@@ -817,6 +735,8 @@ void StartTask04(void *argument)
       start = 0;
       fff = 0;
     }
+    
+
   
 
     osDelay(10);
@@ -2254,150 +2174,16 @@ uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address)
     
     uint32_t answer = HAL_CRC_Calculate(&hcrc, data, length);
     // Вычисляем 
-    return answer;
+    uint32_t reversed_answer = 0;
+    reversed_answer |= (answer & 0x000000FF) << 24;  // младший байт в старший
+    reversed_answer |= (answer & 0x0000FF00) << 8;   // второй байт на второй
+    reversed_answer |= (answer & 0x00FF0000) >> 8;   // третий байт на третий
+    reversed_answer |= (answer & 0xFF000000) >> 24;  // старший байт на младший
+
+    return reversed_answer;
 }
 
 //---------------------------------------------------------------------------------
-static uint8_t reverse (uint8_t val8)
-{
-   uint8_t result = 0;
-   uint8_t maskSRC = 0x01;
-   uint8_t maskDST = 0x80;
- 
-   for (int i=0; i < 8; i++)
-   {
-      if (val8 & maskSRC)
-         result |= maskDST;
-      maskSRC <<= 1;
-      maskDST >>= 1;
-   }
-   
-   return result;
-}
- 
-static uint32_t reflect32 (uint32_t val32)
-{
-   uint32_t result = 0;
-   uint32_t maskSRC = 0x00000001;
-   uint32_t maskDST = 0x80000000;
- 
-   for (int i=0; i < 32; i++)
-   {
-      if (val32 & maskSRC)
-         result |= maskDST;
-      maskSRC <<= 1;
-      maskDST >>= 1;
-   }
-   
-   return result;
-}
- 
-uint32_t crc32_formula_normal( size_t len,
-                               const void *data )
-{
-#define POLY 0x04C11DB7
-   const unsigned char *buffer = (const unsigned char*) data;
-   uint32_t crc = -1;
- 
-   while( len-- )
-   {
-      crc = crc ^ ((uint32_t)reverse(*buffer++) << 24);
-      for( int bit = 0; bit < 8; bit++ )
-      {
-         if( crc & (1L << 31)) crc = (crc << 1) ^ POLY;
-         else                  crc = (crc << 1);
-      }
-   }
-   return reflect32( ~crc );
-}
 
-
-
-uint32_t crc32_hw_equivalent(size_t len, const void *data) {
-    #define POLY 0x04C11DB7
-    const unsigned char *buffer = (const unsigned char *)data;
-    uint32_t crc = 0xFFFFFFFF; // Инициализация, как в аппаратном модуле STM32
-    //uint32_t crc = 0x0; 
-    
-    while (len--) {
-        crc ^= ((uint32_t)(*buffer++) << 24); // XOR с входным байтом, смещённым в старший байт
-        for (int bit = 0; bit < 8; bit++) {
-            if (crc & (1U << 31)) {
-                crc = (crc << 1) ^ POLY; // Применение полинома при переполнении
-            } else {
-                crc = (crc << 1); // Простое сдвигание влево
-            }
-        }
-    }
-
-    return crc; // Без финального отражения и инверсии
-}
-
-static uint8_t *reorder4 (uint8_t *src, uint32_t len)
-{
-   static uint8_t dst[4];
-   uint8_t appendlen, idx;
- 
-   len = (len % 4)+4;
-   appendlen = (len % 4) ? 4-(len % 4) : 0;
-   idx = 0;
-   while(appendlen--)
-   {
-      dst[idx] = 0xFF;
-      idx++;
-   }
-   while(len--)
-   {
-      dst[idx] = src[3-idx];
-      idx++;
-   }
-   return dst;
-}
- 
-uint32_t crc32_formula_normal_STM32( size_t len,
-                                     void *data )
-{
-#define POLY 0x04C11DB7
-   uint8_t *buffer = (uint8_t*)data;
-   uint32_t crc = -1;
-   uint32_t portion;
-   uint8_t *reordered;
- 
-   while( len )
-   {
-      portion = len < 4 ? len : 4;
-      reordered = reorder4(buffer, portion);
-      for (uint8_t i=0; i < 4; i++)
-      {
-         crc = crc ^ ((uint32_t)reordered[i] << 24);
-         for( int bit = 0; bit < 8; bit++ )
-         {
-            if( crc & (1L << 31)) crc = (crc << 1) ^ POLY;
-            else                  crc = (crc << 1);
-         }
-      }
-      buffer += portion;
-      len -= portion;
-   }
-   return crc;
-} 
-
-
-
-uint32_t test()
-{
-  uint32_t val_1 = 0x010A03AA;
-  uint32_t val_2 = 0x13B000E1;
-  uint32_t val_3 = 0x001BD050;
-  uint32_t val_FF = 0xFFFFFFFF;
-  
-  //->DR = val_FF;
-  
-  CRC->DR = val_1;
-  CRC->DR = val_2;
-  CRC->DR = val_3;
-    
-  return CRC->DR;
-}
 /* USER CODE END Application */
 
