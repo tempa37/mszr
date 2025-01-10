@@ -156,6 +156,7 @@ uint8_t TERGET_VALUE = 25;
 uint8_t PIN[6] = {0x34, 0x37, 0x32, 0x32, 0x30, 0x31};   // pin in ASCII - 4-7-2-2-0-1
 uint8_t pinaccept = 0;
 
+
 #define FLASH_ADDRESS_MAC 0x08100000
 #define FLASH_ADDRESS_IP  0x08100010
 #define FLASH_ADDRESS_NETMASK 0x08100020
@@ -166,6 +167,7 @@ uint8_t pinaccept = 0;
 #define FLASH_ADDRESS_RS485_PARITIY 0x08100060
 #define FLASH_ADDRESS_RS485_STOPBIT 0x08100070
 #define TIMEOUT_MS 8000
+
 
 
 
@@ -1028,6 +1030,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
 
 //---------------------------------------------------------------------------------FLASH-LOGICS-START--------
 
+/*
 void WriteFlash(FlashDataType type, uint8_t* data)
 {
   uint32_t address = 0;
@@ -1106,6 +1109,7 @@ void WriteFlash(FlashDataType type, uint8_t* data)
   osMutexRelease(flashMutexHandle);
   
 }
+*/
 
 
 
@@ -1552,6 +1556,102 @@ void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf
 
 //---------------------------------------------------------------------------------ANOTHER-CODE-END---
 
+void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
+{
+   
+    // ???????????? ??????? ???? ??? ??????
+    HAL_FLASH_Unlock();
+    
+    if((startAddress >= 0x0800C000) && (startAddress <= 0x0800FFFF))
+    {
+      FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
+    }
+    else if((startAddress >= 0x08100000) && (startAddress <= 0x08103FFF))
+    {
+      FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
+    }
+    
+    // ??????? ?????? ?? ??????
+    for (uint32_t i = 0; i < length; i++) {
+        // ?????????? ??????
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, data[i]) != HAL_OK) {
+            // ?????? ??????
+            HAL_FLASH_Lock();
+            return;
+        }
+    }
+
+    // ????????? ???? ????? ??????
+    HAL_FLASH_Lock();
+}
+
+
+// ???????? ??????? ??? ?????? ? ????????
+void WriteFlash(FlashDataType type, uint8_t* data)
+{
+    size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
+    taskENTER_CRITICAL();
+    uint8_t sectorData[0x1000]; // ????? ??? ?????? ??????? (4 KB)
+    uint32_t *address = 0;
+    uint32_t dataSize = 0;
+  
+    // ?????? ????? 3-?? ??????? ?? ????
+    for (uint32_t i = 0; i < 0x1000; i++) {
+        sectorData[i] = *(volatile uint8_t*)(0x08100000 + i);
+    }
+
+    
+      switch (type) 
+      {
+      case MAC:
+        address = (uint32_t *)FLASH_ADDRESS_MAC;
+        dataSize = 6;
+        break;
+      case IP:
+        address = (uint32_t *)FLASH_ADDRESS_IP;
+        dataSize = 4;
+        break;
+      case NETMASK:
+        address = (uint32_t *)FLASH_ADDRESS_NETMASK;
+        dataSize = 4;
+        break;
+      case GATEWAY:
+        address = (uint32_t *)FLASH_ADDRESS_GATEWAY;
+        dataSize = 4;
+        break;
+      case SERIAL:
+        address = (uint32_t *)FLASH_ADDRESS_SERIAL;
+        dataSize = 6;
+        break;
+      case RS485SPEED:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_SPEED;
+        dataSize = 3;
+        break;
+      case RS485PARITIY:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_PARITIY;
+        dataSize = 10;
+        break;
+      case RS485STOPBIT:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_STOPBIT;
+        dataSize = 1;
+        break;
+      default:
+        return; 
+      }
+    
+    if(data)
+    {
+      uint32_t offset = address - 0x08100000; 
+      memcpy(sectorData + offset, data, dataSize);
+    }
+    
+    
+    //FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
+    osDelay(150);
+    // ?????? ??????? ? 3-? ??????
+    WriteToFlash(0x08100000, sectorData, 0x1000);
+    taskEXIT_CRITICAL();
+}
 
 /* USER CODE END Application */
 
