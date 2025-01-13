@@ -28,7 +28,7 @@ extern uint8_t IP_ADDRESS[4];
 extern uint8_t NETMASK_ADDRESS[4];
 extern uint8_t GATEWAY_ADDRESS[4];
 extern uint16_t BACKGROUND_COLOR;
-extern uint8_t TERGET_VALUE;
+extern uint8_t TARGET_VALUE;
 extern uint8_t OLED_RESET;
 extern uint32_t TIME_RESET_OLED;
 uint8_t theme = 1;
@@ -264,7 +264,7 @@ void OLED_1in5_rgb_run() {
       char buffer[10] = {0};
       uint16_t percent = 0;
       
-      if(mA >= TERGET_VALUE) 
+      if(mA >= TARGET_VALUE) 
       {
         percent = 0;
       }

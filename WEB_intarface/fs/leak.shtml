@@ -176,23 +176,23 @@
         <div class="right-section_admin">
             <h3>Фаза A</h3>
             <form>
-                <label class="field-label" for="phase1-input">Емкость:</label>
+                <label class="field-label" for="c_phase_a">Емкость:</label>
                 <div class="serial-input">
-                    <input id="phase1-input" type="text">
+                    <input id="c_phase_a" type="text" value="<!--#CPHASEA-->" >
                     <span>&mu;F</span>
                 </div>
-                <label class="field-label" for="rleak1-input">Сопротивление утечки:</label>
+                <label class="field-label" for="r_leak_a">Сопротивление утечки:</label>
                 <div class="serial-input">
-                    <input id="rleak1-input" type="text">
+                    <input id="r_leak_a" type="text" value="<!--#RLEAKA-->" >
                     <span>MΩ</span>
                 </div>
                 <div class="tooltip">
                     🛈
                     <span class="tooltiptext">Защита сработает, если ток утечки любой из фаз (A/B/C) превысит установленное пороговое значение.</span>
                 </div>
-                <label class="field-label" for="ileak-threshold1-input">Пороговое значение тока утечки:</label>
+                <label class="field-label" for="target_value">Пороговое значение тока утечки:</label>
                 <div class="serial-input">
-                    <input id="ileak-threshold1-input" type="text">
+                    <input id="target_value" type="text" value="<!--#TVALUE-->" >
                     <span>mA</span>
                 </div>
             </form>
@@ -200,14 +200,14 @@
         <div class="right-section_admin">
             <h3>Фаза B</h3>
             <form>
-                <label class="field-label" for="phase2-input">Емкость:</label>
+                <label class="field-label" for="c_phase_b">Емкость:</label>
                 <div class="serial-input">
-                    <input id="phase2-input" type="text">
+                    <input id="c_phase_b" type="text" value="<!--#CPHASEB-->" >
                     <span>&mu;F</span>
                 </div>
-                <label class="field-label" for="rleak2-input">Сопротивление утечки:</label>
+                <label class="field-label" for="r_leak_b">Сопротивление утечки:</label>
                 <div class="serial-input">
-                    <input id="rleak2-input" type="text">
+                    <input id="r_leak_b" type="text" value ="<!--#RLEAKB-->">
                     <span>MΩ</span>
                 </div>
             </form>
@@ -215,14 +215,14 @@
         <div class="right-section_admin">
             <h3>Фаза C</h3>
             <form>
-                <label class="field-label" for="phase3-input">Емкость:</label>
+                <label class="field-label" for="c_phase_c">Емкость:</label>
                 <div class="serial-input">
-                    <input id="phase3-input" type="text">
+                    <input id="c_phase_c" type="text"  value ="<!--#CPHASEC-->">
                     <span>&mu;F</span>
                 </div>
-                <label class="field-label" for="rleak3-input">Сопротивление утечки:</label>
+                <label class="field-label" for="r_leak_c">Сопротивление утечки:</label>
                 <div class="serial-input">
-                    <input id="rleak3-input" type="text">
+                    <input id="r_leak_c" type="text"  value ="<!--#RLEAKC-->">
                     <span>MΩ</span>
                 </div>
             </form>
@@ -237,19 +237,148 @@
         </div>
     </div>
     <script>
+	
         function saveChangesAdmin() {
             const modal = document.getElementById('customModal');
             modal.style.display = 'flex';
         }
-        function confirmChangesAdmin() {
+		
+		function confirmChangesAdmin() {
             const modal = document.getElementById('customModal');
             modal.style.display = 'none';
-            alert('Изменения сохранены.');
+            saveDataAdmin(); 
         }
-        function closeCustomModal() {
+		
+		function closeCustomModal() {
             const modal = document.getElementById('customModal');
             modal.style.display = 'none';
         }
+		
+		
+		function validatePhaseData(values) {
+			let targetValue = values.target_value;
+			console.log("Original targetValue:", targetValue);
+
+			// Проверяем, содержит ли строка буквенные символы
+			const hasLetters = /[a-zA-Zа-яА-Я]/.test(targetValue);
+			if (hasLetters) {
+				console.log("Validation failed: содержит буквенные символы.");
+				return false;
+			}
+
+			// Проверяем количество точек и запятых
+			const dotCount = (targetValue.match(/\./g) || []).length;
+			const commaCount = (targetValue.match(/,/g) || []).length;
+
+			if (dotCount + commaCount > 1) {
+				console.log("Validation failed: более одной точки или запятой.");
+				return false;
+			}
+
+			// Если есть запятая, заменяем её на точку
+			if (commaCount === 1) {
+				targetValue = targetValue.replace(',', '.');
+				values.target_value = targetValue; // Обновляем значение в объекте
+				console.log("Запятая заменена на точку:", targetValue);
+			}
+
+			console.log("Validation passed.");
+			return true;
+		}
+		
+		function saveDataAdmin() {
+            // Считываем новые поля для фаз
+            const cPhaseA = document.getElementById('c_phase_a').value;
+            const rLeakA = document.getElementById('r_leak_a').value;
+            const cPhaseB = document.getElementById('c_phase_b').value;
+            const rLeakB = document.getElementById('r_leak_b').value;
+            const cPhaseC = document.getElementById('c_phase_c').value;
+            const rLeakC = document.getElementById('r_leak_c').value;
+            const targetValue = document.getElementById('target_value').value;
+			
+			const updatedData = {};
+			
+			
+			if (cPhaseA) updatedData.c_phase_a = cPhaseA;
+            if (rLeakA)  updatedData.r_leak_a  = rLeakA;
+            if (cPhaseB) updatedData.c_phase_b = cPhaseB;
+            if (rLeakB)  updatedData.r_leak_b  = rLeakB;
+            if (cPhaseC) updatedData.c_phase_c = cPhaseC;
+            if (rLeakC)  updatedData.r_leak_c  = rLeakC;
+            if (targetValue) updatedData.target_value = targetValue;
+			
+			
+			if (Object.keys(updatedData).length === 0) {
+                alert('Нет измененных данных для сохранения.');
+                return;
+            }
+			
+			if (!validatePhaseData(updatedData)) {
+                alert('Данные не валидны');
+                return;
+            }
+			
+			const queryString = new URLSearchParams(updatedData).toString();
+			
+			fetch(`/save?${queryString}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+			
+			setTimeout(function() 
+			{
+				window.location.href = "/index.shtml"; // Перенаправление через 2 секунды
+			}, 5000);
+			}
+			
+			
+        function extractValue(value) {
+            return value.replace(/<!--.*?-->/, '').trim(); // Убираем шаблон и лишние пробелы
+        }
+		
+		
+		function roundValue(value) {
+        // Сначала выпиливаем SSI теги
+        let val = extractValue(value);
+
+        // Проверяем, есть ли вообще точка
+        const dotIndex = val.indexOf('.');
+        if (dotIndex === -1) {
+            // Если нет дробной части, возвращаем как есть
+            return val;
+        }
+
+        // Разделяем на целую и дробную часть
+        let intPart = val.slice(0, dotIndex);
+        let fracPart = val.slice(dotIndex + 1);
+
+        // Ищем 4 подряд идущих нуля в дробной части
+        const zeroIndex = fracPart.search(/0{4}/);
+        if (zeroIndex !== -1) {
+            // Если нашли, режем дробную часть по началу этих нулей
+            fracPart = fracPart.slice(0, zeroIndex);
+        }
+
+        // Склеиваем обратно. Если дробная часть пустая – возвращаем только целую
+        return fracPart.length > 0 ? intPart + '.' + fracPart : intPart;
+    }
+
+
+        window.onload = function () {
+            // Выбираем все элементы input на странице
+            var inputs = document.querySelectorAll('input');
+
+            // Проходим по каждому input и заменяем значение, если содержит SSI-тег
+            inputs.forEach(function (input) {
+            input.value = roundValue(input.value);
+        });
+        };
+			
     </script>
 </body>
 </html>
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->

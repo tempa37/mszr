@@ -69,7 +69,27 @@ extern uint16_t REGISTERS[4];
 extern uint32_t usart_speed;
 uint8_t SERIAL_ADDRESS[6] = {0};
 
+//----------------------------ADC---LOGIC---------------------------------------
+float C_phase_A = 0;
+float R_leak_A = 0;
+float C_phase_B = 0;
+float R_leak_B = 0;
+float C_phase_C = 0;
+float R_leak_C = 0;
+uint8_t TARGET_VALUE = 0;
 
+//если прилетели новые настройки, Def_Settings = 0
+
+uint8_t Def_Settings = 1;
+
+#define FLASH_ADDRESS_C_PHASE_A 0x08100080
+#define FLASH_ADDRESS_R_LEAK_A  0x08100090
+#define FLASH_ADDRESS_C_PHASE_B 0x081000A0
+#define FLASH_ADDRESS_R_LEAK_B  0x081000B0
+#define FLASH_ADDRESS_C_PHASE_C 0x081000C0
+#define FLASH_ADDRESS_R_LEAK_C  0x081000D0
+#define FLASH_ADDRESS_TARGET_VALUE 0x081000E0
+//------------------------------------------------------------------------------
 
 uint8_t USART_3_SPEED[10];
 uint8_t uartStopBits[10];
@@ -97,7 +117,12 @@ struct netconn * in_nc;
 struct netbuf * nb;
 struct netconn *newconn = NULL;
 
-const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN", "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY", "STOPB"};
+const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
+"HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE"};
+
+
+
 typedef enum 
 {
   MAC,
@@ -107,7 +132,14 @@ typedef enum
   SERIAL,
   RS485SPEED,
   RS485PARITIY,
-  RS485STOPBIT
+  RS485STOPBIT,
+  C_PHASE_A,
+  R_LEAK_A,
+  C_PHASE_B, 
+  R_LEAK_B, 
+  C_PHASE_C,
+  R_LEAK_C,
+  TaRGET_VALUE
 } FlashDataType;
 
 typedef struct 
@@ -130,7 +162,7 @@ uint32_t TIME_RESET_OLED = 18000; // in miliseconds
 
 //----------------------------------------------------------------------------------------------
 
-uint8_t TERGET_VALUE = 25;
+
 
 //PA9_out
 #define RELAY_CONTROL_PIN          GPIO_PIN_9
@@ -167,7 +199,7 @@ uint8_t pinaccept = 0;
 #define FLASH_ADDRESS_RS485_PARITIY 0x08100060
 #define FLASH_ADDRESS_RS485_STOPBIT 0x08100070
 #define TIMEOUT_MS 8000
-
+#define M_PI 3.14159265
 
 
 
@@ -254,14 +286,21 @@ void vMyTimerCallback(TimerHandle_t xTimer);
 void convert_str_to_uint8_array_serial(const char* input, uint8_t* output);
 void EXTI12_Init(void);
 void EXTI15_10_IRQHandler(void);
+void EXTI6_Init(void);
+void EXTI9_5_IRQHandler(void);
 
 
-
+void convert_str_to_float_bytes(const char* input, uint8_t* output);
+void load_values_from_flash(void);
 void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
 
 
+
+float calculate_rms_A( uint16_t rms);
+float calculate_rms_B( uint16_t rms);
+float calculate_rms_C( uint16_t rms);
 extern void OLED_1in5_rgb_run();
 
 
@@ -366,6 +405,15 @@ void StartDefaultTask(void *argument)
   CGI_TAB[0] = LEDS_CGI;
   http_set_cgi_handlers(CGI_TAB, 1);
   xPacketSemaphore = xSemaphoreCreateBinary();
+  
+  load_values_from_flash();
+  
+  if(Def_Settings)
+  {
+    EXTI6_Init();
+  }
+  
+  
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
   /* Infinite loop */
   
@@ -422,22 +470,49 @@ void StartTask02(void *argument)
     
     if(adc_ready == 1)
     {
-      uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
-      //adc_value = (((float)rms / 4096) * 3.3);
-      //REGISTERS[1] = (uint16_t)((adc_value * 3) / (121.24) * 1000);
-      //REGISTERS[1] = rms * 0.02;
-      REGISTERS[1] = (uint16_t)(rms * 0.019922);  // REGISTERS[1] = ((((rms / 4096) * 3.3) * 3) / (121.1775) * 1000);
+      if(Def_Settings)
+      {
+        uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
+        REGISTERS[1] = (uint16_t)(rms * 0.019922);  // REGISTERS[1] = ((((rms / 4096) * 3.3) * 3) / (121.1775) * 1000);
+      }
+      else
+      {
+        uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
+        
+        rms = 340;
+        
+        float leak_phase_A = calculate_rms_A(rms);
+        float leak_phase_B = calculate_rms_B(rms);
+        float leak_phase_C = calculate_rms_C(rms);
+        
+        
+        
+        uint16_t aA = (uint16_t)leak_phase_A;
+        uint16_t bB = (uint16_t)leak_phase_B;
+        uint16_t cC = (uint16_t)leak_phase_C;
+        
+        uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A, leak_phase_B), leak_phase_C);
+        REGISTERS[1] = max_val;
+            
+      }
     }
     
-    if(REGISTERS[1] >= TERGET_VALUE)
+    if(REGISTERS[1] >= TARGET_VALUE)
     {
       setrelay(0);
     }
     
-    if (HAL_GPIO_ReadPin(Fixing_the_leak_GPIO_Port, Fixing_the_leak_Pin) == GPIO_PIN_SET)
+    
+    if(Def_Settings)
     {
-      setrelay(0);
-    }   
+      if (HAL_GPIO_ReadPin(Fixing_the_leak_GPIO_Port, Fixing_the_leak_Pin) == GPIO_PIN_SET)
+      {
+        setrelay(0);
+      } 
+    }
+    
+    
+    
     
     if(restart == 1)
     {
@@ -827,12 +902,43 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
     else if(strcmp((const char *)uartPARITY, string3) == 0)
     {
       snprintf((char*)buffer, bufferSize, "%s", string3);
-    }
+    } 
   }
   else if(iIndex == 16)
   {
     snprintf((char*)buffer, bufferSize, "%d", uartStopBits[0]);
   }
+  
+  
+  else if(iIndex == 17)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", C_phase_A);
+  }
+  else if(iIndex == 18)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", R_leak_A);
+  }
+  else if(iIndex == 19)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", C_phase_B);
+  }
+    else if(iIndex == 20)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", R_leak_B);
+  }
+    else if(iIndex == 21)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", C_phase_C);
+  }
+    else if(iIndex == 22)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", R_leak_C);
+  }
+    else if(iIndex == 23)
+  {
+    snprintf((char*)buffer, bufferSize, "%d", TARGET_VALUE);
+  }
+
   
   snprintf(pcInsert, iInsertLen, "%s", buffer);
   return strlen(pcInsert);
@@ -841,8 +947,11 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 
 void httpd_ssi_init(void) 
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 17);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 24);
 }
+//
+// 
+
 
 
 //Логика обработки /Save запросов от клиента в веб интерфейсе
@@ -857,6 +966,22 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char rs485paritiy[18] = {0};
   char rs485stopbit[18] = {0};
   
+  
+  char c_phase_a_str[18]  = {0};
+  char r_leak_a_str[18]   = {0};
+  char c_phase_b_str[18]  = {0};
+  char r_leak_b_str[18]   = {0};
+  char c_phase_c_str[18]  = {0};
+  char r_leak_c_str[18]   = {0};
+  char target_value_str[18] = {0};
+
+  uint8_t c_phase_a_flag     = 0;
+  uint8_t r_leak_a_flag      = 0;
+  uint8_t c_phase_b_flag     = 0;
+  uint8_t r_leak_b_flag      = 0;
+  uint8_t c_phase_c_flag     = 0;
+  uint8_t r_leak_c_flag      = 0;
+  uint8_t target_value_flag  = 0;
   
   
   uint8_t ip_flag = 0;
@@ -940,6 +1065,42 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       strncpy(rs485stopbit, pcValue[i], sizeof(rs485stopbit) - 1);
       stopbit_flag = 1;
     }  
+     else if (strcmp(pcParam[i], "c_phase_a") == 0)
+    {
+      strncpy(c_phase_a_str, pcValue[i], sizeof(c_phase_a_str) - 1);
+      c_phase_a_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "r_leak_a") == 0)
+    {
+      strncpy(r_leak_a_str, pcValue[i], sizeof(r_leak_a_str) - 1);
+      r_leak_a_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "c_phase_b") == 0)
+    {
+      strncpy(c_phase_b_str, pcValue[i], sizeof(c_phase_b_str) - 1);
+      c_phase_b_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "r_leak_b") == 0)
+    {
+      strncpy(r_leak_b_str, pcValue[i], sizeof(r_leak_b_str) - 1);
+      r_leak_b_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "c_phase_c") == 0)
+    {
+      strncpy(c_phase_c_str, pcValue[i], sizeof(c_phase_c_str) - 1);
+      c_phase_c_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "r_leak_c") == 0)
+    {
+      strncpy(r_leak_c_str, pcValue[i], sizeof(r_leak_c_str) - 1);
+      r_leak_c_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "target_value") == 0)
+    {
+      strncpy(target_value_str, pcValue[i], sizeof(target_value_str) - 1);
+      target_value_flag = 1;
+    }
+  
   }
   
   
@@ -963,6 +1124,88 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     restart = 1;
     pinaccept = 1;
   }
+
+  
+  
+  if (c_phase_a_flag != 0)
+    {
+      convert_str_to_float_bytes(c_phase_a_str, output); 
+      WriteFlash(C_PHASE_A, output);
+      memset(output, 0, sizeof(output));
+      c_phase_a_flag = 0;
+      Def_Settings = 0;
+    }
+
+    if (r_leak_a_flag != 0)
+    {
+      convert_str_to_float_bytes(r_leak_a_str, output);
+      WriteFlash(R_LEAK_A, output);
+      memset(output, 0, sizeof(output));
+      r_leak_a_flag = 0;
+      Def_Settings = 0;
+    }
+
+    if (c_phase_b_flag != 0)
+    {
+      convert_str_to_float_bytes(c_phase_b_str, output); 
+      WriteFlash(C_PHASE_B, output);
+      memset(output, 0, sizeof(output));
+      c_phase_b_flag = 0;
+      Def_Settings = 0;
+    }
+
+    if (r_leak_b_flag != 0)
+    {
+      convert_str_to_float_bytes(r_leak_b_str, output);
+      WriteFlash(R_LEAK_B, output);
+      memset(output, 0, sizeof(output));
+      r_leak_b_flag = 0;
+      Def_Settings = 0;
+    }
+
+    if (c_phase_c_flag != 0)
+    {
+      convert_str_to_float_bytes(c_phase_c_str, output);
+      WriteFlash(C_PHASE_C, output);
+      memset(output, 0, sizeof(output));
+      c_phase_c_flag = 0;
+      Def_Settings = 0;
+    }
+
+    if (r_leak_c_flag != 0)
+    {
+     convert_str_to_float_bytes(r_leak_c_str, output);
+      WriteFlash(R_LEAK_C, output);
+      memset(output, 0, sizeof(output));
+      r_leak_c_flag = 0;
+      Def_Settings = 0;
+    }
+
+    if (target_value_flag != 0)
+    {
+      output[0] = (uint8_t)atoi(target_value_str);
+      WriteFlash(TaRGET_VALUE, output);
+      memset(output, 0, sizeof(output));
+      target_value_flag = 0;
+      Def_Settings = 0;
+    }
+  
+  
+    C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
+    R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
+    C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
+    R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
+    C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
+    R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
+    
+    // Чтение значения типа uint8_t
+    TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
+
+  
+  
+  
+  
+  
   
   
   if(pinaccept)
@@ -1214,6 +1457,15 @@ void convert_str_to_uint8_array(const char* input, uint8_t* output, int is_mac)
       }
     }
   }
+}
+
+void convert_str_to_float_bytes(const char* input, uint8_t* output)
+{
+    // Преобразуем строку в float
+    float value = atof(input);
+
+    // Копируем байты float в массив output
+    memcpy(output, &value, sizeof(float));
 }
 
 void convert_str_to_uint8_array_serial(const char* input, uint8_t* output)
@@ -1586,16 +1838,16 @@ void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
 }
 
 
-// ???????? ??????? ??? ?????? ? ????????
+// Функция для работы с переменными в памяти
 void WriteFlash(FlashDataType type, uint8_t* data)
 {
     size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
     taskENTER_CRITICAL();
-    uint8_t sectorData[0x1000]; // ????? ??? ?????? ??????? (4 KB)
+    uint8_t sectorData[0x1000]; // Формат сектора памяти (4 KB)
     uint32_t *address = 0;
     uint32_t dataSize = 0;
   
-    // ?????? ????? 3-?? ??????? ?? ????
+    // Считывание полного сектора
     for (uint32_t i = 0; i < 0x1000; i++) {
         sectorData[i] = *(volatile uint8_t*)(0x08100000 + i);
     }
@@ -1625,7 +1877,7 @@ void WriteFlash(FlashDataType type, uint8_t* data)
         break;
       case RS485SPEED:
         address = (uint32_t *)FLASH_ADDRESS_RS485_SPEED;
-        dataSize = 3;
+        dataSize = 10;
         break;
       case RS485PARITIY:
         address = (uint32_t *)FLASH_ADDRESS_RS485_PARITIY;
@@ -1635,23 +1887,196 @@ void WriteFlash(FlashDataType type, uint8_t* data)
         address = (uint32_t *)FLASH_ADDRESS_RS485_STOPBIT;
         dataSize = 1;
         break;
+      case C_PHASE_A:
+        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_A;
+        dataSize = 4;
+        break;
+      case R_LEAK_A:
+        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_A;
+        dataSize = 4;
+        break;
+      case C_PHASE_B:
+        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_B;
+        dataSize = 4;
+        break;
+      case R_LEAK_B:
+        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_B;
+        dataSize = 4;
+        break;
+      case C_PHASE_C:
+        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_C;
+        dataSize = 4;
+        break;
+      case R_LEAK_C:
+        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_C;
+        dataSize = 4;
+        break;
+      case TaRGET_VALUE:
+        address = (uint32_t *)FLASH_ADDRESS_TARGET_VALUE;
+        dataSize = 1;
+        break;
       default:
         return; 
       }
     
     if(data)
     {
-      uint32_t offset = address - 0x08100000; 
+      uint32_t offset = (uint32_t)address - 0x08100000; 
       memcpy(sectorData + offset, data, dataSize);
     }
     
     
     //FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
     osDelay(150);
-    // ?????? ??????? ? 3-? ??????
+    // Запись полного сектора в память
     WriteToFlash(0x08100000, sectorData, 0x1000);
     taskEXIT_CRITICAL();
 }
+
+void load_values_from_flash(void)
+{
+    uint8_t i = 0;
+    uint32_t temp; 
+    
+    // Чтение и проверка C_phase_A
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_A;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&C_phase_A, &temp, sizeof(float));
+    } else {
+        C_phase_A = 0.05f;
+        i++;
+    }
+
+    // Чтение и проверка R_leak_A
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_A;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&R_leak_A, &temp, sizeof(float));
+    } else {
+        R_leak_A = 0.0033f;
+        i++;
+    }
+
+    // Чтение и проверка C_phase_B
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_B;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&C_phase_B, &temp, sizeof(float));
+    } else {
+        C_phase_B = 0.05f;
+        i++;
+    }
+
+    // Чтение и проверка R_leak_B
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_B;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&R_leak_B, &temp, sizeof(float));
+    } else {
+        R_leak_B = 150.0f;
+        i++;
+    }
+
+    // Чтение и проверка C_phase_C
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_C;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&C_phase_C, &temp, sizeof(float));
+    } else {
+        C_phase_C = 0.05f;
+        i++;
+    }
+
+    // Чтение и проверка R_leak_C
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_C;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&R_leak_C, &temp, sizeof(float));
+    } else {
+        R_leak_C = 150.0f;
+        i++;
+    }
+
+    // Чтение и проверка TARGET_VALUE
+    TARGET_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_TARGET_VALUE;
+    if (TARGET_VALUE == 0xFF) {
+        TARGET_VALUE = 25;
+        i++;
+    }
+    
+    if(i != 7){Def_Settings = 0;}
+    
+    
+    
+    
+    
+}
+
+float calculate_rms_A( uint16_t rms)
+{
+  float sq3 = 1.732050807; //корень из 3х
+  float I_s = rms * 0.0000535;
+  float omega = 2 * M_PI * 50; 
+  float XC_phase_A = 1.0 / (omega * (C_phase_A * 1e-6));
+  
+  
+  float R_eq_phase_A = ((R_leak_A * 1000000) * XC_phase_A) / ((R_leak_A * 1000000) + XC_phase_A);
+  float Radians = 30 * (M_PI / 180.0);
+  float cos30 = cos(Radians);
+  
+  
+  float up_formula  =         I_s * cos30 * 14608 * 3         ;
+//-------------------------------------------------------------
+  float down_formula =   11.365 * 0.181 * R_eq_phase_A * sq3   ;
+    
+    
+  float result = (up_formula / down_formula) * 1000;
+  
+  return result;
+}
+
+float calculate_rms_B( uint16_t rms)
+{
+  float sq3 = 1.732050807 ; //корень из 3х
+  float I_s = rms * 0.0000535;
+  float omega = 2 * M_PI * 50; 
+  float XC_phase_B = 1.0 / (omega * (C_phase_B * 1e-6));
+  
+  
+  float R_eq_phase_B = ((R_leak_B * 1000000) * XC_phase_B) / ((R_leak_B * 1000000) + XC_phase_B);
+  float Radians = 30 * (M_PI / 180.0);
+  float cos30 = cos(Radians);
+  
+  
+  float up_formula  =         I_s * cos30 * 14608 * 3         ;
+//-------------------------------------------------------------
+  float down_formula =   11.365 * 0.181 * R_eq_phase_B * sq3   ;
+    
+    
+  float result = (up_formula / down_formula) * 1000;
+  
+  return result;
+}
+
+float calculate_rms_C( uint16_t rms)
+{
+  float sq3 = 1.732050807 ; //корень из 3х
+  float I_s = rms * 0.0000535;
+  float omega = 2 * M_PI * 50; 
+  float XC_phase_C = 1.0 / (omega * (C_phase_C * 1e-6));
+  
+  
+  float R_eq_phase_C = ((R_leak_B * 1000000) * XC_phase_C) / ((R_leak_C * 1000000) + XC_phase_C);
+  float Radians = 30 * (M_PI / 180.0);
+  float cos30 = cos(Radians);
+  
+  
+  float up_formula  =         I_s * cos30 * 14608 * 3         ;
+//-------------------------------------------------------------
+  float down_formula =   11.365 * 0.181 * R_eq_phase_C * sq3   ;
+    
+    
+  float result = (up_formula / down_formula) * 1000;
+  
+  return result;
+}
+
+
 
 /* USER CODE END Application */
 
