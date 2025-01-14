@@ -89,6 +89,13 @@ uint8_t Def_Settings = 1;
 #define FLASH_ADDRESS_C_PHASE_C 0x081000C0
 #define FLASH_ADDRESS_R_LEAK_C  0x081000D0
 #define FLASH_ADDRESS_TARGET_VALUE 0x081000E0
+
+
+#define SQ3         1.732050807f    // sqrt(3)
+#define COS30       0.866025403f    // cos(30°)
+#define OMEGA       314.1592653f    // 2 * M_PI * 50 ≈ 6.283185307 * 50
+#define MULT_UP     43824.0f        // 14608 * 3
+#define MULT_DOWN   2.057065f       // 11.365 * 0.181
 //------------------------------------------------------------------------------
 
 uint8_t USART_3_SPEED[10];
@@ -297,11 +304,15 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
 
 
-
+float calculate_rms_B_macros(uint16_t rms);
+float calculate_rms_C_macros(uint16_t rms);
+float calculate_rms_A_macros(uint16_t rms);
 float calculate_rms_A( uint16_t rms);
 float calculate_rms_B( uint16_t rms);
 float calculate_rms_C( uint16_t rms);
 extern void OLED_1in5_rgb_run();
+void EXTI6_DeInit(void);
+
 
 
 const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
@@ -481,17 +492,24 @@ void StartTask02(void *argument)
         
         rms = 340;
         
+        osDelay(150);
+        
         float leak_phase_A = calculate_rms_A(rms);
+        float leak_phase_A_macros = calculate_rms_A_macros(rms);
         float leak_phase_B = calculate_rms_B(rms);
+        float leak_phase_B_macros = calculate_rms_B_macros(rms);
         float leak_phase_C = calculate_rms_C(rms);
+        float leak_phase_C_macros = calculate_rms_C_macros(rms);
         
         
-        
+        uint16_t AA = (uint16_t)leak_phase_A_macros;
         uint16_t aA = (uint16_t)leak_phase_A;
         uint16_t bB = (uint16_t)leak_phase_B;
+        uint16_t BB = (uint16_t)leak_phase_B_macros;
         uint16_t cC = (uint16_t)leak_phase_C;
+        uint16_t CC = (uint16_t)leak_phase_C_macros;
         
-        uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A, leak_phase_B), leak_phase_C);
+        uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
         REGISTERS[1] = max_val;
             
       }
@@ -1202,8 +1220,11 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
 
   
-  
-  
+    //отключить аппаратное срабатывание защиты, т.к. настройки фаз изменились
+    if(Def_Settings == 0)
+    {
+      EXTI6_DeInit();  
+    }
   
   
   
@@ -1780,7 +1801,9 @@ void EXTI9_5_IRQHandler(void)
   if (EXTI->PR & EXTI_PR_PR6)
   {
     EXTI->PR |= EXTI_PR_PR6;
-    setrelay(0);
+
+      setrelay(0);
+
   }
   
 }
@@ -2000,11 +2023,28 @@ void load_values_from_flash(void)
     }
     
     if(i != 7){Def_Settings = 0;}
+  
+}
+
+
+
+
+void EXTI6_DeInit(void)
+{
+    // Отключить маску прерывания для EXTI6
+    EXTI->IMR &= ~EXTI_IMR_MR6;
     
+    // Отключить триггер на восходящий фронт
+    EXTI->RTSR &= ~EXTI_RTSR_TR6;
     
+    // Отключить триггер на нисходящий фронт (если он был настроен)
+    EXTI->FTSR &= ~EXTI_FTSR_TR6;
     
+    // Отключить прерывание EXTI9_5 в NVIC
+    NVIC_DisableIRQ(EXTI9_5_IRQn);
     
-    
+    // Опционально: сбросить конфигурацию SYSCFG для EXTI6
+    SYSCFG->EXTICR[1] &= ~(SYSCFG_EXTICR2_EXTI6);
 }
 
 float calculate_rms_A( uint16_t rms)
@@ -2061,7 +2101,7 @@ float calculate_rms_C( uint16_t rms)
   float XC_phase_C = 1.0 / (omega * (C_phase_C * 1e-6));
   
   
-  float R_eq_phase_C = ((R_leak_B * 1000000) * XC_phase_C) / ((R_leak_C * 1000000) + XC_phase_C);
+  float R_eq_phase_C = ((R_leak_C * 1000000) * XC_phase_C) / ((R_leak_C * 1000000) + XC_phase_C);
   float Radians = 30 * (M_PI / 180.0);
   float cos30 = cos(Radians);
   
@@ -2075,6 +2115,81 @@ float calculate_rms_C( uint16_t rms)
   
   return result;
 }
+
+//----------------------------BY--MACROS----------------------------------------
+float calculate_rms_A_macros(uint16_t rms)
+{
+    // Быдлокодное, но наглядное пересчитывание тока
+    float I_s = rms * 0.0000535f;
+
+    // Емкостное сопротивление
+    float XC_phase_A = 1.0f / (OMEGA * (C_phase_A * 1e-6f));
+
+    // Эквивалентное сопротивление
+    float R_eq_phase_A = ((R_leak_A * 1e6f) * XC_phase_A) /
+                         ((R_leak_A * 1e6f) + XC_phase_A);
+
+    // Числитель (up_formula): I_s * cos(30°) * 14608 * 3
+    // Но вместо вычислений на лету - подставляем готовые константы
+    float up_formula = I_s * COS30 * MULT_UP;
+
+    // Знаменатель (down_formula): 11.365 * 0.181 * R_eq_phase_A * sqrt(3)
+    // Аналогично - часть заменена на MULT_DOWN
+    float down_formula = MULT_DOWN * R_eq_phase_A * SQ3;
+
+    float result = (up_formula / down_formula) * 1000.0f;
+    return result;
+}
+
+float calculate_rms_B_macros(uint16_t rms)
+{
+    // Быдлокодное, но наглядное пересчитывание тока
+    float I_s = rms * 0.0000535f;
+
+    // Емкостное сопротивление
+    float XC_phase_B = 1.0f / (OMEGA * (C_phase_B * 1e-6f));
+
+    // Эквивалентное сопротивление
+    float R_eq_phase_B = ((R_leak_B * 1e6f) * XC_phase_B) /
+                         ((R_leak_B * 1e6f) + XC_phase_B);
+
+    // Числитель (up_formula): I_s * cos(30°) * 14608 * 3
+    // Но вместо вычислений на лету - подставляем готовые константы
+    float up_formula = I_s * COS30 * MULT_UP;
+
+    // Знаменатель (down_formula): 11.365 * 0.181 * R_eq_phase_A * sqrt(3)
+    // Аналогично - часть заменена на MULT_DOWN
+    float down_formula = MULT_DOWN * R_eq_phase_B * SQ3;
+
+    float result = (up_formula / down_formula) * 1000.0f;
+    return result;
+}
+
+
+float calculate_rms_C_macros(uint16_t rms)
+{
+    // Быдлокодное, но наглядное пересчитывание тока
+    float I_s = rms * 0.0000535f;
+
+    // Емкостное сопротивление
+    float XC_phase_C = 1.0f / (OMEGA * (C_phase_C * 1e-6f));
+
+    // Эквивалентное сопротивление
+    float R_eq_phase_C = ((R_leak_C * 1e6f) * XC_phase_C) /
+                         ((R_leak_C * 1e6f) + XC_phase_C);
+
+    // Числитель (up_formula): I_s * cos(30°) * 14608 * 3
+    // Но вместо вычислений на лету - подставляем готовые константы
+    float up_formula = I_s * COS30 * MULT_UP;
+
+    // Знаменатель (down_formula): 11.365 * 0.181 * R_eq_phase_A * sqrt(3)
+    // Аналогично - часть заменена на MULT_DOWN
+    float down_formula = MULT_DOWN * R_eq_phase_C * SQ3;
+
+    float result = (up_formula / down_formula) * 1000.0f;
+    return result;
+}
+
 
 
 
