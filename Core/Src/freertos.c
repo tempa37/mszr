@@ -81,7 +81,7 @@ uint8_t TARGET_VALUE = 0;
 //если прилетели новые настройки, Def_Settings = 0
 
 uint8_t Def_Settings = 1;
-
+uint8_t hw_protection = 1;
 #define FLASH_ADDRESS_C_PHASE_A 0x08100080
 #define FLASH_ADDRESS_R_LEAK_A  0x08100090
 #define FLASH_ADDRESS_C_PHASE_B 0x081000A0
@@ -89,6 +89,8 @@ uint8_t Def_Settings = 1;
 #define FLASH_ADDRESS_C_PHASE_C 0x081000C0
 #define FLASH_ADDRESS_R_LEAK_C  0x081000D0
 #define FLASH_ADDRESS_TARGET_VALUE 0x081000E0
+#define FLASH_ADDRESS_HW_PROTECTION 0x081000F0
+
 
 
 #define SQ3         1.732050807f    // sqrt(3)
@@ -126,7 +128,7 @@ struct netconn *newconn = NULL;
 
 const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
-"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE"};
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT"};
 
 
 
@@ -146,7 +148,8 @@ typedef enum
   R_LEAK_B, 
   C_PHASE_C,
   R_LEAK_C,
-  TaRGET_VALUE
+  TaRGET_VALUE,
+  HW_PROTECTION
 } FlashDataType;
 
 typedef struct 
@@ -481,13 +484,11 @@ void StartTask02(void *argument)
     
     if(adc_ready == 1)
     {
-      if(Def_Settings)
-      {
+        /*
         uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
         REGISTERS[1] = (uint16_t)(rms * 0.019922);  // REGISTERS[1] = ((((rms / 4096) * 3.3) * 3) / (121.1775) * 1000);
-      }
-      else
-      {
+        */
+      
         uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
         
         rms = 340;
@@ -512,7 +513,7 @@ void StartTask02(void *argument)
         uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
         REGISTERS[1] = max_val;
             
-      }
+      
     }
     
     if(REGISTERS[1] >= TARGET_VALUE)
@@ -521,7 +522,7 @@ void StartTask02(void *argument)
     }
     
     
-    if(Def_Settings)
+    if(hw_protection)
     {
       if (HAL_GPIO_ReadPin(Fixing_the_leak_GPIO_Port, Fixing_the_leak_Pin) == GPIO_PIN_SET)
       {
@@ -956,6 +957,13 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   {
     snprintf((char*)buffer, bufferSize, "%d", TARGET_VALUE);
   }
+    else if(iIndex == 24)
+  {
+    if(hw_protection)
+    {
+      snprintf((char*)buffer, bufferSize, "checked");
+    }
+  }
 
   
   snprintf(pcInsert, iInsertLen, "%s", buffer);
@@ -965,7 +973,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 
 void httpd_ssi_init(void) 
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 24);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 25);
 }
 //
 // 
@@ -992,6 +1000,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char c_phase_c_str[18]  = {0};
   char r_leak_c_str[18]   = {0};
   char target_value_str[18] = {0};
+  char hw_protection_arr[18] = {0};
 
   uint8_t c_phase_a_flag     = 0;
   uint8_t r_leak_a_flag      = 0;
@@ -1000,7 +1009,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   uint8_t c_phase_c_flag     = 0;
   uint8_t r_leak_c_flag      = 0;
   uint8_t target_value_flag  = 0;
-  
+  uint8_t hw_protection_flag = 0;
   
   uint8_t ip_flag = 0;
   uint8_t mask_flag = 0;
@@ -1118,6 +1127,11 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       strncpy(target_value_str, pcValue[i], sizeof(target_value_str) - 1);
       target_value_flag = 1;
     }
+    else if (strcmp(pcParam[i], "checked") == 0) //   WH_PROTECTION
+    {
+      strncpy(hw_protection_arr, pcValue[i], sizeof(target_value_str) - 1);
+      hw_protection_flag = 1;
+    }
   
   }
   
@@ -1151,7 +1165,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(C_PHASE_A, output);
       memset(output, 0, sizeof(output));
       c_phase_a_flag = 0;
-      Def_Settings = 0;
     }
 
     if (r_leak_a_flag != 0)
@@ -1160,7 +1173,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(R_LEAK_A, output);
       memset(output, 0, sizeof(output));
       r_leak_a_flag = 0;
-      Def_Settings = 0;
     }
 
     if (c_phase_b_flag != 0)
@@ -1169,7 +1181,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(C_PHASE_B, output);
       memset(output, 0, sizeof(output));
       c_phase_b_flag = 0;
-      Def_Settings = 0;
     }
 
     if (r_leak_b_flag != 0)
@@ -1178,7 +1189,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(R_LEAK_B, output);
       memset(output, 0, sizeof(output));
       r_leak_b_flag = 0;
-      Def_Settings = 0;
     }
 
     if (c_phase_c_flag != 0)
@@ -1187,7 +1197,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(C_PHASE_C, output);
       memset(output, 0, sizeof(output));
       c_phase_c_flag = 0;
-      Def_Settings = 0;
     }
 
     if (r_leak_c_flag != 0)
@@ -1196,7 +1205,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(R_LEAK_C, output);
       memset(output, 0, sizeof(output));
       r_leak_c_flag = 0;
-      Def_Settings = 0;
     }
 
     if (target_value_flag != 0)
@@ -1205,9 +1213,16 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(TaRGET_VALUE, output);
       memset(output, 0, sizeof(output));
       target_value_flag = 0;
-      Def_Settings = 0;
     }
   
+    if (hw_protection_flag != 0)
+    {
+      output[0] = (uint8_t)atoi(hw_protection_arr);
+      WriteFlash(HW_PROTECTION, output);
+      memset(output, 0, sizeof(output));
+      hw_protection_flag = 0;
+    }
+
   
     C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
     R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
@@ -1215,13 +1230,14 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
     C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
     R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
-    
+
     // Чтение значения типа uint8_t
     TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
+    hw_protection = *((uint8_t *)FLASH_ADDRESS_HW_PROTECTION);
 
   
     //отключить аппаратное срабатывание защиты, т.к. настройки фаз изменились
-    if(Def_Settings == 0)
+    if(hw_protection == 0)
     {
       EXTI6_DeInit();  
     }
@@ -1938,6 +1954,10 @@ void WriteFlash(FlashDataType type, uint8_t* data)
         address = (uint32_t *)FLASH_ADDRESS_TARGET_VALUE;
         dataSize = 1;
         break;
+      case HW_PROTECTION:
+        address = (uint32_t *)FLASH_ADDRESS_HW_PROTECTION;
+        dataSize = 1;
+        break;
       default:
         return; 
       }
@@ -1967,7 +1987,6 @@ void load_values_from_flash(void)
         memcpy(&C_phase_A, &temp, sizeof(float));
     } else {
         C_phase_A = 0.05f;
-        i++;
     }
 
     // Чтение и проверка R_leak_A
@@ -1976,7 +1995,6 @@ void load_values_from_flash(void)
         memcpy(&R_leak_A, &temp, sizeof(float));
     } else {
         R_leak_A = 0.0033f;
-        i++;
     }
 
     // Чтение и проверка C_phase_B
@@ -1985,7 +2003,6 @@ void load_values_from_flash(void)
         memcpy(&C_phase_B, &temp, sizeof(float));
     } else {
         C_phase_B = 0.05f;
-        i++;
     }
 
     // Чтение и проверка R_leak_B
@@ -1994,7 +2011,6 @@ void load_values_from_flash(void)
         memcpy(&R_leak_B, &temp, sizeof(float));
     } else {
         R_leak_B = 150.0f;
-        i++;
     }
 
     // Чтение и проверка C_phase_C
@@ -2003,7 +2019,6 @@ void load_values_from_flash(void)
         memcpy(&C_phase_C, &temp, sizeof(float));
     } else {
         C_phase_C = 0.05f;
-        i++;
     }
 
     // Чтение и проверка R_leak_C
@@ -2012,17 +2027,22 @@ void load_values_from_flash(void)
         memcpy(&R_leak_C, &temp, sizeof(float));
     } else {
         R_leak_C = 150.0f;
-        i++;
     }
 
     // Чтение и проверка TARGET_VALUE
     TARGET_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_TARGET_VALUE;
     if (TARGET_VALUE == 0xFF) {
         TARGET_VALUE = 25;
-        i++;
     }
     
-    if(i != 7){Def_Settings = 0;}
+        // Чтение и проверка TARGET_VALUE
+    hw_protection = *(volatile uint8_t *)FLASH_ADDRESS_HW_PROTECTION;
+    if (hw_protection == 0xFF) {
+        hw_protection = 1;
+    }
+    
+    
+    
   
 }
 
