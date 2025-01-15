@@ -268,13 +268,14 @@ void OLED_1in5_rgb_run() {
       {
         percent = 0;
       }
-      else 
+      else
       {
-        percent = (100 - (mA * 4));
+        percent = ((mA * 100) / TARGET_VALUE);
       }
+      sprintf(buffer, "%u/%umA", mA, TARGET_VALUE);
       
-      sprintf(buffer, "%u/25mA", mA);
-       
+      
+      
       
        Paint_DrawString_EN(30, 75, "РЕЛЕ - ", &Courier12R, WHITE, BACKGROUND_COLOR);
        

@@ -491,7 +491,7 @@ void StartTask02(void *argument)
       
         uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
         
-        rms = 340;
+        
         
         osDelay(150);
         
@@ -1241,8 +1241,12 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     {
       EXTI6_DeInit();  
     }
+    else if(hw_protection == 1)
+    {
+      EXTI6_Init();
+    }
   
-  
+ 
   
   
   if(pinaccept)
