@@ -98,6 +98,8 @@ uint8_t hw_protection = 1;
 #define OMEGA       314.1592653f    // 2 * M_PI * 50 ≈ 6.283185307 * 50
 #define MULT_UP     43824.0f        // 14608 * 3
 #define MULT_DOWN   2.057065f       // 11.365 * 0.181
+
+volatile uint8_t button_ivent = 0;
 //------------------------------------------------------------------------------
 
 uint8_t USART_3_SPEED[10];
@@ -168,7 +170,7 @@ TimeStruct time = {0};
 uint16_t BACKGROUND_COLOR = 0x0000;   //0x4A49;
 uint8_t brightness = 0xFF;  // 0x00-0xFF
 uint32_t TIME_RESET_OLED = 18000; // in miliseconds
-
+extern volatile uint8_t theme;
 
 //----------------------------------------------------------------------------------------------
 
@@ -519,6 +521,11 @@ void StartTask02(void *argument)
     if(REGISTERS[1] >= TARGET_VALUE)
     {
       setrelay(0);
+      theme = 2;
+    }
+    else if(REGISTERS[1] < TARGET_VALUE)
+    {
+      theme = 1;
     }
     
     
@@ -736,12 +743,12 @@ void StartTask04(void *argument)
     {
     case 0:
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
+      //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
       break;
       
     case 1:
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+      //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
       break;  
     }
     if(fff)
@@ -751,7 +758,17 @@ void StartTask04(void *argument)
       start = 0;
       fff = 0;
     }
+    if(button_ivent)
+    {
+      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+      osDelay(3000);
+      HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+      button_ivent = 0;
+    }
     osDelay(10);
+
   }
   /* USER CODE END StartTask04 */
   
@@ -774,7 +791,7 @@ void StartTask05(void *argument)
     {
       OLED_1in5_rgb_run();
     }
-    
+
     osDelay(10);
     
     /* USER CODE END StartTask05 */
@@ -1784,9 +1801,14 @@ void EXTI15_10_IRQHandler(void)
     ch = 1;
     EXTI->PR |= EXTI_PR_PR12; 
     setrelay(0);
+    
     if(start == 1)
     {
       fff = 1;
+    }
+    else
+    {
+      button_ivent = 1;
     }
     for (int i = 0; i < 100; i++) 
     {
@@ -1794,6 +1816,8 @@ void EXTI15_10_IRQHandler(void)
     
   }
 }
+//HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
+
 
 //Прерывание с пина PA6 (fixing the leak)
 void EXTI6_Init(void)   
@@ -1990,7 +2014,7 @@ void load_values_from_flash(void)
     if (temp != 0xFFFFFFFF) {
         memcpy(&C_phase_A, &temp, sizeof(float));
     } else {
-        C_phase_A = 0.05f;
+        C_phase_A = 0.3f;
     }
 
     // Чтение и проверка R_leak_A
@@ -1998,7 +2022,7 @@ void load_values_from_flash(void)
     if (temp != 0xFFFFFFFF) {
         memcpy(&R_leak_A, &temp, sizeof(float));
     } else {
-        R_leak_A = 0.0033f;
+        R_leak_A = 10.0f;
     }
 
     // Чтение и проверка C_phase_B
@@ -2006,7 +2030,7 @@ void load_values_from_flash(void)
     if (temp != 0xFFFFFFFF) {
         memcpy(&C_phase_B, &temp, sizeof(float));
     } else {
-        C_phase_B = 0.05f;
+        C_phase_B = 0.3f;
     }
 
     // Чтение и проверка R_leak_B
@@ -2014,7 +2038,7 @@ void load_values_from_flash(void)
     if (temp != 0xFFFFFFFF) {
         memcpy(&R_leak_B, &temp, sizeof(float));
     } else {
-        R_leak_B = 150.0f;
+        R_leak_B = 10.0f;
     }
 
     // Чтение и проверка C_phase_C
@@ -2022,7 +2046,7 @@ void load_values_from_flash(void)
     if (temp != 0xFFFFFFFF) {
         memcpy(&C_phase_C, &temp, sizeof(float));
     } else {
-        C_phase_C = 0.05f;
+        C_phase_C = 0.3f;
     }
 
     // Чтение и проверка R_leak_C
@@ -2030,7 +2054,7 @@ void load_values_from_flash(void)
     if (temp != 0xFFFFFFFF) {
         memcpy(&R_leak_C, &temp, sizeof(float));
     } else {
-        R_leak_C = 150.0f;
+        R_leak_C = 10.0f;
     }
 
     // Чтение и проверка TARGET_VALUE
