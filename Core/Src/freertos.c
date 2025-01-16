@@ -78,9 +78,6 @@ float C_phase_C = 0;
 float R_leak_C = 0;
 uint8_t TARGET_VALUE = 0;
 
-//если прилетели новые настройки, Def_Settings = 0
-
-uint8_t Def_Settings = 1;
 uint8_t hw_protection = 1;
 #define FLASH_ADDRESS_C_PHASE_A 0x08100080
 #define FLASH_ADDRESS_R_LEAK_A  0x08100090
@@ -312,12 +309,8 @@ void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf
 float calculate_rms_B_macros(uint16_t rms);
 float calculate_rms_C_macros(uint16_t rms);
 float calculate_rms_A_macros(uint16_t rms);
-float calculate_rms_A( uint16_t rms);
-float calculate_rms_B( uint16_t rms);
-float calculate_rms_C( uint16_t rms);
 extern void OLED_1in5_rgb_run();
 void EXTI6_DeInit(void);
-
 
 
 const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
@@ -424,7 +417,7 @@ void StartDefaultTask(void *argument)
   
   load_values_from_flash();
   
-  if(Def_Settings)
+  if(hw_protection)
   {
     EXTI6_Init();
   }
@@ -492,30 +485,18 @@ void StartTask02(void *argument)
         */
       
         uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
-        
-        
-        
-        osDelay(150);
-        
-        float leak_phase_A = calculate_rms_A(rms);
+        osDelay(50);
         float leak_phase_A_macros = calculate_rms_A_macros(rms);
-        float leak_phase_B = calculate_rms_B(rms);
         float leak_phase_B_macros = calculate_rms_B_macros(rms);
-        float leak_phase_C = calculate_rms_C(rms);
         float leak_phase_C_macros = calculate_rms_C_macros(rms);
         
-        
         uint16_t AA = (uint16_t)leak_phase_A_macros;
-        uint16_t aA = (uint16_t)leak_phase_A;
-        uint16_t bB = (uint16_t)leak_phase_B;
         uint16_t BB = (uint16_t)leak_phase_B_macros;
-        uint16_t cC = (uint16_t)leak_phase_C;
         uint16_t CC = (uint16_t)leak_phase_C_macros;
         
         uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
         REGISTERS[1] = max_val;
             
-      
     }
     
     if(REGISTERS[1] >= TARGET_VALUE)
@@ -743,12 +724,10 @@ void StartTask04(void *argument)
     {
     case 0:
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
-      //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
       break;
       
     case 1:
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-      //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
       break;  
     }
     if(fff)
@@ -992,8 +971,7 @@ void httpd_ssi_init(void)
 {
   http_set_ssi_handler(ssi_handler, ssi_tags, 25);
 }
-//
-// 
+
 
 
 
@@ -1240,7 +1218,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       hw_protection_flag = 0;
     }
 
-  
     C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
     R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
     C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
@@ -1252,7 +1229,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
     hw_protection = *((uint8_t *)FLASH_ADDRESS_HW_PROTECTION);
 
-  
     //отключить аппаратное срабатывание защиты, т.к. настройки фаз изменились
     if(hw_protection == 0)
     {
@@ -1330,89 +1306,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
 
 
 //---------------------------------------------------------------------------------FLASH-LOGICS-START--------
-
-/*
-void WriteFlash(FlashDataType type, uint8_t* data)
-{
-  uint32_t address = 0;
-  uint32_t dataSize = 0;
-  uint8_t flashBuffer[MAC_SIZE + IP_SIZE + NETMASK_SIZE + GATEWAY_SIZE + SERIAL_SIZE + 50] = {0xFF};
-  
-  
-  switch (type) 
-  {
-  case MAC:
-    address = FLASH_ADDRESS_MAC;
-    dataSize = 6;
-    break;
-  case IP:
-    address = FLASH_ADDRESS_IP;
-    dataSize = 4;
-    break;
-  case NETMASK:
-    address = FLASH_ADDRESS_NETMASK;
-    dataSize = 4;
-    break;
-  case GATEWAY:
-    address = FLASH_ADDRESS_GATEWAY;
-    dataSize = 4;
-    break;
-  case SERIAL:
-    address = FLASH_ADDRESS_SERIAL;
-    dataSize = 6;
-    break;
-  case RS485SPEED:
-    address = FLASH_ADDRESS_RS485_SPEED;
-    dataSize = 3;
-    break;
-  case RS485PARITIY:
-    address = FLASH_ADDRESS_RS485_PARITIY;
-    dataSize = 10;
-    break;
-  case RS485STOPBIT:
-    address = FLASH_ADDRESS_RS485_STOPBIT;
-    dataSize = 1;
-    break;
-  default:
-    return; 
-  }
-  
-  osMutexWait(flashMutexHandle, osWaitForever);
-  
-  ReadFlash(MAC, flashBuffer);
-  ReadFlash(IP, flashBuffer + MAC_SIZE);
-  ReadFlash(NETMASK, flashBuffer + MAC_SIZE + IP_SIZE);
-  ReadFlash(GATEWAY, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE);
-  ReadFlash(SERIAL, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE + SERIAL_SIZE);
-  
-  ReadFlash(RS485SPEED, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE + SERIAL_SIZE + 16);
-  ReadFlash(RS485PARITIY, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE + SERIAL_SIZE + 16 + 16);
-  ReadFlash(SERIAL, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE + SERIAL_SIZE + 16 + 16 + 16);
-  
-  memcpy(flashBuffer + (address - FLASH_ADDRESS_MAC), data, dataSize);
-  
-  
-  HAL_FLASH_Unlock();
-  FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
-  
-  for (uint16_t i = 0; i < sizeof(flashBuffer); i++) 
-  {
-    uint8_t word = flashBuffer[i];
-    
-    if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, FLASH_ADDRESS_MAC + i, word) != HAL_OK) 
-    {
-      while (1);  
-    }
-  }
-  
-  HAL_FLASH_Lock();
-  
-  osMutexRelease(flashMutexHandle);
-  
-}
-*/
-
-
 
 void ReadFlash(FlashDataType type, uint8_t* buffer) 
 {
@@ -1532,6 +1425,196 @@ void convert_str_to_uint8_array_serial(const char* input, uint8_t* output)
   {
     output[i] = input[i] - '0';
   }
+}
+
+void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
+{
+
+    HAL_FLASH_Unlock();
+    
+    if((startAddress >= 0x0800C000) && (startAddress <= 0x0800FFFF))
+    {
+      FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
+    }
+    else if((startAddress >= 0x08100000) && (startAddress <= 0x08103FFF))
+    {
+      FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
+    }
+    
+    for (uint32_t i = 0; i < length; i++) {
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, data[i]) != HAL_OK) {
+            HAL_FLASH_Lock();
+            return;
+        }
+    }
+
+    HAL_FLASH_Lock();
+}
+
+
+// Функция для работы с переменными в памяти
+void WriteFlash(FlashDataType type, uint8_t* data)
+{
+    size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
+    taskENTER_CRITICAL();
+    uint8_t sectorData[0x1000]; // Формат сектора памяти (4 KB)
+    uint32_t *address = 0;
+    uint32_t dataSize = 0;
+  
+    // Считывание полного сектора
+    for (uint32_t i = 0; i < 0x1000; i++) {
+        sectorData[i] = *(volatile uint8_t*)(0x08100000 + i);
+    }
+
+    
+      switch (type) 
+      {
+      case MAC:
+        address = (uint32_t *)FLASH_ADDRESS_MAC;
+        dataSize = 6;
+        break;
+      case IP:
+        address = (uint32_t *)FLASH_ADDRESS_IP;
+        dataSize = 4;
+        break;
+      case NETMASK:
+        address = (uint32_t *)FLASH_ADDRESS_NETMASK;
+        dataSize = 4;
+        break;
+      case GATEWAY:
+        address = (uint32_t *)FLASH_ADDRESS_GATEWAY;
+        dataSize = 4;
+        break;
+      case SERIAL:
+        address = (uint32_t *)FLASH_ADDRESS_SERIAL;
+        dataSize = 6;
+        break;
+      case RS485SPEED:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_SPEED;
+        dataSize = 10;
+        break;
+      case RS485PARITIY:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_PARITIY;
+        dataSize = 10;
+        break;
+      case RS485STOPBIT:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_STOPBIT;
+        dataSize = 1;
+        break;
+      case C_PHASE_A:
+        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_A;
+        dataSize = 4;
+        break;
+      case R_LEAK_A:
+        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_A;
+        dataSize = 4;
+        break;
+      case C_PHASE_B:
+        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_B;
+        dataSize = 4;
+        break;
+      case R_LEAK_B:
+        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_B;
+        dataSize = 4;
+        break;
+      case C_PHASE_C:
+        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_C;
+        dataSize = 4;
+        break;
+      case R_LEAK_C:
+        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_C;
+        dataSize = 4;
+        break;
+      case TaRGET_VALUE:
+        address = (uint32_t *)FLASH_ADDRESS_TARGET_VALUE;
+        dataSize = 1;
+        break;
+      case HW_PROTECTION:
+        address = (uint32_t *)FLASH_ADDRESS_HW_PROTECTION;
+        dataSize = 1;
+        break;
+      default:
+        return; 
+      }
+    
+    if(data)
+    {
+      uint32_t offset = (uint32_t)address - 0x08100000; 
+      memcpy(sectorData + offset, data, dataSize);
+    }
+    
+    
+    osDelay(150);
+    // Запись полного сектора в память
+    WriteToFlash(0x08100000, sectorData, 0x1000);
+    taskEXIT_CRITICAL();
+}
+
+void load_values_from_flash(void)
+{
+    uint8_t i = 0;
+    uint32_t temp; 
+    
+    // Чтение и проверка C_phase_A
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_A;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&C_phase_A, &temp, sizeof(float));
+    } else {
+        C_phase_A = 0.3f;
+    }
+
+    // Чтение и проверка R_leak_A
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_A;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&R_leak_A, &temp, sizeof(float));
+    } else {
+        R_leak_A = 10.0f;
+    }
+
+    // Чтение и проверка C_phase_B
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_B;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&C_phase_B, &temp, sizeof(float));
+    } else {
+        C_phase_B = 0.3f;
+    }
+
+    // Чтение и проверка R_leak_B
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_B;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&R_leak_B, &temp, sizeof(float));
+    } else {
+        R_leak_B = 10.0f;
+    }
+
+    // Чтение и проверка C_phase_C
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_C;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&C_phase_C, &temp, sizeof(float));
+    } else {
+        C_phase_C = 0.3f;
+    }
+
+    // Чтение и проверка R_leak_C
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_C;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&R_leak_C, &temp, sizeof(float));
+    } else {
+        R_leak_C = 10.0f;
+    }
+
+    // Чтение и проверка TARGET_VALUE
+    TARGET_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_TARGET_VALUE;
+    if (TARGET_VALUE == 0xFF) {
+        TARGET_VALUE = 25;
+    }
+    
+        // Чтение и проверка TARGET_VALUE
+    hw_protection = *(volatile uint8_t *)FLASH_ADDRESS_HW_PROTECTION;
+    if (hw_protection == 0xFF) {
+        hw_protection = 1;
+    }
+
 }
 
 //---------------------------------------------------------------------------------FLASH-LOGICS-END--------
@@ -1873,210 +1956,6 @@ void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf
     } 
 }
 
-//---------------------------------------------------------------------------------ANOTHER-CODE-END---
-
-void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
-{
-   
-    // ???????????? ??????? ???? ??? ??????
-    HAL_FLASH_Unlock();
-    
-    if((startAddress >= 0x0800C000) && (startAddress <= 0x0800FFFF))
-    {
-      FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
-    }
-    else if((startAddress >= 0x08100000) && (startAddress <= 0x08103FFF))
-    {
-      FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
-    }
-    
-    // ??????? ?????? ?? ??????
-    for (uint32_t i = 0; i < length; i++) {
-        // ?????????? ??????
-        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, data[i]) != HAL_OK) {
-            // ?????? ??????
-            HAL_FLASH_Lock();
-            return;
-        }
-    }
-
-    // ????????? ???? ????? ??????
-    HAL_FLASH_Lock();
-}
-
-
-// Функция для работы с переменными в памяти
-void WriteFlash(FlashDataType type, uint8_t* data)
-{
-    size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
-    taskENTER_CRITICAL();
-    uint8_t sectorData[0x1000]; // Формат сектора памяти (4 KB)
-    uint32_t *address = 0;
-    uint32_t dataSize = 0;
-  
-    // Считывание полного сектора
-    for (uint32_t i = 0; i < 0x1000; i++) {
-        sectorData[i] = *(volatile uint8_t*)(0x08100000 + i);
-    }
-
-    
-      switch (type) 
-      {
-      case MAC:
-        address = (uint32_t *)FLASH_ADDRESS_MAC;
-        dataSize = 6;
-        break;
-      case IP:
-        address = (uint32_t *)FLASH_ADDRESS_IP;
-        dataSize = 4;
-        break;
-      case NETMASK:
-        address = (uint32_t *)FLASH_ADDRESS_NETMASK;
-        dataSize = 4;
-        break;
-      case GATEWAY:
-        address = (uint32_t *)FLASH_ADDRESS_GATEWAY;
-        dataSize = 4;
-        break;
-      case SERIAL:
-        address = (uint32_t *)FLASH_ADDRESS_SERIAL;
-        dataSize = 6;
-        break;
-      case RS485SPEED:
-        address = (uint32_t *)FLASH_ADDRESS_RS485_SPEED;
-        dataSize = 10;
-        break;
-      case RS485PARITIY:
-        address = (uint32_t *)FLASH_ADDRESS_RS485_PARITIY;
-        dataSize = 10;
-        break;
-      case RS485STOPBIT:
-        address = (uint32_t *)FLASH_ADDRESS_RS485_STOPBIT;
-        dataSize = 1;
-        break;
-      case C_PHASE_A:
-        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_A;
-        dataSize = 4;
-        break;
-      case R_LEAK_A:
-        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_A;
-        dataSize = 4;
-        break;
-      case C_PHASE_B:
-        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_B;
-        dataSize = 4;
-        break;
-      case R_LEAK_B:
-        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_B;
-        dataSize = 4;
-        break;
-      case C_PHASE_C:
-        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_C;
-        dataSize = 4;
-        break;
-      case R_LEAK_C:
-        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_C;
-        dataSize = 4;
-        break;
-      case TaRGET_VALUE:
-        address = (uint32_t *)FLASH_ADDRESS_TARGET_VALUE;
-        dataSize = 1;
-        break;
-      case HW_PROTECTION:
-        address = (uint32_t *)FLASH_ADDRESS_HW_PROTECTION;
-        dataSize = 1;
-        break;
-      default:
-        return; 
-      }
-    
-    if(data)
-    {
-      uint32_t offset = (uint32_t)address - 0x08100000; 
-      memcpy(sectorData + offset, data, dataSize);
-    }
-    
-    
-    //FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
-    osDelay(150);
-    // Запись полного сектора в память
-    WriteToFlash(0x08100000, sectorData, 0x1000);
-    taskEXIT_CRITICAL();
-}
-
-void load_values_from_flash(void)
-{
-    uint8_t i = 0;
-    uint32_t temp; 
-    
-    // Чтение и проверка C_phase_A
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_A;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&C_phase_A, &temp, sizeof(float));
-    } else {
-        C_phase_A = 0.3f;
-    }
-
-    // Чтение и проверка R_leak_A
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_A;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&R_leak_A, &temp, sizeof(float));
-    } else {
-        R_leak_A = 10.0f;
-    }
-
-    // Чтение и проверка C_phase_B
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_B;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&C_phase_B, &temp, sizeof(float));
-    } else {
-        C_phase_B = 0.3f;
-    }
-
-    // Чтение и проверка R_leak_B
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_B;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&R_leak_B, &temp, sizeof(float));
-    } else {
-        R_leak_B = 10.0f;
-    }
-
-    // Чтение и проверка C_phase_C
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_C;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&C_phase_C, &temp, sizeof(float));
-    } else {
-        C_phase_C = 0.3f;
-    }
-
-    // Чтение и проверка R_leak_C
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_C;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&R_leak_C, &temp, sizeof(float));
-    } else {
-        R_leak_C = 10.0f;
-    }
-
-    // Чтение и проверка TARGET_VALUE
-    TARGET_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_TARGET_VALUE;
-    if (TARGET_VALUE == 0xFF) {
-        TARGET_VALUE = 25;
-    }
-    
-        // Чтение и проверка TARGET_VALUE
-    hw_protection = *(volatile uint8_t *)FLASH_ADDRESS_HW_PROTECTION;
-    if (hw_protection == 0xFF) {
-        hw_protection = 1;
-    }
-    
-    
-    
-  
-}
-
-
-
-
 void EXTI6_DeInit(void)
 {
     // Отключить маску прерывания для EXTI6
@@ -2094,95 +1973,22 @@ void EXTI6_DeInit(void)
     // Опционально: сбросить конфигурацию SYSCFG для EXTI6
     SYSCFG->EXTICR[1] &= ~(SYSCFG_EXTICR2_EXTI6);
 }
+//---------------------------------------------------------------------------------ANOTHER-CODE-END---
 
-float calculate_rms_A( uint16_t rms)
-{
-  float sq3 = 1.732050807; //корень из 3х
-  float I_s = rms * 0.0000535;
-  float omega = 2 * M_PI * 50; 
-  float XC_phase_A = 1.0 / (omega * (C_phase_A * 1e-6));
-  
-  
-  float R_eq_phase_A = ((R_leak_A * 1000000) * XC_phase_A) / ((R_leak_A * 1000000) + XC_phase_A);
-  float Radians = 30 * (M_PI / 180.0);
-  float cos30 = cos(Radians);
-  
-  
-  float up_formula  =         I_s * cos30 * 14608 * 3         ;
-//-------------------------------------------------------------
-  float down_formula =   11.365 * 0.181 * R_eq_phase_A * sq3   ;
-    
-    
-  float result = (up_formula / down_formula) * 1000;
-  
-  return result;
-}
 
-float calculate_rms_B( uint16_t rms)
-{
-  float sq3 = 1.732050807 ; //корень из 3х
-  float I_s = rms * 0.0000535;
-  float omega = 2 * M_PI * 50; 
-  float XC_phase_B = 1.0 / (omega * (C_phase_B * 1e-6));
-  
-  
-  float R_eq_phase_B = ((R_leak_B * 1000000) * XC_phase_B) / ((R_leak_B * 1000000) + XC_phase_B);
-  float Radians = 30 * (M_PI / 180.0);
-  float cos30 = cos(Radians);
-  
-  
-  float up_formula  =         I_s * cos30 * 14608 * 3         ;
-//-------------------------------------------------------------
-  float down_formula =   11.365 * 0.181 * R_eq_phase_B * sq3   ;
-    
-    
-  float result = (up_formula / down_formula) * 1000;
-  
-  return result;
-}
-
-float calculate_rms_C( uint16_t rms)
-{
-  float sq3 = 1.732050807 ; //корень из 3х
-  float I_s = rms * 0.0000535;
-  float omega = 2 * M_PI * 50; 
-  float XC_phase_C = 1.0 / (omega * (C_phase_C * 1e-6));
-  
-  
-  float R_eq_phase_C = ((R_leak_C * 1000000) * XC_phase_C) / ((R_leak_C * 1000000) + XC_phase_C);
-  float Radians = 30 * (M_PI / 180.0);
-  float cos30 = cos(Radians);
-  
-  
-  float up_formula  =         I_s * cos30 * 14608 * 3         ;
-//-------------------------------------------------------------
-  float down_formula =   11.365 * 0.181 * R_eq_phase_C * sq3   ;
-    
-    
-  float result = (up_formula / down_formula) * 1000;
-  
-  return result;
-}
-
-//----------------------------BY--MACROS----------------------------------------
+//--------------------------RMS--BY--MACROS----------------------------------------
 float calculate_rms_A_macros(uint16_t rms)
 {
-    // Быдлокодное, но наглядное пересчитывание тока
     float I_s = rms * 0.0000535f;
 
-    // Емкостное сопротивление
     float XC_phase_A = 1.0f / (OMEGA * (C_phase_A * 1e-6f));
 
-    // Эквивалентное сопротивление
+
     float R_eq_phase_A = ((R_leak_A * 1e6f) * XC_phase_A) /
                          ((R_leak_A * 1e6f) + XC_phase_A);
 
-    // Числитель (up_formula): I_s * cos(30°) * 14608 * 3
-    // Но вместо вычислений на лету - подставляем готовые константы
     float up_formula = I_s * COS30 * MULT_UP;
 
-    // Знаменатель (down_formula): 11.365 * 0.181 * R_eq_phase_A * sqrt(3)
-    // Аналогично - часть заменена на MULT_DOWN
     float down_formula = MULT_DOWN * R_eq_phase_A * SQ3;
 
     float result = (up_formula / down_formula) * 1000.0f;
@@ -2191,22 +1997,16 @@ float calculate_rms_A_macros(uint16_t rms)
 
 float calculate_rms_B_macros(uint16_t rms)
 {
-    // Быдлокодное, но наглядное пересчитывание тока
     float I_s = rms * 0.0000535f;
 
-    // Емкостное сопротивление
     float XC_phase_B = 1.0f / (OMEGA * (C_phase_B * 1e-6f));
 
-    // Эквивалентное сопротивление
+
     float R_eq_phase_B = ((R_leak_B * 1e6f) * XC_phase_B) /
                          ((R_leak_B * 1e6f) + XC_phase_B);
 
-    // Числитель (up_formula): I_s * cos(30°) * 14608 * 3
-    // Но вместо вычислений на лету - подставляем готовые константы
     float up_formula = I_s * COS30 * MULT_UP;
 
-    // Знаменатель (down_formula): 11.365 * 0.181 * R_eq_phase_A * sqrt(3)
-    // Аналогично - часть заменена на MULT_DOWN
     float down_formula = MULT_DOWN * R_eq_phase_B * SQ3;
 
     float result = (up_formula / down_formula) * 1000.0f;
@@ -2216,22 +2016,16 @@ float calculate_rms_B_macros(uint16_t rms)
 
 float calculate_rms_C_macros(uint16_t rms)
 {
-    // Быдлокодное, но наглядное пересчитывание тока
     float I_s = rms * 0.0000535f;
 
-    // Емкостное сопротивление
     float XC_phase_C = 1.0f / (OMEGA * (C_phase_C * 1e-6f));
 
-    // Эквивалентное сопротивление
+
     float R_eq_phase_C = ((R_leak_C * 1e6f) * XC_phase_C) /
                          ((R_leak_C * 1e6f) + XC_phase_C);
 
-    // Числитель (up_formula): I_s * cos(30°) * 14608 * 3
-    // Но вместо вычислений на лету - подставляем готовые константы
     float up_formula = I_s * COS30 * MULT_UP;
 
-    // Знаменатель (down_formula): 11.365 * 0.181 * R_eq_phase_A * sqrt(3)
-    // Аналогично - часть заменена на MULT_DOWN
     float down_formula = MULT_DOWN * R_eq_phase_C * SQ3;
 
     float result = (up_formula / down_formula) * 1000.0f;
