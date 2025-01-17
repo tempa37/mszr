@@ -28,16 +28,17 @@ extern uint8_t IP_ADDRESS[4];
 extern uint8_t NETMASK_ADDRESS[4];
 extern uint8_t GATEWAY_ADDRESS[4];
 extern uint16_t BACKGROUND_COLOR;
-extern uint8_t TERGET_VALUE;
+extern uint8_t TARGET_VALUE;
 extern uint8_t OLED_RESET;
 extern uint32_t TIME_RESET_OLED;
-uint8_t theme = 1;
+volatile uint8_t theme = 1;
 extern uint8_t RS485;
 extern uint8_t SOFTWARE_VERSION[3];
 extern uint32_t usart_speed;
 extern char uartStopBits[];
 extern char uartPARITY[];
 
+void Fill_RED();
 void DrawCenteredSemiCircle();
 void DrawCenteredSemiCircle2(UWORD percent);
 void OLED_1in5_rgb_run();
@@ -50,7 +51,7 @@ uint8_t OLED_START = 1;
 
 
 uint8_t OLED_RESET1 = 0;
-
+uint8_t OLED_RESET2 = 0;
 
 void OLED_1in5_rgb_run() {
 
@@ -259,22 +260,23 @@ void OLED_1in5_rgb_run() {
         */
       if(theme == 1) //--------------------------------------------------------------------------------------------------------------
       {
-        
+      Fill_DarkGrayGradient();
       uint16_t mA = REGISTERS[1];
       char buffer[10] = {0};
       uint16_t percent = 0;
       
-      if(mA >= TERGET_VALUE) 
+      if(mA >= TARGET_VALUE) 
       {
         percent = 0;
       }
-      else 
+      else
       {
-        percent = (100 - (mA * 4));
+        percent = ((mA * 100) / TARGET_VALUE);
       }
+      sprintf(buffer, "%u/%umA", mA, TARGET_VALUE);
       
-      sprintf(buffer, "%u/25mA", mA);
-       
+      
+      
       
        Paint_DrawString_EN(30, 75, "РЕЛЕ - ", &Courier12R, WHITE, BACKGROUND_COLOR);
        
@@ -311,8 +313,11 @@ void OLED_1in5_rgb_run() {
 
        
        
+
+
        DrawCenteredSemiCircle();
-       DrawCenteredSemiCircle2(percent);
+       DrawCenteredSemiCircle2(100 - percent);
+       
        
        
        Paint_DrawRectangle(120, 70, 8, 120, WHITE, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
@@ -330,22 +335,24 @@ void OLED_1in5_rgb_run() {
       char buffer[10] = {0};
 
       
-      sprintf(buffer, "%u/25mA", mA);
-       
       
-     Paint_DrawString_EN(30, 70, "РЕЛЕ - ", &Courier12R, WHITE, BACKGROUND_COLOR);
+      Fill_RED();
+      
+      //Paint_DrawString_EN(40, 45, "! ВНИМАНИЕ !", &Courier12R, BLACK, RED);
+      //Paint_DrawString_EN(20, 58, "СРАБОТАЛА ЗАЩИТА", &Courier12R, BLACK, RED);
+
+
+      Paint_DrawString_EN(4, 10, "! ВНИМАНИЕ !", &Courier16R, BLACK, RED);
+      Paint_DrawString_EN(17, 60, "СРАБОТАЛА", &Courier16R, BLACK, RED);
+      Paint_DrawString_EN(32, 80, "ЗАЩИТА", &Courier16R, BLACK, RED);
+      
+      //Paint_DrawRectangle(120, 70, 8, 120, WHITE, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+
      
-     if(REGISTERS[2])
-     {
-       Fill_DarkGrayGradient();
-       Paint_DrawString_EN(30, 70, "РЕЛЕ - ", &Courier12R, WHITE, BACKGROUND_COLOR);
-       Paint_DrawString_EN(76, 70, "ВКЛ", &Courier12R, GREEN, BACKGROUND_COLOR);
-     }
-     else
-     {
-       Paint_DrawString_EN(76, 70, "ВЫКЛ", &Courier12R, RED, BACKGROUND_COLOR);
-     }
-     Paint_DrawString_EN(40, 40, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
+     
+     
+     
+     
      
      OLED_1in5_rgb_Display(BlackImage);
      osDelay(200); //the image will be transmitted in ~188ms (for 1.4MBits/sec)
@@ -381,6 +388,18 @@ void Fill_DarkGrayGradient()
 {
 UWORD X, Y;
 UWORD Color = BACKGROUND_COLOR;
+for (Y = 0; Y < 128; Y++) {
+    for (X = 0; X < 128; X++) {
+        Paint_SetPixel(X, Y, Color);
+    }
+}
+  }
+
+
+void Fill_RED() 
+{
+UWORD X, Y;
+UWORD Color = RED;
 for (Y = 0; Y < 128; Y++) {
     for (X = 0; X < 128; X++) {
         Paint_SetPixel(X, Y, Color);

@@ -2,7 +2,7 @@
 <html lang="ru">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Трансмаштомск</title><link rel="stylesheet" href="styles.css" /></head><body><div class="header"><div class="uptime-section"><h2>Микроконтроллерная система защиты рудничная МСЗР-380</h2></div></div><div class="container"><div class="right-section"><div class="uptime-section">
 				<h2>Ток утечки</h2>
-			<p><span id="current-value"><!--#AMP--> mA</span> / <span id="threshold-value">25.0 mA</span></p>	
+			<p><span id="current-value"><!--#AMP--> mA</span> / <span id="threshold-value"><!--#TVALUE--> mA</span></p>	
 		</div>	
 				<div class="info-field">
                 <label for="field1">MAC:</label>

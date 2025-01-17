@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Трансмаштомск</title>
+    <style>
+        html {
+            background-color: #232323;
+        }
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background-color: #232323;
+            color: #FFFFFF;
+            margin: 0;
+            padding: 0;
+        }
+        .header {
+            justify-content: center;
+            display: flex;
+            align-items: center;
+            padding: 50px 15px;
+            background-color: #303030;
+            border-bottom: 2px solid #ffffff;
+        }
+        .header h2 {
+            margin: 0;
+            font-size: 1.5em;
+            text-align: center;
+        }
+        .container_admin {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            padding: 20px;
+            flex-wrap: wrap;
+        }
+        .right-section_admin {
+            padding: 20px;
+            border: 1px solid #555;
+            background-color: #333;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            width: 280px;
+            max-width: 100%;
+        }
+        .full-width-section {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 20px;
+            border: 1px solid #555;
+            background-color: #333;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            width: calc(280px * 3 + 40px);
+            max-width: calc(100% - 40px);
+            margin: 10px auto 0;
+            gap: 300px; /* регулируйте для вашего дизайна */
+        }
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            margin-left: 0;
+        }
+        .toggle-label {
+            margin-right: 10px;
+            font-size: 14px;
+        }
+        .toggle {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #555;
+            transition: 0.4s;
+            border-radius: 20px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #4caf50;
+        }
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+        .right-section_admin h3 {
+            margin-top: 0;
+            font-size: 1.2em;
+            text-align: center;
+        }
+        .field-label {
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #FFFFFF;
+        }
+        .serial-input {
+            display: flex;
+            align-items: center;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background-color: #444;
+            margin-bottom: 20px;
+            padding: 10px;
+        }
+        .serial-input input {
+            flex: 1;
+            height: 30px;
+            text-align: center;
+            font-size: 1em;
+            border: none;
+            background: none;
+            color: #FFFFFF;
+            padding-right: 10px;
+        }
+        .serial-input span {
+            flex-shrink: 0;
+            padding-left: 10px;
+            font-size: 0.9em;
+            color: #FFFFFF;
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 200px;
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -100px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+        .submit-button {
+            display: block;
+            margin: 30px auto;
+            padding: 10px 20px;
+            background-color: #555555;
+            border: none;
+            color: #FFFFFF;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .submit-button:hover {
+            background-color: #666666;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+        }
+        .modal-content {
+            background-color: #2c2c2c;
+            margin: 20% auto;
+            padding: 20px;
+            border: 1px solid #555;
+            width: 30%;
+            text-align: center;
+            border-radius: 10px;
+        }
+        .modal-content p {
+            font-size: 1em;
+            color: #FFF;
+        }
+        .ok-button, .cancel-button {
+            padding: 10px 20px;
+            margin: 10px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .ok-button {
+            background-color: #4caf50;
+            color: white;
+        }
+        .cancel-button {
+            background-color: #f44336;
+            color: white;
+        }
+        .ok-button:hover {
+            background-color: #45a049;
+        }
+        .cancel-button:hover {
+            background-color: #e53935;
+        }
+
+        /* Блок предупреждения при включении аппаратной защиты */
+        .hardware-warning {
+			display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 20px;
+            border: 1px solid #555;
+            background-color: #333;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            width: calc(280px * 3 + 40px);
+            max-width: calc(100% - 40px);
+            margin: 10px auto 0;
+            gap: 300px; /* регулируйте для вашего дизайна */
+            display: none; /* изначально скрыт */
+        }
+        .hardware-warning p {
+            margin: 0;
+            color: #ff9800; /* оранжевый цвет текста */
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>Микроконтроллерная система защиты рудничная МСЗР-380. Настройка фаз</h2>
+    </div>
+
+    <div class="container_admin">
+        <div class="right-section_admin">
+            <h3>Фаза A</h3>
+            <form>
+                <label class="field-label" for="c_phase_a">Паразитная емкость кабеля:</label>
+                <div class="serial-input">
+                    <input id="c_phase_a" type="text" value="<!--#CPHASEA-->">
+                    <span>&mu;F</span>
+                </div>
+                <label class="field-label" for="r_leak_a">Сопротивление изоляции:</label>
+                <div class="serial-input">
+                    <input id="r_leak_a" type="text" value="<!--#RLEAKA-->">
+                    <span>MΩ</span>
+                </div>
+            </form>
+        </div>
+        <div class="right-section_admin">
+            <h3>Фаза B</h3>
+            <form>
+                <label class="field-label" for="c_phase_b">Паразитная емкость кабеля:</label>
+                <div class="serial-input">
+                    <input id="c_phase_b" type="text" value="<!--#CPHASEB-->">
+                    <span>&mu;F</span>
+                </div>
+                <label class="field-label" for="r_leak_b">Сопротивление изоляции:</label>
+                <div class="serial-input">
+                    <input id="r_leak_b" type="text" value ="<!--#RLEAKB-->">
+                    <span>MΩ</span>
+                </div>
+            </form>
+        </div>
+        <div class="right-section_admin">
+            <h3>Фаза C</h3>
+            <form>
+                <label class="field-label" for="c_phase_c">Паразитная емкость кабеля:</label>
+                <div class="serial-input">
+                    <input id="c_phase_c" type="text"  value ="<!--#CPHASEC-->">
+                    <span>&mu;F</span>
+                </div>
+                <label class="field-label" for="r_leak_c">Сопротивление изоляции:</label>
+                <div class="serial-input">
+                    <input id="r_leak_c" type="text"  value ="<!--#RLEAKC-->">
+                    <span>MΩ</span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="full-width-section">
+        <form>
+            <div class="tooltip">
+                ⓘ
+                <span class="tooltiptext">Защита сработает, если ток утечки любой из фаз (A/B/C) превысит установленное пороговое значение.</span>
+            </div>
+            <label class="field-label" for="target_value">Пороговое значение тока утечки:</label>
+            <div class="serial-input">
+                <input id="target_value" type="text" value="<!--#TVALUE-->">
+                <span>mA</span>
+            </div>
+        </form>
+
+
+        <div class="toggle-container">
+            <span class="toggle-label">Аппаратная защита:</span>
+            <label class="toggle">
+                <input type="checkbox" id="hardwareProtectionToggle" data-ssi="<!--#HWPRT-->">
+                <span class="slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <!-- Блок предупреждения, который будет разворачиваться -->
+    <div class="hardware-warning" id="hardwareWarning">
+        <p>Внимание! Аппаратная защита использует свои встроенные параметры. Если ваши настройки не согласуются с ними, поведение системы будет неопределенным. При изменении настроек рекомендуется отключить аппаратную защиту!</p>
+    </div>
+
+    <button class="submit-button" onclick="saveChangesAdmin()">Сохранить изменения</button>
+
+    <div id="customModal" class="modal">
+        <div class="modal-content">
+            <p>Вы уверены, что хотите применить изменения?</p>
+            <button class="ok-button" onclick="confirmChangesAdmin()">OK</button>
+            <button class="cancel-button" onclick="closeCustomModal()">Отмена</button>
+        </div>
+    </div>
+
+    <script>
+        function saveChangesAdmin() {
+            const modal = document.getElementById('customModal');
+            modal.style.display = 'flex';
+        }
+
+        function confirmChangesAdmin() {
+            const modal = document.getElementById('customModal');
+            modal.style.display = 'none';
+            saveDataAdmin(); 
+        }
+
+        function closeCustomModal() {
+            const modal = document.getElementById('customModal');
+            modal.style.display = 'none';
+        }
+
+        function validatePhaseData(values) {
+            let targetValue = values.target_value;
+            console.log("Original targetValue:", targetValue);
+
+            const hasLetters = /[a-zA-Zа-яА-Я]/.test(targetValue);
+            if (hasLetters) {
+                console.log("Validation failed: содержит буквенные символы.");
+                return false;
+            }
+
+            const dotCount = (targetValue.match(/\./g) || []).length;
+            const commaCount = (targetValue.match(/,/g) || []).length;
+
+            if (dotCount + commaCount > 1) {
+                console.log("Validation failed: более одной точки или запятой.");
+                return false;
+            }
+
+            if (commaCount === 1) {
+                targetValue = targetValue.replace(',', '.');
+                values.target_value = targetValue;
+                console.log("Запятая заменена на точку:", targetValue);
+            }
+
+            console.log("Validation passed.");
+            return true;
+        }
+
+        function saveDataAdmin() {
+            const cPhaseA = document.getElementById('c_phase_a').value;
+            const rLeakA = document.getElementById('r_leak_a').value;
+            const cPhaseB = document.getElementById('c_phase_b').value;
+            const rLeakB = document.getElementById('r_leak_b').value;
+            const cPhaseC = document.getElementById('c_phase_c').value;
+            const rLeakC = document.getElementById('r_leak_c').value;
+            const targetValue = document.getElementById('target_value').value;
+			
+			
+			const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
+			
+            const updatedData = {};
+				
+            if (cPhaseA) updatedData.c_phase_a = cPhaseA;
+            if (rLeakA)  updatedData.r_leak_a  = rLeakA;
+            if (cPhaseB) updatedData.c_phase_b = cPhaseB;
+            if (rLeakB)  updatedData.r_leak_b  = rLeakB;
+            if (cPhaseC) updatedData.c_phase_c = cPhaseC;
+            if (rLeakC)  updatedData.r_leak_c  = rLeakC;
+            if (targetValue) updatedData.target_value = targetValue;
+			
+			updatedData.checked = hardwareProtectionToggle.checked ? 1 : 0;
+			
+            if (Object.keys(updatedData).length === 0) {
+                alert('Нет измененных данных для сохранения.');
+                return;
+            }
+
+            if (!validatePhaseData(updatedData)) {
+                alert('Данные не валидны');
+                return;
+            }
+
+            const queryString = new URLSearchParams(updatedData).toString();
+
+            fetch(`/save?${queryString}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            setTimeout(function() {
+                window.location.href = "/index.shtml";
+            }, 5000);
+        }
+
+        function extractValue(value) {
+            return value.replace(/<!--.*?-->/, '').trim();
+        }
+
+        function roundValue(value) {
+            let val = extractValue(value);
+            const dotIndex = val.indexOf('.');
+            if (dotIndex === -1) {
+                return val;
+            }
+
+            let intPart = val.slice(0, dotIndex);
+            let fracPart = val.slice(dotIndex + 1);
+
+            const zeroIndex = fracPart.search(/0{4}/);
+            if (zeroIndex !== -1) {
+                fracPart = fracPart.slice(0, zeroIndex);
+            }
+
+            return fracPart.length > 0 ? intPart + '.' + fracPart : intPart;
+        }
+
+        window.addEventListener('DOMContentLoaded', function () {
+
+
+            const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
+            const hardwareWarning = document.getElementById('hardwareWarning');
+			
+			
+			// При загрузке страницы найдём чекбокс и блок предупреждения
+			const checkbox = document.querySelector("#hardwareProtectionToggle");
+			if (checkbox.dataset.ssi.includes("checked")) {
+			  checkbox.checked = true;
+			  hardwareWarning.style.display = 'block';
+			}
+
+			            // Отслеживаем изменение состояния чекбокса
+            hardwareProtectionToggle.addEventListener('change', function () {
+                if (this.checked) {
+                    // Если включили аппаратную защиту — показываем предупреждение
+                    hardwareWarning.style.display = 'block';
+                } else {
+                    // Если выключили — скрываем предупреждение
+                    hardwareWarning.style.display = 'none';
+                }
+            });
+
+            // Автоматическое округление значений 
+            var inputs = document.querySelectorAll('input');
+            inputs.forEach(function (input) {
+                input.value = roundValue(input.value);
+            });
+        });
+		
+    </script>
+</body>
+</html>
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->

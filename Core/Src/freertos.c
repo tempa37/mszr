@@ -67,7 +67,35 @@ extern uint16_t REGISTERS[4];
 extern uint32_t usart_speed;
 uint8_t SERIAL_ADDRESS[6] = {0};
 
+//----------------------------ADC---LOGIC---------------------------------------
+float C_phase_A = 0;
+float R_leak_A = 0;
+float C_phase_B = 0;
+float R_leak_B = 0;
+float C_phase_C = 0;
+float R_leak_C = 0;
+uint8_t TARGET_VALUE = 0;
 
+uint8_t hw_protection = 1;
+#define FLASH_ADDRESS_C_PHASE_A 0x08100080
+#define FLASH_ADDRESS_R_LEAK_A  0x08100090
+#define FLASH_ADDRESS_C_PHASE_B 0x081000A0
+#define FLASH_ADDRESS_R_LEAK_B  0x081000B0
+#define FLASH_ADDRESS_C_PHASE_C 0x081000C0
+#define FLASH_ADDRESS_R_LEAK_C  0x081000D0
+#define FLASH_ADDRESS_TARGET_VALUE 0x081000E0
+#define FLASH_ADDRESS_HW_PROTECTION 0x081000F0
+
+
+
+#define SQ3         1.732050807f    // sqrt(3)
+#define COS30       0.866025403f    // cos(30°)
+#define OMEGA       314.1592653f    // 2 * M_PI * 50 ≈ 6.283185307 * 50
+#define MULT_UP     43824.0f        // 14608 * 3
+#define MULT_DOWN   2.057065f       // 11.365 * 0.181
+
+volatile uint8_t button_ivent = 0;
+//------------------------------------------------------------------------------
 
 uint8_t USART_3_SPEED[10];
 uint8_t uartStopBits[10];
@@ -95,9 +123,11 @@ struct netconn * in_nc;
 struct netbuf * nb;
 struct netconn *newconn = NULL;
 
+const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
+"HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "SOFTACCEPT"};
 
 
-const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN", "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY", "STOPB", "SOFTACCEPT"};
 typedef enum 
 {
   MAC,
@@ -107,7 +137,15 @@ typedef enum
   SERIAL,
   RS485SPEED,
   RS485PARITIY,
-  RS485STOPBIT
+  RS485STOPBIT,
+  C_PHASE_A,
+  R_LEAK_A,
+  C_PHASE_B, 
+  R_LEAK_B, 
+  C_PHASE_C,
+  R_LEAK_C,
+  TaRGET_VALUE,
+  HW_PROTECTION
 } FlashDataType;
 
 typedef struct 
@@ -134,9 +172,11 @@ static uint32_t len = 0;
 static uint32_t next_free_addr = 0;
 uint8_t error_flash = 0;
 //---------------------------------------------------------------------------------------------------
+extern volatile uint8_t theme;
 
 
-uint8_t TERGET_VALUE = 25;
+
+
 
 //PA9_out
 #define RELAY_CONTROL_PIN          GPIO_PIN_9
@@ -164,7 +204,6 @@ uint8_t pinaccept = 0;
 
 
 
-
 #define FLASH_ADDRESS_MAC 0x0800C000
 #define FLASH_ADDRESS_IP  0x0800C010
 #define FLASH_ADDRESS_NETMASK 0x0800C020
@@ -175,6 +214,7 @@ uint8_t pinaccept = 0;
 #define FLASH_ADDRESS_RS485_PARITIY 0x0800C060
 #define FLASH_ADDRESS_RS485_STOPBIT 0x0800C070
 #define TIMEOUT_MS 8000
+#define M_PI 3.14159265
 
 
 #define BOOT_OS_OK_ADDRESS 0x0800C080
@@ -286,6 +326,7 @@ void vMyTimerCallback(TimerHandle_t xTimer);
 void convert_str_to_uint8_array_serial(const char* input, uint8_t* output);
 void EXTI12_Init(void);
 void EXTI15_10_IRQHandler(void);
+
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
 void UpdateSector3();
 void load_flags_from_flash(void);
@@ -294,6 +335,14 @@ uint16_t get_body_length(uint8_t *packet, uint16_t packet_size);
 char* extract_body(uint8_t *packet);
 const char *handle_file_upload(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
+//=======
+void EXTI6_Init(void);
+void EXTI9_5_IRQHandler(void);
+
+
+void convert_str_to_float_bytes(const char* input, uint8_t* output);
+void load_values_from_flash(void);
+
 void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
@@ -313,12 +362,11 @@ err_t httpd_post_begin(void *connection, const char *uri, const char *http_reque
 err_t httpd_post_receive_data(void *connection, struct pbuf *p);
 void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len);
 
-
-
-
-
+float calculate_rms_B_macros(uint16_t rms);
+float calculate_rms_C_macros(uint16_t rms);
+float calculate_rms_A_macros(uint16_t rms);
 extern void OLED_1in5_rgb_run();
-
+void EXTI6_DeInit(void);
 
 const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
 const tCGI LEDS_CGI = {"/save", SAVE_CGI_Handler};
@@ -424,6 +472,14 @@ void StartDefaultTask(void *argument)
   http_set_cgi_handlers(CGI_TAB, 1);
   xPacketSemaphore = xSemaphoreCreateBinary();
   xPacketSaved = xSemaphoreCreateBinary();
+  
+  load_values_from_flash();
+  
+  if(hw_protection)
+  {
+    EXTI6_Init();
+  }
+  
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
   load_flags_from_flash();
   xSemaphoreGive(xPacketSaved);
@@ -482,22 +538,48 @@ void StartTask02(void *argument)
     
     if(adc_ready == 1)
     {
-      uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
-      //adc_value = (((float)rms / 4096) * 3.3);
-      //REGISTERS[1] = (uint16_t)((adc_value * 3) / (121.24) * 1000);
-      //REGISTERS[1] = rms * 0.02;
-      REGISTERS[1] = (uint16_t)(rms * 0.019922);  // REGISTERS[1] = ((((rms / 4096) * 3.3) * 3) / (121.1775) * 1000);
+        /*
+        uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
+        REGISTERS[1] = (uint16_t)(rms * 0.019922);  // REGISTERS[1] = ((((rms / 4096) * 3.3) * 3) / (121.1775) * 1000);
+        */
+      
+        uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
+        osDelay(50);
+        float leak_phase_A_macros = calculate_rms_A_macros(rms);
+        float leak_phase_B_macros = calculate_rms_B_macros(rms);
+        float leak_phase_C_macros = calculate_rms_C_macros(rms);
+        
+        uint16_t AA = (uint16_t)leak_phase_A_macros;
+        uint16_t BB = (uint16_t)leak_phase_B_macros;
+        uint16_t CC = (uint16_t)leak_phase_C_macros;
+        
+        uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
+        REGISTERS[1] = max_val;
+            
     }
     
-    if(REGISTERS[1] >= TERGET_VALUE)
+    if(REGISTERS[1] >= TARGET_VALUE)
     {
       setrelay(0);
+      theme = 2;
     }
- 
-    if (HAL_GPIO_ReadPin(Fixing_the_leak_GPIO_Port, Fixing_the_leak_Pin) == GPIO_PIN_SET)
+    else if(REGISTERS[1] < TARGET_VALUE)
     {
-      setrelay(0);
-    }   
+      theme = 1;
+    }
+
+    
+    
+    if(hw_protection)
+    {
+      if (HAL_GPIO_ReadPin(Fixing_the_leak_GPIO_Port, Fixing_the_leak_Pin) == GPIO_PIN_SET)
+      {
+        setrelay(0);
+      } 
+    }
+    
+    
+    
     
     if(restart == 1)
     {
@@ -732,12 +814,10 @@ void StartTask04(void *argument)
     {
     case 0:
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
-      //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
       break;
       
     case 1:
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-      //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
       break;  
     }
     if(fff)
@@ -747,11 +827,18 @@ void StartTask04(void *argument)
       start = 0;
       fff = 0;
     }
-    
 
-  
-
+    if(button_ivent)
+    {
+      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+      osDelay(3000);
+      HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+      button_ivent = 0;
+    }
     osDelay(10);
+
   }
   /* USER CODE END StartTask04 */
   
@@ -774,7 +861,7 @@ void StartTask05(void *argument)
     {
       OLED_1in5_rgb_run();
     }
-    
+
     osDelay(10);
     
     /* USER CODE END StartTask05 */
@@ -955,7 +1042,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
     else if(strcmp((const char *)uartPARITY, string3) == 0)
     {
       snprintf((char*)buffer, bufferSize, "%s", string3);
-    }
+    } 
   }
   else if(iIndex == 16)
   {
@@ -966,6 +1053,44 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
     snprintf((char*)buffer, bufferSize, "%d", crc_accepted);
   }
   
+  
+  else if(iIndex == 17)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", C_phase_A);
+  }
+  else if(iIndex == 18)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", R_leak_A);
+  }
+  else if(iIndex == 19)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", C_phase_B);
+  }
+    else if(iIndex == 20)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", R_leak_B);
+  }
+    else if(iIndex == 21)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", C_phase_C);
+  }
+    else if(iIndex == 22)
+  {
+    snprintf((char*)buffer, bufferSize, "%.9f", R_leak_C);
+  }
+    else if(iIndex == 23)
+  {
+    snprintf((char*)buffer, bufferSize, "%d", TARGET_VALUE);
+  }
+    else if(iIndex == 24)
+  {
+    if(hw_protection)
+    {
+      snprintf((char*)buffer, bufferSize, "checked");
+    }
+  }
+
+  
   snprintf(pcInsert, iInsertLen, "%s", buffer);
   return strlen(pcInsert);
 }
@@ -973,8 +1098,10 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 
 void httpd_ssi_init(void) 
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 18);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 26);
 }
+
+
 
 
 //Логика обработки /Save запросов от клиента в веб интерфейсе
@@ -990,6 +1117,23 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char rs485stopbit[18] = {0};
   
   
+  char c_phase_a_str[18]  = {0};
+  char r_leak_a_str[18]   = {0};
+  char c_phase_b_str[18]  = {0};
+  char r_leak_b_str[18]   = {0};
+  char c_phase_c_str[18]  = {0};
+  char r_leak_c_str[18]   = {0};
+  char target_value_str[18] = {0};
+  char hw_protection_arr[18] = {0};
+
+  uint8_t c_phase_a_flag     = 0;
+  uint8_t r_leak_a_flag      = 0;
+  uint8_t c_phase_b_flag     = 0;
+  uint8_t r_leak_b_flag      = 0;
+  uint8_t c_phase_c_flag     = 0;
+  uint8_t r_leak_c_flag      = 0;
+  uint8_t target_value_flag  = 0;
+  uint8_t hw_protection_flag = 0;
   
   uint8_t ip_flag = 0;
   uint8_t mask_flag = 0;
@@ -1072,6 +1216,47 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       strncpy(rs485stopbit, pcValue[i], sizeof(rs485stopbit) - 1);
       stopbit_flag = 1;
     }  
+     else if (strcmp(pcParam[i], "c_phase_a") == 0)
+    {
+      strncpy(c_phase_a_str, pcValue[i], sizeof(c_phase_a_str) - 1);
+      c_phase_a_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "r_leak_a") == 0)
+    {
+      strncpy(r_leak_a_str, pcValue[i], sizeof(r_leak_a_str) - 1);
+      r_leak_a_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "c_phase_b") == 0)
+    {
+      strncpy(c_phase_b_str, pcValue[i], sizeof(c_phase_b_str) - 1);
+      c_phase_b_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "r_leak_b") == 0)
+    {
+      strncpy(r_leak_b_str, pcValue[i], sizeof(r_leak_b_str) - 1);
+      r_leak_b_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "c_phase_c") == 0)
+    {
+      strncpy(c_phase_c_str, pcValue[i], sizeof(c_phase_c_str) - 1);
+      c_phase_c_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "r_leak_c") == 0)
+    {
+      strncpy(r_leak_c_str, pcValue[i], sizeof(r_leak_c_str) - 1);
+      r_leak_c_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "target_value") == 0)
+    {
+      strncpy(target_value_str, pcValue[i], sizeof(target_value_str) - 1);
+      target_value_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "checked") == 0) //   WH_PROTECTION
+    {
+      strncpy(hw_protection_arr, pcValue[i], sizeof(target_value_str) - 1);
+      hw_protection_flag = 1;
+    }
+  
   }
   
   
@@ -1095,6 +1280,95 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     restart = 1;
     pinaccept = 1;
   }
+
+  
+  
+  if (c_phase_a_flag != 0)
+    {
+      convert_str_to_float_bytes(c_phase_a_str, output); 
+      WriteFlash(C_PHASE_A, output);
+      memset(output, 0, sizeof(output));
+      c_phase_a_flag = 0;
+    }
+
+    if (r_leak_a_flag != 0)
+    {
+      convert_str_to_float_bytes(r_leak_a_str, output);
+      WriteFlash(R_LEAK_A, output);
+      memset(output, 0, sizeof(output));
+      r_leak_a_flag = 0;
+    }
+
+    if (c_phase_b_flag != 0)
+    {
+      convert_str_to_float_bytes(c_phase_b_str, output); 
+      WriteFlash(C_PHASE_B, output);
+      memset(output, 0, sizeof(output));
+      c_phase_b_flag = 0;
+    }
+
+    if (r_leak_b_flag != 0)
+    {
+      convert_str_to_float_bytes(r_leak_b_str, output);
+      WriteFlash(R_LEAK_B, output);
+      memset(output, 0, sizeof(output));
+      r_leak_b_flag = 0;
+    }
+
+    if (c_phase_c_flag != 0)
+    {
+      convert_str_to_float_bytes(c_phase_c_str, output);
+      WriteFlash(C_PHASE_C, output);
+      memset(output, 0, sizeof(output));
+      c_phase_c_flag = 0;
+    }
+
+    if (r_leak_c_flag != 0)
+    {
+     convert_str_to_float_bytes(r_leak_c_str, output);
+      WriteFlash(R_LEAK_C, output);
+      memset(output, 0, sizeof(output));
+      r_leak_c_flag = 0;
+    }
+
+    if (target_value_flag != 0)
+    {
+      output[0] = (uint8_t)atoi(target_value_str);
+      WriteFlash(TaRGET_VALUE, output);
+      memset(output, 0, sizeof(output));
+      target_value_flag = 0;
+    }
+  
+    if (hw_protection_flag != 0)
+    {
+      output[0] = (uint8_t)atoi(hw_protection_arr);
+      WriteFlash(HW_PROTECTION, output);
+      memset(output, 0, sizeof(output));
+      hw_protection_flag = 0;
+    }
+
+    C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
+    R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
+    C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
+    R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
+    C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
+    R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
+
+    // Чтение значения типа uint8_t
+    TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
+    hw_protection = *((uint8_t *)FLASH_ADDRESS_HW_PROTECTION);
+
+    //отключить аппаратное срабатывание защиты, т.к. настройки фаз изменились
+    if(hw_protection == 0)
+    {
+      EXTI6_DeInit();  
+    }
+    else if(hw_protection == 1)
+    {
+      EXTI6_Init();
+    }
+  
+ 
   
   
   if(pinaccept)
@@ -1166,88 +1440,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
 
 
 //---------------------------------------------------------------------------------FLASH-LOGICS-START--------
-
-/*
-void WriteFlash(FlashDataType type, uint8_t* data)
-{
-  uint32_t address = 0;
-  uint32_t dataSize = 0;
-  uint8_t flashBuffer[MAC_SIZE + IP_SIZE + NETMASK_SIZE + GATEWAY_SIZE + SERIAL_SIZE + 50] = {0xFF};
-  
-  
-  switch (type) 
-  {
-  case MAC:
-    address = FLASH_ADDRESS_MAC;
-    dataSize = 6;
-    break;
-  case IP:
-    address = FLASH_ADDRESS_IP;
-    dataSize = 4;
-    break;
-  case NETMASK:
-    address = FLASH_ADDRESS_NETMASK;
-    dataSize = 4;
-    break;
-  case GATEWAY:
-    address = FLASH_ADDRESS_GATEWAY;
-    dataSize = 4;
-    break;
-  case SERIAL:
-    address = FLASH_ADDRESS_SERIAL;
-    dataSize = 6;
-    break;
-  case RS485SPEED:
-    address = FLASH_ADDRESS_RS485_SPEED;
-    dataSize = 3;
-    break;
-  case RS485PARITIY:
-    address = FLASH_ADDRESS_RS485_PARITIY;
-    dataSize = 10;
-    break;
-  case RS485STOPBIT:
-    address = FLASH_ADDRESS_RS485_STOPBIT;
-    dataSize = 1;
-    break;
-  default:
-    return; 
-  }
-  
-  osMutexWait(flashMutexHandle, osWaitForever);
-  
-  ReadFlash(MAC, flashBuffer);
-  ReadFlash(IP, flashBuffer + MAC_SIZE);
-  ReadFlash(NETMASK, flashBuffer + MAC_SIZE + IP_SIZE);
-  ReadFlash(GATEWAY, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE);
-  ReadFlash(SERIAL, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE + SERIAL_SIZE);
-  
-  ReadFlash(RS485SPEED, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE + SERIAL_SIZE + 16);
-  ReadFlash(RS485PARITIY, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE + SERIAL_SIZE + 16 + 16);
-  ReadFlash(SERIAL, flashBuffer + MAC_SIZE + IP_SIZE + NETMASK_SIZE + SERIAL_SIZE + 16 + 16 + 16);
-  
-  memcpy(flashBuffer + (address - FLASH_ADDRESS_MAC), data, dataSize);
-  
-  
-  HAL_FLASH_Unlock();
-  FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
-  
-  for (uint16_t i = 0; i < sizeof(flashBuffer); i++) 
-  {
-    uint8_t word = flashBuffer[i];
-    
-    if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, FLASH_ADDRESS_MAC + i, word) != HAL_OK) 
-    {
-      while (1);  
-    }
-  }
-  
-  HAL_FLASH_Lock();
-  
-  osMutexRelease(flashMutexHandle);
-  
-}
-*/
-
 
 void ReadFlash(FlashDataType type, uint8_t* buffer) 
 {
@@ -1352,12 +1544,211 @@ void convert_str_to_uint8_array(const char* input, uint8_t* output, int is_mac)
   }
 }
 
+void convert_str_to_float_bytes(const char* input, uint8_t* output)
+{
+    // Преобразуем строку в float
+    float value = atof(input);
+
+    // Копируем байты float в массив output
+    memcpy(output, &value, sizeof(float));
+}
+
 void convert_str_to_uint8_array_serial(const char* input, uint8_t* output)
 {
   for (int i = 0; i < 6; i++) 
   {
     output[i] = input[i] - '0';
   }
+}
+
+void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
+{
+
+    HAL_FLASH_Unlock();
+    
+    if((startAddress >= 0x0800C000) && (startAddress <= 0x0800FFFF))
+    {
+      FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
+    }
+    else if((startAddress >= 0x08100000) && (startAddress <= 0x08103FFF))
+    {
+      FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
+    }
+    
+    for (uint32_t i = 0; i < length; i++) {
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, data[i]) != HAL_OK) {
+            HAL_FLASH_Lock();
+            return;
+        }
+    }
+
+    HAL_FLASH_Lock();
+}
+
+
+// Функция для работы с переменными в памяти
+void WriteFlash(FlashDataType type, uint8_t* data)
+{
+    size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
+    taskENTER_CRITICAL();
+    uint8_t sectorData[0x1000]; // Формат сектора памяти (4 KB)
+    uint32_t *address = 0;
+    uint32_t dataSize = 0;
+  
+    // Считывание полного сектора
+    for (uint32_t i = 0; i < 0x1000; i++) {
+        sectorData[i] = *(volatile uint8_t*)(0x08100000 + i);
+    }
+
+    
+      switch (type) 
+      {
+      case MAC:
+        address = (uint32_t *)FLASH_ADDRESS_MAC;
+        dataSize = 6;
+        break;
+      case IP:
+        address = (uint32_t *)FLASH_ADDRESS_IP;
+        dataSize = 4;
+        break;
+      case NETMASK:
+        address = (uint32_t *)FLASH_ADDRESS_NETMASK;
+        dataSize = 4;
+        break;
+      case GATEWAY:
+        address = (uint32_t *)FLASH_ADDRESS_GATEWAY;
+        dataSize = 4;
+        break;
+      case SERIAL:
+        address = (uint32_t *)FLASH_ADDRESS_SERIAL;
+        dataSize = 6;
+        break;
+      case RS485SPEED:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_SPEED;
+        dataSize = 10;
+        break;
+      case RS485PARITIY:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_PARITIY;
+        dataSize = 10;
+        break;
+      case RS485STOPBIT:
+        address = (uint32_t *)FLASH_ADDRESS_RS485_STOPBIT;
+        dataSize = 1;
+        break;
+      case C_PHASE_A:
+        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_A;
+        dataSize = 4;
+        break;
+      case R_LEAK_A:
+        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_A;
+        dataSize = 4;
+        break;
+      case C_PHASE_B:
+        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_B;
+        dataSize = 4;
+        break;
+      case R_LEAK_B:
+        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_B;
+        dataSize = 4;
+        break;
+      case C_PHASE_C:
+        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_C;
+        dataSize = 4;
+        break;
+      case R_LEAK_C:
+        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_C;
+        dataSize = 4;
+        break;
+      case TaRGET_VALUE:
+        address = (uint32_t *)FLASH_ADDRESS_TARGET_VALUE;
+        dataSize = 1;
+        break;
+      case HW_PROTECTION:
+        address = (uint32_t *)FLASH_ADDRESS_HW_PROTECTION;
+        dataSize = 1;
+        break;
+      default:
+        return; 
+      }
+    
+    if(data)
+    {
+      uint32_t offset = (uint32_t)address - 0x08100000; 
+      memcpy(sectorData + offset, data, dataSize);
+    }
+    
+    
+    osDelay(150);
+    // Запись полного сектора в память
+    WriteToFlash(0x08100000, sectorData, 0x1000);
+    taskEXIT_CRITICAL();
+}
+
+void load_values_from_flash(void)
+{
+    uint8_t i = 0;
+    uint32_t temp; 
+    
+    // Чтение и проверка C_phase_A
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_A;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&C_phase_A, &temp, sizeof(float));
+    } else {
+        C_phase_A = 0.3f;
+    }
+
+    // Чтение и проверка R_leak_A
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_A;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&R_leak_A, &temp, sizeof(float));
+    } else {
+        R_leak_A = 10.0f;
+    }
+
+    // Чтение и проверка C_phase_B
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_B;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&C_phase_B, &temp, sizeof(float));
+    } else {
+        C_phase_B = 0.3f;
+    }
+
+    // Чтение и проверка R_leak_B
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_B;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&R_leak_B, &temp, sizeof(float));
+    } else {
+        R_leak_B = 10.0f;
+    }
+
+    // Чтение и проверка C_phase_C
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_C;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&C_phase_C, &temp, sizeof(float));
+    } else {
+        C_phase_C = 0.3f;
+    }
+
+    // Чтение и проверка R_leak_C
+    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_C;
+    if (temp != 0xFFFFFFFF) {
+        memcpy(&R_leak_C, &temp, sizeof(float));
+    } else {
+        R_leak_C = 10.0f;
+    }
+
+    // Чтение и проверка TARGET_VALUE
+    TARGET_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_TARGET_VALUE;
+    if (TARGET_VALUE == 0xFF) {
+        TARGET_VALUE = 25;
+    }
+    
+        // Чтение и проверка TARGET_VALUE
+    hw_protection = *(volatile uint8_t *)FLASH_ADDRESS_HW_PROTECTION;
+    if (hw_protection == 0xFF) {
+        hw_protection = 1;
+    }
+
 }
 
 //---------------------------------------------------------------------------------FLASH-LOGICS-END--------
@@ -1629,14 +2020,15 @@ void EXTI15_10_IRQHandler(void)
   if (EXTI->PR & EXTI_PR_PR12) 
   { 
     EXTI->PR |= EXTI_PR_PR12; 
-    //setrelay(0);
+    setrelay(0);
+    
     if(start == 1)
     {
       fff = 1;
     }
     else
     {
-      ch = 1;
+      button_ivent = 1;
     }
     for (int i = 0; i < 100; i++) 
     {
@@ -1644,6 +2036,8 @@ void EXTI15_10_IRQHandler(void)
     
   }
 }
+//HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
+
 
 //Прерывание с пина PA6 (fixing the leak)
 void EXTI6_Init(void)   
@@ -1671,7 +2065,9 @@ void EXTI9_5_IRQHandler(void)
   if (EXTI->PR & EXTI_PR_PR6)
   {
     EXTI->PR |= EXTI_PR_PR6;
-    setrelay(0);
+
+      setrelay(0);
+
   }
   
 }
@@ -1697,6 +2093,24 @@ void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf
     } 
 }
 
+void EXTI6_DeInit(void)
+{
+    // Отключить маску прерывания для EXTI6
+    EXTI->IMR &= ~EXTI_IMR_MR6;
+    
+    // Отключить триггер на восходящий фронт
+    EXTI->RTSR &= ~EXTI_RTSR_TR6;
+    
+    // Отключить триггер на нисходящий фронт (если он был настроен)
+    EXTI->FTSR &= ~EXTI_FTSR_TR6;
+    
+    // Отключить прерывание EXTI9_5 в NVIC
+    NVIC_DisableIRQ(EXTI9_5_IRQn);
+    
+    // Опционально: сбросить конфигурацию SYSCFG для EXTI6
+    SYSCFG->EXTICR[1] &= ~(SYSCFG_EXTICR2_EXTI6);
+}
+//---------------------------------------------------------------------------------ANOTHER-CODE-END---
 
 void load_flags_from_flash(void)
 {
@@ -2211,6 +2625,65 @@ void swichSector()
 }
 
 //---------------------------------------------------------------------------------
+
+//--------------------------RMS--BY--MACROS----------------------------------------
+float calculate_rms_A_macros(uint16_t rms)
+{
+    float I_s = rms * 0.0000535f;
+
+    float XC_phase_A = 1.0f / (OMEGA * (C_phase_A * 1e-6f));
+
+
+    float R_eq_phase_A = ((R_leak_A * 1e6f) * XC_phase_A) /
+                         ((R_leak_A * 1e6f) + XC_phase_A);
+
+    float up_formula = I_s * COS30 * MULT_UP;
+
+    float down_formula = MULT_DOWN * R_eq_phase_A * SQ3;
+
+    float result = (up_formula / down_formula) * 1000.0f;
+    return result;
+}
+
+float calculate_rms_B_macros(uint16_t rms)
+{
+    float I_s = rms * 0.0000535f;
+
+    float XC_phase_B = 1.0f / (OMEGA * (C_phase_B * 1e-6f));
+
+
+    float R_eq_phase_B = ((R_leak_B * 1e6f) * XC_phase_B) /
+                         ((R_leak_B * 1e6f) + XC_phase_B);
+
+    float up_formula = I_s * COS30 * MULT_UP;
+
+    float down_formula = MULT_DOWN * R_eq_phase_B * SQ3;
+
+    float result = (up_formula / down_formula) * 1000.0f;
+    return result;
+}
+
+
+float calculate_rms_C_macros(uint16_t rms)
+{
+    float I_s = rms * 0.0000535f;
+
+    float XC_phase_C = 1.0f / (OMEGA * (C_phase_C * 1e-6f));
+
+
+    float R_eq_phase_C = ((R_leak_C * 1e6f) * XC_phase_C) /
+                         ((R_leak_C * 1e6f) + XC_phase_C);
+
+    float up_formula = I_s * COS30 * MULT_UP;
+
+    float down_formula = MULT_DOWN * R_eq_phase_C * SQ3;
+
+    float result = (up_formula / down_formula) * 1000.0f;
+    return result;
+}
+
+
+
 
 /* USER CODE END Application */
 

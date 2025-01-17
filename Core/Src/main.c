@@ -117,6 +117,9 @@ void vTimerCallback(TimerHandle_t xTimer);
   * @retval int
   */
 
+    
+     
+    
 
 int main(void)
 {
@@ -152,8 +155,6 @@ int main(void)
   
   uint8_t TEST[10] = {0};
   uint8_t test = 0;
-  
-
   
   ReadFlash(RS485SPEED, TEST);
   for (int i = 0; i < 4; i++) 
