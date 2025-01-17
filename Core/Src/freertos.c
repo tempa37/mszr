@@ -179,25 +179,25 @@ uint8_t pinaccept = 0;
 
 #define BOOT_OS_OK_ADDRESS 0x0800C080
 #define BOOT_CRC_ADDRESS 0x0800C200
-#define BOOT_FLAG_NEW_ADDRESS 0x0800C084
+#define BOOT_FLAG_NEW_ADDRESS 0x0800C084 
 #define SECTOR_1_ADDRESS 0x08020000 //end in 0x08080000 (sector 5/6/7) 384kb in total
 #define SECTOR_2_ADDRESS 0x08080000 // end in 0x080E0000 (sector 8/9/10) 384kb in total
 #define BOOTLOADER_ADDRESS 0x08010000 //end in 0x0801FFFF (sector 4)  64kb in total
 #define SECTOR_ENABLED_ADDRESS 0x0800C088 //активный сектор
-#define SECTOR_1_LEN 0x0800C090
-#define SECTOR_2_LEN 0x0800C100
-
+#define SECTOR_2_LEN 0x0800C100 //none
+#define CRC_ACCEPTED 0x0800C090
 //--------------------------(critical flags)------------------------------------
 //после изменения этих флагов нужно вызвать WriteFlash(0, 0); 
 //для их автоматической запиши во флеш
-uint8_t client_accepted = 0;
-uint8_t boot_os_ok = 0;
-uint8_t boot_flag_crc = 0;
-uint8_t boot_flag_new = 0;
-uint8_t sector_enabled = 0;
-uint32_t sector_1_len = 0;
-uint32_t sector_2_len = 0;
-uint32_t crc_os = 0;
+volatile uint8_t client_accepted = 0;
+volatile uint8_t boot_os_ok = 0;
+volatile uint8_t boot_flag_crc = 0;
+volatile uint8_t boot_flag_new = 0;
+volatile uint8_t sector_enabled = 0;
+volatile uint32_t sector_1_len = 0;
+volatile uint32_t sector_2_len = 0;
+volatile uint32_t crc_os = 0;
+volatile uint8_t crc_accepted = 0;
 //------------------------------------------------------------------------------
 
 uint8_t os_accepted = 0;
@@ -299,7 +299,7 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
 
 
-
+void swichSector();
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
 void CRC_Config(void);
 uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str);
@@ -506,19 +506,31 @@ void StartTask02(void *argument)
     } 
 //-------------------------------------------------------------------------------------------------------CRC-TEST-AREA-----------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------------CRC-TEST-AREA-----------------------------------------------------------------------------------------
-     sector_enabled = 1;
+     
 
 
     
     
-    if(boot_flag_new == 1)
+    if((boot_flag_new == 1) && (next_free_addr != 0))
     { 
-      uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
+      static uint8_t iteration_1 = 1;
+      
+      
+      if(iteration_1)
+        {
+          uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
 
-      if(crc_os == crc_stm)
-      {
-        startMyTimer_RESET(2500);
-      }
+          if(crc_os == crc_stm)
+          {
+
+            crc_accepted = 1;
+            swichSector();
+            WriteFlash(0, 0);
+            
+            startMyTimer_RESET(7000);
+            iteration_1 = 0;
+          }
+        }
     }
     
 //--------------------------------------------------------------------------------------------------------TEST-AREA-END------------------------------------------------------------------------------------
@@ -951,7 +963,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
   else if(iIndex == 17)
   {
-    snprintf((char*)buffer, bufferSize, "%d", time.days);
+    snprintf((char*)buffer, bufferSize, "%d", crc_accepted);
   }
   
   snprintf(pcInsert, iInsertLen, "%s", buffer);
@@ -1689,9 +1701,24 @@ void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf
 void load_flags_from_flash(void)
 {
     boot_os_ok = *(volatile uint8_t *)BOOT_OS_OK_ADDRESS;
+    if (boot_os_ok == 0xFF)
+    {
+      boot_os_ok = 0;
+    }
+    
     //boot_flag_crc = *(volatile uint8_t *)BOOT_FLAG_CRC_ADDRESS;
     boot_flag_new = *(volatile uint8_t *)BOOT_FLAG_NEW_ADDRESS;
+    if(boot_flag_new == 0xFF)
+    {
+      boot_flag_new = 0;
+    }
+    
+    
     sector_enabled = *(volatile uint8_t *)SECTOR_ENABLED_ADDRESS;
+    if((sector_enabled != 1) && (sector_enabled != 2))
+    {
+      sector_enabled = 1;
+    }
 }
 
 /*
@@ -1789,44 +1816,6 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
 }
 
 
-/*
-// Функция для извлечения тела HTTP POST-запроса
-char* extract_body(uint8_t *packet) 
-{
-
-    int total_read = 0;
-
-    // Проверка на NULL и наличие \r\n\r\n
-    char* header_end = strstr(packet, "\r\n\r\n");
-    if (header_end == NULL) {
-        return NULL; // Вернуть NULL, если конец заголовка не найден
-    }
-
-    // Указатель на тело запроса
-    char* body = header_end + 4;
-
-    return body;
-}
-
-
-uint16_t get_body_length(uint8_t *packet, uint16_t packet_size) 
-{
-
-    // Проверка на NULL и наличие \r\n\r\n
-    char* header_end = strstr(packet, "\r\n\r\n");
-    if (header_end == NULL) {
-        return -1; // Вернуть -1, если конец заголовка не найден
-    }
-
-    // Указатель на тело запроса
-    char* body = header_end + 4;
-
-    // Подсчёт длины тела
-    int body_length = packet_size - (body - (char*)packet);
-
-    return (body_length - 1);
-}
-*/
 
 
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
@@ -1834,7 +1823,15 @@ void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
    
     // Разблокируем область флеш для записи
     HAL_FLASH_Unlock();
-    FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
+    
+    if((startAddress >= 0x0800C000) && (startAddress <= 0x0800FFFF))
+    {
+      FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
+    }
+    else if((startAddress >= 0x08100000) && (startAddress <= 0x08103FFF))
+    {
+      FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
+    }
     
     // Процесс записи по адресу
     for (uint32_t i = 0; i < length; i++) {
@@ -1870,7 +1867,17 @@ void WriteFlash(FlashDataType type, uint8_t* data)
     //sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
     sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
     sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
-    sectorData[BOOT_CRC_ADDRESS - 0x0800C000] = crc_os;
+    
+    
+    uint32_t index = BOOT_CRC_ADDRESS - 0x0800C000;
+    
+    sectorData[index + 0] = (uint8_t)(crc_os & 0xFF);        // младший байт
+    sectorData[index + 1] = (uint8_t)((crc_os >> 8) & 0xFF);  // второй байт
+    sectorData[index + 2] = (uint8_t)((crc_os >> 16) & 0xFF); // третий байт
+    sectorData[index + 3] = (uint8_t)((crc_os >> 24) & 0xFF); // старший байт
+    
+    //sectorData[BOOT_CRC_ADDRESS - 0x0800C000] = crc_os;
+    sectorData[CRC_ACCEPTED - 0x0800C000] = crc_accepted;
     
     
     
@@ -1919,7 +1926,8 @@ void WriteFlash(FlashDataType type, uint8_t* data)
     }
     
     
-    
+    //FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
+    osDelay(150);
     // Запись обратно в 3-й сектор
     WriteToFlash(0x0800C000, sectorData, 0x1000);
     taskEXIT_CRITICAL();
@@ -2104,8 +2112,6 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
       packetData[BinDataLength-1] = 0xFF;
       packetData[BinDataLength-2] = 0xFF;
       packetData[BinDataLength-3] = 0xFF;
-      boot_flag_new = 1;
-      WriteFlash(0, 0);
     }
     
     // Обработка данных (например, запись во флеш)
@@ -2120,6 +2126,13 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
 
     httpd_post_data_recved(connection, packet_size);
     pbuf_free(p);
+    
+    if(packetNow == (packetTotal-1))
+    {
+      boot_flag_new = 1;
+      WriteFlash(0, 0);
+    }
+       
     return ERR_OK;
 }
 
@@ -2181,6 +2194,20 @@ uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address)
     reversed_answer |= (answer & 0xFF000000) >> 24;  // старший байт на младший
 
     return reversed_answer;
+}
+
+void swichSector()
+{
+  switch (sector_enabled){
+    
+  case 1: 
+    sector_enabled = 2;
+    break;
+  case 2: 
+    sector_enabled = 1;
+    break;
+
+  }    
 }
 
 //---------------------------------------------------------------------------------
