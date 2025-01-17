@@ -259,12 +259,12 @@
         <div class="right-section_admin">
             <h3>Фаза A</h3>
             <form>
-                <label class="field-label" for="c_phase_a">Емкость:</label>
+                <label class="field-label" for="c_phase_a">Паразитная емкость кабеля:</label>
                 <div class="serial-input">
                     <input id="c_phase_a" type="text" value="<!--#CPHASEA-->">
                     <span>&mu;F</span>
                 </div>
-                <label class="field-label" for="r_leak_a">Сопротивление утечки:</label>
+                <label class="field-label" for="r_leak_a">Сопротивление изоляции:</label>
                 <div class="serial-input">
                     <input id="r_leak_a" type="text" value="<!--#RLEAKA-->">
                     <span>MΩ</span>
@@ -274,12 +274,12 @@
         <div class="right-section_admin">
             <h3>Фаза B</h3>
             <form>
-                <label class="field-label" for="c_phase_b">Емкость:</label>
+                <label class="field-label" for="c_phase_b">Паразитная емкость кабеля:</label>
                 <div class="serial-input">
                     <input id="c_phase_b" type="text" value="<!--#CPHASEB-->">
                     <span>&mu;F</span>
                 </div>
-                <label class="field-label" for="r_leak_b">Сопротивление утечки:</label>
+                <label class="field-label" for="r_leak_b">Сопротивление изоляции:</label>
                 <div class="serial-input">
                     <input id="r_leak_b" type="text" value ="<!--#RLEAKB-->">
                     <span>MΩ</span>
@@ -289,12 +289,12 @@
         <div class="right-section_admin">
             <h3>Фаза C</h3>
             <form>
-                <label class="field-label" for="c_phase_c">Емкость:</label>
+                <label class="field-label" for="c_phase_c">Паразитная емкость кабеля:</label>
                 <div class="serial-input">
                     <input id="c_phase_c" type="text"  value ="<!--#CPHASEC-->">
                     <span>&mu;F</span>
                 </div>
-                <label class="field-label" for="r_leak_c">Сопротивление утечки:</label>
+                <label class="field-label" for="r_leak_c">Сопротивление изоляции:</label>
                 <div class="serial-input">
                     <input id="r_leak_c" type="text"  value ="<!--#RLEAKC-->">
                     <span>MΩ</span>
