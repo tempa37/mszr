@@ -77,14 +77,14 @@ float R_leak_C = 0;
 uint8_t TARGET_VALUE = 0;
 
 uint8_t hw_protection = 1;
-#define FLASH_ADDRESS_C_PHASE_A 0x08100080
-#define FLASH_ADDRESS_R_LEAK_A  0x08100090
-#define FLASH_ADDRESS_C_PHASE_B 0x081000A0
-#define FLASH_ADDRESS_R_LEAK_B  0x081000B0
-#define FLASH_ADDRESS_C_PHASE_C 0x081000C0
-#define FLASH_ADDRESS_R_LEAK_C  0x081000D0
-#define FLASH_ADDRESS_TARGET_VALUE 0x081000E0
-#define FLASH_ADDRESS_HW_PROTECTION 0x081000F0
+#define FLASH_ADDRESS_C_PHASE_A 0x0800C0A0
+#define FLASH_ADDRESS_R_LEAK_A  0x0800C0B0
+#define FLASH_ADDRESS_C_PHASE_B 0x0800C0C0
+#define FLASH_ADDRESS_R_LEAK_B  0x0800C0D0
+#define FLASH_ADDRESS_C_PHASE_C 0x0800C0E0
+#define FLASH_ADDRESS_R_LEAK_C  0x0800C0F0
+#define FLASH_ADDRESS_TARGET_VALUE 0x0800C100
+#define FLASH_ADDRESS_HW_PROTECTION 0x0800C110
 
 
 
@@ -125,7 +125,7 @@ struct netconn *newconn = NULL;
 
 const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
-"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "SOFTACCEPT"};
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "CRCACC"};
 
 
 typedef enum 
@@ -237,7 +237,7 @@ volatile uint8_t sector_enabled = 0;
 volatile uint32_t sector_1_len = 0;
 volatile uint32_t sector_2_len = 0;
 volatile uint32_t crc_os = 0;
-volatile uint8_t crc_accepted = 0;
+volatile uint8_t crc_accepted = 5;
 //------------------------------------------------------------------------------
 
 uint8_t os_accepted = 0;
@@ -1089,6 +1089,11 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
       snprintf((char*)buffer, bufferSize, "checked");
     }
   }
+  else if(iIndex == 25)
+  {
+    snprintf((char*)buffer, bufferSize, "%d", crc_accepted);
+  }
+  
 
   
   snprintf(pcInsert, iInsertLen, "%s", buffer);
@@ -1597,9 +1602,25 @@ void WriteFlash(FlashDataType type, uint8_t* data)
   
     // Считывание полного сектора
     for (uint32_t i = 0; i < 0x1000; i++) {
-        sectorData[i] = *(volatile uint8_t*)(0x08100000 + i);
+        sectorData[i] = *(volatile uint8_t*)(0x0800C000 + i);
     }
+    
+    
+    // Изменение значений в буфере
+    sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
+    //sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
+    sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
+    sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
+    
 
+    uint32_t index = BOOT_CRC_ADDRESS - 0x0800C000;
+    
+    sectorData[index + 0] = (uint8_t)(crc_os & 0xFF);        // младший байт
+    sectorData[index + 1] = (uint8_t)((crc_os >> 8) & 0xFF);  // второй байт
+    sectorData[index + 2] = (uint8_t)((crc_os >> 16) & 0xFF); // третий байт
+    sectorData[index + 3] = (uint8_t)((crc_os >> 24) & 0xFF); // старший байт
+    
+    sectorData[CRC_ACCEPTED - 0x0800C000] = crc_accepted;
     
       switch (type) 
       {
@@ -1673,14 +1694,13 @@ void WriteFlash(FlashDataType type, uint8_t* data)
     
     if(data)
     {
-      uint32_t offset = (uint32_t)address - 0x08100000; 
-      memcpy(sectorData + offset, data, dataSize);
+      memcpy(sectorData, data, dataSize);
     }
     
     
     osDelay(150);
     // Запись полного сектора в память
-    WriteToFlash(0x08100000, sectorData, 0x1000);
+    WriteToFlash(0x0800C000, sectorData, 0x1000);
     taskEXIT_CRITICAL();
 }
 
@@ -2232,120 +2252,10 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
 
 
 
-void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
-{
-   
-    // Разблокируем область флеш для записи
-    HAL_FLASH_Unlock();
-    
-    if((startAddress >= 0x0800C000) && (startAddress <= 0x0800FFFF))
-    {
-      FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
-    }
-    else if((startAddress >= 0x08100000) && (startAddress <= 0x08103FFF))
-    {
-      FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
-    }
-    
-    // Процесс записи по адресу
-    for (uint32_t i = 0; i < length; i++) {
-        // Записываем данные
-        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, data[i]) != HAL_OK) {
-            // Ошибка записи
-            HAL_FLASH_Lock();
-            return;
-        }
-    }
 
-    // Блокируем флеш после записи
-    HAL_FLASH_Lock();
-}
 
 
 // Основная функция для работы с сектором
-void WriteFlash(FlashDataType type, uint8_t* data)
-{
-    size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
-    taskENTER_CRITICAL();
-    uint8_t sectorData[0x1000]; // Буфер для данных сектора (4 KB)
-    uint32_t *address = 0;
-    uint32_t dataSize = 0;
-  
-    // Чтение всего 3-го сектора во флеш
-    for (uint32_t i = 0; i < 0x1000; i++) {
-        sectorData[i] = *(volatile uint8_t*)(0x0800C000 + i);
-    }
-    
-    // Изменение значений в буфере
-    sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
-    //sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
-    sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
-    sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
-    
-    
-    uint32_t index = BOOT_CRC_ADDRESS - 0x0800C000;
-    
-    sectorData[index + 0] = (uint8_t)(crc_os & 0xFF);        // младший байт
-    sectorData[index + 1] = (uint8_t)((crc_os >> 8) & 0xFF);  // второй байт
-    sectorData[index + 2] = (uint8_t)((crc_os >> 16) & 0xFF); // третий байт
-    sectorData[index + 3] = (uint8_t)((crc_os >> 24) & 0xFF); // старший байт
-    
-    //sectorData[BOOT_CRC_ADDRESS - 0x0800C000] = crc_os;
-    sectorData[CRC_ACCEPTED - 0x0800C000] = crc_accepted;
-    
-    
-    
-    
-      switch (type) 
-      {
-      case MAC:
-        address = (uint32_t *)FLASH_ADDRESS_MAC;
-        dataSize = 6;
-        break;
-      case IP:
-        address = (uint32_t *)FLASH_ADDRESS_IP;
-        dataSize = 4;
-        break;
-      case NETMASK:
-        address = (uint32_t *)FLASH_ADDRESS_NETMASK;
-        dataSize = 4;
-        break;
-      case GATEWAY:
-        address = (uint32_t *)FLASH_ADDRESS_GATEWAY;
-        dataSize = 4;
-        break;
-      case SERIAL:
-        address = (uint32_t *)FLASH_ADDRESS_SERIAL;
-        dataSize = 6;
-        break;
-      case RS485SPEED:
-        address = (uint32_t *)FLASH_ADDRESS_RS485_SPEED;
-        dataSize = 3;
-        break;
-      case RS485PARITIY:
-        address = (uint32_t *)FLASH_ADDRESS_RS485_PARITIY;
-        dataSize = 10;
-        break;
-      case RS485STOPBIT:
-        address = (uint32_t *)FLASH_ADDRESS_RS485_STOPBIT;
-        dataSize = 1;
-        break;
-      default:
-        return; 
-      }
-    
-    if(data)
-    {
-    memcpy(address, data, dataSize);
-    }
-    
-    
-    //FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
-    osDelay(150);
-    // Запись обратно в 3-й сектор
-    WriteToFlash(0x0800C000, sectorData, 0x1000);
-    taskEXIT_CRITICAL();
-}
 
 
 /*
@@ -2532,8 +2442,8 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
     if (Flash_WritePacket(packetData, BinDataLength) != HAL_OK)
     {
         pbuf_free(p);
-        return ERR_BUF;
         error_flash = 1;
+        return ERR_BUF;
         
     }
 
@@ -2546,6 +2456,8 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
       boot_flag_new = 1;
       WriteFlash(0, 0);
     }
+    
+
        
     return ERR_OK;
 }
@@ -2562,7 +2474,7 @@ err_t httpd_post_begin(void *connection, const char *uri, const char *http_reque
 void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len) 
 {
 
-    const char *success_message = "/updateprocess.shtml"; // Путь к странице успешного ответа
+    const char *success_message = "/update.shtml"; // Путь к странице успешного ответа
     size_t message_len = strlen(success_message);
     
     strncpy(response_uri, success_message, response_uri_len - 1);
