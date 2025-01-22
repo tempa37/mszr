@@ -110,7 +110,7 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x01};
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x20, 0x2F};
 uint16_t soft_ver_modbus = 101;
 extern struct httpd_state *hs;
 
@@ -222,20 +222,16 @@ uint8_t pinaccept = 0;
 #define BOOT_FLAG_NEW_ADDRESS 0x0800C084 
 #define SECTOR_1_ADDRESS 0x08020000 //end in 0x08080000 (sector 5/6/7) 384kb in total
 #define SECTOR_2_ADDRESS 0x08080000 // end in 0x080E0000 (sector 8/9/10) 384kb in total
-#define BOOTLOADER_ADDRESS 0x08010000 //end in 0x0801FFFF (sector 4)  64kb in total
-#define SECTOR_ENABLED_ADDRESS 0x0800C088 //активный сектор
-#define SECTOR_2_LEN 0x0800C100 //none
-#define CRC_ACCEPTED 0x0800C090
+#define BOOTLOADER_ADDRESS 0x08000000 //end in 0x0800C080  48kb in total
+#define SECTOR_ENABLED_ADDRESS 0x0800C088 //1 - нет новой ОС, 2 - есть новоя ОС
+
+
 //--------------------------(critical flags)------------------------------------
 //после изменения этих флагов нужно вызвать WriteFlash(0, 0); 
 //для их автоматической запиши во флеш
-volatile uint8_t client_accepted = 0;
 volatile uint8_t boot_os_ok = 0;
-volatile uint8_t boot_flag_crc = 0;
 volatile uint8_t boot_flag_new = 0;
 volatile uint8_t sector_enabled = 0;
-volatile uint32_t sector_1_len = 0;
-volatile uint32_t sector_2_len = 0;
 volatile uint32_t crc_os = 0;
 volatile uint8_t crc_accepted = 5;
 //------------------------------------------------------------------------------
@@ -544,6 +540,7 @@ void StartTask02(void *argument)
         */
       
         uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
+        //rms = 300; //for test
         osDelay(50);
         float leak_phase_A_macros = calculate_rms_A_macros(rms);
         float leak_phase_B_macros = calculate_rms_B_macros(rms);
@@ -586,36 +583,37 @@ void StartTask02(void *argument)
       startMyTimer_RESET(25000);
       restart = 0;
     } 
-//-------------------------------------------------------------------------------------------------------CRC-TEST-AREA-----------------------------------------------------------------------------------------
-//-------------------------------------------------------------------------------------------------------CRC-TEST-AREA-----------------------------------------------------------------------------------------
-     
 
-
-    
+//--------------------------------------------------------------OS-UPDATE--------
     
     if((boot_flag_new == 1) && (next_free_addr != 0))
     { 
-      static uint8_t iteration_1 = 1;
-      
-      
-      if(iteration_1)
-        {
+          address = SECTOR_2_ADDRESS;
           uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
 
           if(crc_os == crc_stm)
           {
-
             crc_accepted = 1;
-            swichSector();
+            sector_enabled = 2;
             WriteFlash(0, 0);
-            
             startMyTimer_RESET(7000);
-            iteration_1 = 0;
+            next_free_addr = 0;
           }
-        }
+          else if(crc_os != crc_stm)
+          {
+            crc_accepted = 0;
+            boot_flag_new = 0;
+            next_free_addr = 0;
+            FLASH_Erase_Sector(FLASH_SECTOR_8, VOLTAGE_RANGE_3);
+            FLASH_Erase_Sector(FLASH_SECTOR_9, VOLTAGE_RANGE_3);
+            FLASH_Erase_Sector(FLASH_SECTOR_10, VOLTAGE_RANGE_3);
+            WriteFlash(0, 0);
+            startMyTimer_RESET(7000);
+          }
+        
     }
     
-//--------------------------------------------------------------------------------------------------------TEST-AREA-END------------------------------------------------------------------------------------
+//----------------------------------------------------------------OS-UPDATE-END--
     osDelay(25);
     
     
@@ -1620,7 +1618,6 @@ void WriteFlash(FlashDataType type, uint8_t* data)
     sectorData[index + 2] = (uint8_t)((crc_os >> 16) & 0xFF); // третий байт
     sectorData[index + 3] = (uint8_t)((crc_os >> 24) & 0xFF); // старший байт
     
-    sectorData[CRC_ACCEPTED - 0x0800C000] = crc_accepted;
     
       switch (type) 
       {
@@ -1692,9 +1689,9 @@ void WriteFlash(FlashDataType type, uint8_t* data)
         return; 
       }
     
-    if(data)
+    if (data) 
     {
-      memcpy(sectorData, data, dataSize);
+    memcpy(&sectorData[(uint32_t)address - 0x0800C000], data, dataSize);
     }
     
     
@@ -2183,26 +2180,12 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
     
     if(next_free_addr == 0)
     {
-    switch(sector_enabled)
-        {
-          case 1:
             address = SECTOR_2_ADDRESS;
             len = 393216;
             next_free_addr = SECTOR_2_ADDRESS;
             FLASH_Erase_Sector(FLASH_SECTOR_8, VOLTAGE_RANGE_3);
             FLASH_Erase_Sector(FLASH_SECTOR_9, VOLTAGE_RANGE_3);
             FLASH_Erase_Sector(FLASH_SECTOR_10, VOLTAGE_RANGE_3);
-            break;
-          
-          case 2:
-            address = SECTOR_1_ADDRESS;
-            len = 393216;
-            next_free_addr = SECTOR_1_ADDRESS;
-            FLASH_Erase_Sector(FLASH_SECTOR_5, VOLTAGE_RANGE_3);
-            FLASH_Erase_Sector(FLASH_SECTOR_6, VOLTAGE_RANGE_3);
-            FLASH_Erase_Sector(FLASH_SECTOR_7, VOLTAGE_RANGE_3);
-            break;
-        }
     }
     
     
@@ -2213,6 +2196,7 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
     {
         return HAL_ERROR; // Флеш память переполнена
     }
+    
     taskENTER_CRITICAL();
     // Разблокировка флеш памяти для записи
     HAL_FLASH_Unlock();
@@ -2234,7 +2218,7 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
         }
     }
 
-    // Сохраняем указатель на свободную ячейку для следующего пакета ------------------------------------------установить в 0 после обработки всех пакетов
+    // Сохраняем указатель на свободную ячейку для следующего пакета
     next_free_addr += packet_size;  // ---invalid
     // Блокировка флеш памяти после записи
     iteration++;
@@ -2249,95 +2233,8 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
     return status;
 }
 
+//---------------------------------------------------------------------------------OS-UDATE-FUNCTIONS---
 
-
-
-
-
-
-// Основная функция для работы с сектором
-
-
-/*
-const char * UPLOAD_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]) {
-  
-        setrelay(0);
-      
-      if (iNumParams > 0 && strcmp(pcParam[0], "file") == 0) {
-        uint32_t packetIndex = atoi(pcParam[1]);  // Номер текущего пакета
-        uint32_t totalPackets = atoi(pcParam[2]);  // Общее количество пакетов
-        char *packetData = pcValue[0];  // Данные пакета
-        
-        static uint32_t received_size;
-        static uint32_t received_size_now;
-      
-        received_size += strlen(packetData);
-        
-        uint16_t packet_size = strlen(packetData);
-        packet_size = get_body_length(packetData, packet_size);
-        packetData = extract_body(packetData);
-        
-        
-        Flash_WritePacket(packetData, packet_size);
-        
-        // Если мы получили все пакеты
-        if (packetIndex == (totalPackets-1)) {
-            return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nFile uploaded successfully!";
-            received_size = 0;          
-            boot_flag_new  = 1;  
-        }
-
-        // Ответ на успешный прием пакета
-        return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nPacket received";
-    
-    }
-}
-*/
-
-
-
-/*
-err_t httpd_post_receive_data(void *connection, struct pbuf *p) 
-{
-
-
-    struct file_upload_context *context = (struct file_upload_context *)connection;
-
-    // Извлечение данных из pbuf
-    uint16_t packet_size = p->tot_len; // Общий размер данных пакета
-    char *packetData = (char *)p->payload; // Указатель на полезные данные
-    
-    if (Flash_WritePacket(packetData, packet_size) != HAL_OK)
-    {
-      return ERR_BUF;
-    }
-
-
-
-    return ERR_OK; // Информируем об успешной обработке пакета
-}
-
-err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
-                       u16_t http_request_len, int content_len, char *response_uri,
-                       u16_t response_uri_len, u8_t *post_auto_wnd)
-{
-    // Начало обработки POST-запроса
-    return ERR_OK;
-}
-
-
-
-void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len) 
-{
-    // Завершение обработки POST-запроса
-
-}
-
-
-
-
-//---------------------------------------------------------------------------------ANOTHER-CODE-END---
-*/
 //возвращает указатель на элемент массива[указанный тег + 0x0d 0x0a 0x0d 0x0a]
 char *parser(uint8_t *buf, uint16_t len, const char *str) {
     uint8_t flags[] = {0x0D, 0x0A, 0x0D, 0x0A};
@@ -2500,6 +2397,8 @@ void CRC_Config(void)
 
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address) 
 {
+    __HAL_CRC_DR_RESET(&hcrc);
+    
     // Проверяем, что адреса выровнены по 4 байта
     if (start_address % 4 != 0) {
         return 0xFFFFFFFF; // Ошибка

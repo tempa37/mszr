@@ -205,14 +205,23 @@
             Ошибка! CRC прошивки не принято.
           </div>
         `;
+		
+		
+		setTimeout(() => {
+		  window.location.href = "index.shtml"; 
+		}, 7000);
 
       // 3) Если всё залилось (field5Value = "1")
       } else if (field5Value === "1") {
         contentDiv.innerHTML = `
           <div class="success" style="text-align: center; color: green; font-size: 24px; margin-top: 50px;">
-            ПО успешно загружено. Устройство перезагрузится для применения изменений!
+            ПО успешно загружено. Проверка CRC пройдена. Устройство перезагрузится для применения изменений!
           </div>
         `;
+		
+		setTimeout(() => {
+		  window.location.href = "index.shtml"; 
+		}, 20000);
 
       // 4) Если пришла всякая левота
       } else {
@@ -221,6 +230,10 @@
             Неизвестная ошибка на стороне МК
           </div>
         `;
+		
+		setTimeout(() => {
+		  window.location.href = "index.shtml"; 
+		}, 7000);
       }
     }
   </script>
