@@ -202,7 +202,7 @@
       } else if (field5Value === "0") {
         contentDiv.innerHTML = `
           <div class="warning" style="text-align: center; color: red; font-size: 24px; margin-top: 50px;">
-            Ошибка! CRC прошивки не принято.
+            Ошибка! CRC прошивки не принято. Устройство перезагрузится и удалит принятые данные.
           </div>
         `;
 		

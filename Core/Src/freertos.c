@@ -110,7 +110,7 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x20, 0x2F};
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0xA0, 0x22};
 uint16_t soft_ver_modbus = 101;
 extern struct httpd_state *hs;
 
@@ -602,11 +602,8 @@ void StartTask02(void *argument)
           else if(crc_os != crc_stm)
           {
             crc_accepted = 0;
-            boot_flag_new = 0;
+            sector_enabled = 2;
             next_free_addr = 0;
-            FLASH_Erase_Sector(FLASH_SECTOR_8, VOLTAGE_RANGE_3);
-            FLASH_Erase_Sector(FLASH_SECTOR_9, VOLTAGE_RANGE_3);
-            FLASH_Erase_Sector(FLASH_SECTOR_10, VOLTAGE_RANGE_3);
             WriteFlash(0, 0);
             startMyTimer_RESET(7000);
           }
