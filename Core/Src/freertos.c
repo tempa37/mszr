@@ -110,7 +110,7 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0xA0, 0x22};
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x02};
 uint16_t soft_ver_modbus = 101;
 extern struct httpd_state *hs;
 
@@ -125,7 +125,7 @@ struct netconn *newconn = NULL;
 
 const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
-"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "CRCACC"};
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "CRCACC", "JSON"};
 
 
 typedef enum 
@@ -365,8 +365,11 @@ extern void OLED_1in5_rgb_run();
 void EXTI6_DeInit(void);
 
 const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
-const tCGI LEDS_CGI = {"/save", SAVE_CGI_Handler};
-tCGI CGI_TAB[1];
+const char * JSON_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
+
+const tCGI SAVE_CGI = {"/save", SAVE_CGI_Handler};
+const tCGI JSON_CGI = {"/json", JSON_CGI_Handler};
+tCGI CGI_TAB[2];
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -464,8 +467,9 @@ void StartDefaultTask(void *argument)
   
   /* USER CODE BEGIN StartDefaultTask */
   
-  CGI_TAB[0] = LEDS_CGI;
-  http_set_cgi_handlers(CGI_TAB, 1);
+  CGI_TAB[0] = SAVE_CGI;
+  CGI_TAB[1] = JSON_CGI;
+  http_set_cgi_handlers(CGI_TAB, 2);
   xPacketSemaphore = xSemaphoreCreateBinary();
   xPacketSaved = xSemaphoreCreateBinary();
   
@@ -1088,6 +1092,10 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   {
     snprintf((char*)buffer, bufferSize, "%d", crc_accepted);
   }
+  else if(iIndex == 26)
+  {
+    snprintf((char*)buffer, bufferSize, "{\"current\":%u}", REGISTERS[1]);
+  }
   
 
   
@@ -1098,7 +1106,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 
 void httpd_ssi_init(void) 
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 26);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 27);
 }
 
 
@@ -1423,8 +1431,20 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     }
     
     
+    static char responseBuf[256];
+  
+    // Сформировать JSON
+    // Для примера: {"temp":25.3, "voltage":3.3}
+    float temperature = 25.3f;
+    float voltage = 3.3f;
+    snprintf(responseBuf, sizeof(responseBuf), 
+             "{\"temp\":%.1f,\"voltage\":%.1f}",
+             temperature, voltage);
+
+    
     restart = 1;
-    return 0;
+    return responseBuf;
+    //return 0;
   }
 
   
@@ -1432,6 +1452,13 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   
   
   return 0;
+}
+
+
+
+const char * JSON_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
+{
+  return 0; //там просто подставить SSI тег текущего тока
 }
 
 //---------------------------------------------------------------------------------HTTPD-SERVER-LOGICS-END---

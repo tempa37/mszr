@@ -105,6 +105,44 @@ window.onload = function() {
 		console.log("Speed value:", speedSelect.value);
 		console.log("Stop Bit value:", document.getElementById('field22').value);
 		console.log("Parity value:", document.getElementById('field21').value);
+		
+		function updateValues() {
+			fetch('/json.shtml')
+			  .then(response => response.text())
+			  .then(fullText => {
+				const currentVal = parseCurrent(fullText);
+				document.getElementById('current-value').textContent = currentVal;
+			  })
+			  .catch(error => {
+				console.error('Ошибка парсера', error);
+			  });
+		  }
+
+		  function parseCurrent(str) {
+			  
+			  console.log("Полный ответ сервера:", str); // Выводим полный текст ответа
+			  
+			  
+			const regex = /"current"\s*:\s*(\d+(?:\.\d+)?)/;
+			const match = regex.exec(str);
+			
+			
+			if (match) {
+				console.log("Найдено значение current:", match[1]); // Если нашли число
+				return match[1];
+			  } else {
+				console.error("Не удалось найти current в строке."); // Если ничего не нашли
+				return 'N/A';
+			  }
+			
+			
+			
+			
+			return match && match[1] ? match[1] : 'N/A';
+		  }
+
+		// Установка интервала обновления каждые 500 мс
+		setInterval(updateValues, 500);
 	}
 
 	var errorPin = document.getElementById('field5').value;
@@ -336,6 +374,8 @@ function setrelay()
         }, 1000);
 
 }
+
+
 
 const mac1Element = document.getElementById('mac1');
 if (mac1Element) {
