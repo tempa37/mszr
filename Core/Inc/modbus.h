@@ -1,6 +1,8 @@
 #ifndef MODBUS_H
 
 #define MODBUS_H
+#define UNWRITER (address == 3)    
+//регистры, запрещенные к записи
 
 #include <stdint.h>
 
@@ -9,19 +11,19 @@
               RTU
 	} Protocol;
 	
-        extern  uint16_t REGISTERS[4];
+        extern  uint16_t REGISTERS[5];
 	
 	#define SELF_ADDR 1
 
 	//---------------------------------0x03--REGISTERS-----------------------------
 
 	#define READ_REGISTERS 					REGISTERS   //массив из регистров для чтения
-	#define LEN_0X03_REGISTERS      		        4			//количество доступных для чтения регистров
+	#define LEN_0X03_REGISTERS      		        5			//количество доступных для чтения регистров
 
 	//---------------------------------0x06--REGISTERS-----------------------------
 
 	#define WRITE_REGISTERS 				REGISTERS  //массив регистров для записи
-	#define LEN_0X06_REGISTERS				1		   //количество регистров для записи
+	#define LEN_0X06_REGISTERS				3		   //количество регистров для записи
 	#define WRITE_REGISTERS_ADDRESS			        2		   //адрес регистра 1
 
 	//---------------------------------END--REGISTERS------------------------------

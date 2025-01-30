@@ -1,6 +1,10 @@
 Content-type: application/json
 
-<!--#JSON-->
+<!--#JSON-->  /
+
+<!--#RELAY--> /
+
+<!--#ALERT--> /
 
 //вообще не понимаю
 //почему обрезаются строки

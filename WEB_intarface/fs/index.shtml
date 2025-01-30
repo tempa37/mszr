@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Трансмаштомск</title><link rel="stylesheet" href="styles.css" /></head><body><div class="header"><div class="uptime-section"><h2>Микроконтроллерная система защиты рудничная МСЗР-380</h2></div></div><div class="container"><div class="right-section"><div class="uptime-section">
-				<h2>Ток утечки</h2>
-			<p><span id="current-value"><!--#AMP--> mA</span> / <span id="threshold-value"><!--#TVALUE--> mA</span></p>	
+				
+			<p>Ток утечки   <span id="current-value"><!--#AMP--> mA</span> / <span id="threshold-value"><!--#TVALUE--> mA</span></p>	
+			<canvas id="chartCanvas" width="400" height="200"></canvas>
 		</div>	
 				<div class="info-field">
                 <label for="field1">MAC:</label>
@@ -25,7 +26,9 @@
                 <label for="field11">Подключение RS-485</label>
                 <input type="text" id="field11" name="field11" value="<!--#RS485-->" disabled>
             </div>
-			<button class="button-relay" onclick="setrelay()"><!--#RELAY--></button>
+			
+			<button class="button-relay" id="buttonrel" onclick="setrelay()"><!--#RELAY--></button>
+			<button class="button-test" onclick="test()">ТЕСТ</button>
 	</div>
         <div class="right-section">
             <div class="info-field">
@@ -100,6 +103,12 @@
 				<p>Веденные вами данные недействительны.<br>Убедитесь что вы вписали верные значения</p>
 				<button class="ok-button" onclick="closemodal()">OK</button>
 			</div>		
+		</div>
+		<div id="alertModal" class="modal">
+			<div class="modal-content">
+				<p id="alertMessege">Внимание, устройство заметило резкий рост тока сопротивления!</p>
+				<button class="ok-button" onclick="closeAlertModal()">OK</button>
+			</div>
 		</div>
 	</div>		
 <script src="myScript.js"></script>

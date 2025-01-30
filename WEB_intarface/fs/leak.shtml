@@ -56,7 +56,7 @@
             width: calc(280px * 3 + 40px);
             max-width: calc(100% - 40px);
             margin: 10px auto 0;
-            gap: 300px; /* регулируйте для вашего дизайна */
+            gap: 80px; /* регулируйте для вашего дизайна */
         }
         .toggle-container {
             display: flex;
@@ -315,6 +315,19 @@
                 <span>mA</span>
             </div>
         </form>
+		
+		
+		<form>
+            <div class="tooltip">
+                ⓘ
+                <span class="tooltiptext">При достижении током данного порога, система сгенерирует предупреждение.</span>
+            </div>
+            <label class="field-label" for="target_value">Порог предупреждения:</label>
+            <div class="serial-input">
+                <input id="warning_value" type="text" value="<!--#WVALUE-->">
+                <span>mA</span>
+            </div>
+        </form>
 
 
         <div class="toggle-container">
@@ -394,7 +407,7 @@
             const cPhaseC = document.getElementById('c_phase_c').value;
             const rLeakC = document.getElementById('r_leak_c').value;
             const targetValue = document.getElementById('target_value').value;
-			
+			const warningValue = document.getElementById('warning_value').value
 			
 			const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
 			
@@ -407,6 +420,7 @@
             if (cPhaseC) updatedData.c_phase_c = cPhaseC;
             if (rLeakC)  updatedData.r_leak_c  = rLeakC;
             if (targetValue) updatedData.target_value = targetValue;
+			if (warningValue) updatedData.warning_value = warningValue;
 			
 			updatedData.checked = hardwareProtectionToggle.checked ? 1 : 0;
 			

@@ -63,7 +63,7 @@ extern  uint8_t rxBuffer[50];
 extern uint8_t IP_ADDRESS[4];
 extern uint8_t NETMASK_ADDRESS[4];
 extern uint8_t GATEWAY_ADDRESS[4];
-extern uint16_t REGISTERS[4];
+extern uint16_t REGISTERS[5];
 extern uint32_t usart_speed;
 uint8_t SERIAL_ADDRESS[6] = {0};
 
@@ -75,6 +75,7 @@ float R_leak_B = 0;
 float C_phase_C = 0;
 float R_leak_C = 0;
 uint8_t TARGET_VALUE = 0;
+uint8_t WARNING_VALUE = 0;
 
 uint8_t hw_protection = 1;
 #define FLASH_ADDRESS_C_PHASE_A 0x0800C0A0
@@ -85,6 +86,7 @@ uint8_t hw_protection = 1;
 #define FLASH_ADDRESS_R_LEAK_C  0x0800C0F0
 #define FLASH_ADDRESS_TARGET_VALUE 0x0800C100
 #define FLASH_ADDRESS_HW_PROTECTION 0x0800C110
+#define FLASH_ADDRESS_WARNING_VALUE 0x0800C120
 
 
 
@@ -125,7 +127,7 @@ struct netconn *newconn = NULL;
 
 const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
-"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "CRCACC", "JSON"};
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "CRCACC", "JSON", "WVALUE", "ALERT"};
 
 
 typedef enum 
@@ -145,7 +147,8 @@ typedef enum
   C_PHASE_C,
   R_LEAK_C,
   TaRGET_VALUE,
-  HW_PROTECTION
+  HW_PROTECTION,
+  Warning_VALUE
 } FlashDataType;
 
 typedef struct 
@@ -322,6 +325,7 @@ void vMyTimerCallback(TimerHandle_t xTimer);
 void convert_str_to_uint8_array_serial(const char* input, uint8_t* output);
 void EXTI12_Init(void);
 void EXTI15_10_IRQHandler(void);
+
 
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
 void UpdateSector3();
@@ -530,6 +534,8 @@ void StartTask02(void *argument)
   HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_RESET);
   ReadFlash(SERIAL, SERIAL_ADDRESS);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+
+  
   
   for(;;)
   {
@@ -568,8 +574,12 @@ void StartTask02(void *argument)
     {
       theme = 1;
     }
-
     
+    if(REGISTERS[1] >= WARNING_VALUE)
+    {
+      REGISTERS[4] = (REGISTERS[4] |= 0x02);
+    }
+
     
     if(hw_protection)
     {
@@ -823,6 +833,10 @@ void StartTask04(void *argument)
     {
       setrelay(0);
       osDelay(5000);
+      if(REGISTERS[1] <= TARGET_VALUE)
+      {
+        setrelay(1);
+      }
       start = 0;
       fff = 0;
     }
@@ -834,6 +848,11 @@ void StartTask04(void *argument)
       osDelay(3000);
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+      osDelay(500);
+      if(REGISTERS[1] <= TARGET_VALUE)
+      {
+        setrelay(1);
+      }
       button_ivent = 0;
     }
     osDelay(10);
@@ -894,6 +913,7 @@ void StartTask06(void *argument)
     {
       RS485 = 1;
     }
+   
     
           if(ch == 1)
           {
@@ -1094,7 +1114,15 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
   else if(iIndex == 26)
   {
-    snprintf((char*)buffer, bufferSize, "{\"current\":%u}", REGISTERS[1]);
+    snprintf((char*)buffer, bufferSize, "{\"current\":%u}", REGISTERS[1]);   //like a JSON
+  }
+  else if(iIndex == 27)
+  {
+    snprintf((char*)buffer, bufferSize, "%d", WARNING_VALUE);
+  }
+  else if(iIndex == 28)
+  {
+    snprintf((char*)buffer, bufferSize, "%d", REGISTERS[4]);
   }
   
 
@@ -1106,7 +1134,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 
 void httpd_ssi_init(void) 
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 27);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 29);
 }
 
 
@@ -1125,6 +1153,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char rs485stopbit[18] = {0};
   
   
+  
   char c_phase_a_str[18]  = {0};
   char r_leak_a_str[18]   = {0};
   char c_phase_b_str[18]  = {0};
@@ -1133,6 +1162,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char r_leak_c_str[18]   = {0};
   char target_value_str[18] = {0};
   char hw_protection_arr[18] = {0};
+  char warning_value_str[18] = {0};
 
   uint8_t c_phase_a_flag     = 0;
   uint8_t r_leak_a_flag      = 0;
@@ -1142,6 +1172,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   uint8_t r_leak_c_flag      = 0;
   uint8_t target_value_flag  = 0;
   uint8_t hw_protection_flag = 0;
+  uint8_t warning_value_flag = 0;
   
   uint8_t ip_flag = 0;
   uint8_t mask_flag = 0;
@@ -1259,10 +1290,19 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       strncpy(target_value_str, pcValue[i], sizeof(target_value_str) - 1);
       target_value_flag = 1;
     }
+    else if (strcmp(pcParam[i], "warning_value") == 0)
+    {
+      strncpy(warning_value_str, pcValue[i], sizeof(warning_value_str) - 1);
+      warning_value_flag = 1;
+    }
     else if (strcmp(pcParam[i], "checked") == 0) //   WH_PROTECTION
     {
       strncpy(hw_protection_arr, pcValue[i], sizeof(target_value_str) - 1);
       hw_protection_flag = 1;
+    }
+    else if(strcmp(pcParam[i], "test") == 0)
+    {
+      button_ivent = 1;
     }
   
   }
@@ -1297,6 +1337,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(C_PHASE_A, output);
       memset(output, 0, sizeof(output));
       c_phase_a_flag = 0;
+      C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
     }
 
     if (r_leak_a_flag != 0)
@@ -1305,6 +1346,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(R_LEAK_A, output);
       memset(output, 0, sizeof(output));
       r_leak_a_flag = 0;
+      R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
     }
 
     if (c_phase_b_flag != 0)
@@ -1313,6 +1355,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(C_PHASE_B, output);
       memset(output, 0, sizeof(output));
       c_phase_b_flag = 0;
+      C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
     }
 
     if (r_leak_b_flag != 0)
@@ -1321,6 +1364,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(R_LEAK_B, output);
       memset(output, 0, sizeof(output));
       r_leak_b_flag = 0;
+      R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
     }
 
     if (c_phase_c_flag != 0)
@@ -1329,6 +1373,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(C_PHASE_C, output);
       memset(output, 0, sizeof(output));
       c_phase_c_flag = 0;
+      C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
     }
 
     if (r_leak_c_flag != 0)
@@ -1337,6 +1382,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(R_LEAK_C, output);
       memset(output, 0, sizeof(output));
       r_leak_c_flag = 0;
+      R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
     }
 
     if (target_value_flag != 0)
@@ -1345,6 +1391,16 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(TaRGET_VALUE, output);
       memset(output, 0, sizeof(output));
       target_value_flag = 0;
+      TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
+    }
+  
+      if (warning_value_flag != 0)
+    {
+      output[0] = (uint8_t)atoi(warning_value_str);
+      WriteFlash(Warning_VALUE, output);
+      memset(output, 0, sizeof(output));
+      warning_value_flag = 0;
+      WARNING_VALUE = *((uint8_t *)FLASH_ADDRESS_WARNING_VALUE);
     }
   
     if (hw_protection_flag != 0)
@@ -1353,18 +1409,17 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WriteFlash(HW_PROTECTION, output);
       memset(output, 0, sizeof(output));
       hw_protection_flag = 0;
+      hw_protection = *((uint8_t *)FLASH_ADDRESS_HW_PROTECTION);
     }
 
-    C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
-    R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
-    C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
-    R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
-    C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
-    R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
+    
+    
 
-    // Чтение значения типа uint8_t
-    TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
-    hw_protection = *((uint8_t *)FLASH_ADDRESS_HW_PROTECTION);
+
+
+
+   
+    
 
     //отключить аппаратное срабатывание защиты, т.к. настройки фаз изменились
     if(hw_protection == 0)
@@ -1431,20 +1486,9 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     }
     
     
-    static char responseBuf[256];
-  
-    // Сформировать JSON
-    // Для примера: {"temp":25.3, "voltage":3.3}
-    float temperature = 25.3f;
-    float voltage = 3.3f;
-    snprintf(responseBuf, sizeof(responseBuf), 
-             "{\"temp\":%.1f,\"voltage\":%.1f}",
-             temperature, voltage);
-
-    
     restart = 1;
-    return responseBuf;
-    //return 0;
+
+    return 0;
   }
 
   
@@ -1709,6 +1753,10 @@ void WriteFlash(FlashDataType type, uint8_t* data)
         address = (uint32_t *)FLASH_ADDRESS_HW_PROTECTION;
         dataSize = 1;
         break;
+      case Warning_VALUE:
+        address = (uint32_t *)FLASH_ADDRESS_WARNING_VALUE;
+        dataSize = 1;
+        break;
       default:
         return; 
       }
@@ -1784,10 +1832,15 @@ void load_values_from_flash(void)
         TARGET_VALUE = 25;
     }
     
-        // Чтение и проверка TARGET_VALUE
+    
     hw_protection = *(volatile uint8_t *)FLASH_ADDRESS_HW_PROTECTION;
     if (hw_protection == 0xFF) {
         hw_protection = 1;
+    }
+    
+    WARNING_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_WARNING_VALUE;
+    if(WARNING_VALUE == 0xFF) {
+       WARNING_VALUE = 1;
     }
 
 }
@@ -2517,6 +2570,10 @@ float calculate_rms_C_macros(uint16_t rms)
     return result;
 }
 
+
+
+  
+  
 
 
 

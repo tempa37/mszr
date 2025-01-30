@@ -9,6 +9,11 @@
             margin: 0;
             padding: 0;
         }
+		#chartCanvas {
+            border: 1px solid #444;
+            background-color: #333;
+			border-radius: 10px;
+		}
         .header {
 			justify-content: center;
             display: flex;
@@ -110,7 +115,12 @@
 			top: 0;
 			width: 100%;
 			height: 100%;
+			opacity: 0;
 			background-color: rgba(0, 0, 0, 0.5); 
+			transition: opacity 0.3s ease-out;
+		}
+		.modal.active {
+			opacity: 1;
 		}
 		.modal-content {
 			background-color: #242323;
@@ -120,6 +130,8 @@
 			width: 30%; 
 			text-align: center;
 			border-radius: 10px;
+			transform: translateY(-20px);
+			transform: translateY(-20px);
 		}
 		.ok-button, .cancel-button {
 			padding: 10px 20px;
@@ -236,8 +248,8 @@
 			cursor: pointer;
 			transition: background-color 0.3s ease, color 0.3s ease;
 			    position: absolute;
-				top: 15%;
-				left: 60%;
+				top: 33%;
+				left: 75%;
 				transform: translate(-50%, -50%);
 		}
 
@@ -247,6 +259,16 @@
 		}
 
 		.button-relay:active {
+			background-color: #779c6d; /* Цвет кнопки при нажатии */
+			color: #333;
+		}
+		
+		.button-test:hover {
+			background-color: #555; /* Цвет кнопки при наведении */
+			color: #ffffff;
+		}
+
+		.button-test:active {
 			background-color: #779c6d; /* Цвет кнопки при нажатии */
 			color: #333;
 		}
@@ -398,7 +420,7 @@ select:focus {
     cursor: pointer; /* Курсор при наведении */
     transition: background-color 0.3s; /* Плавный переход */
 		position: absolute;
-		top: 79%;
+		top: 83.5%;
 		left: 70%;
 		transform: translate(-50%, -50%);
 }
@@ -406,8 +428,16 @@ select:focus {
 .edit-button-inline:hover {
     background-color: #777; /* Цвет при наведении */
 }
+		#alertModal .modal-content {
+			max-width: 400px;
+			transform: translateY(-20px);
+			transition: transform 0.3s ease-out;
+		}
 		
 		
+		.modal.active .modal-content {
+		transform: translateY(0);
+		}
 		
     </style>
 	

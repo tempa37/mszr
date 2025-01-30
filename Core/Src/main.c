@@ -50,7 +50,7 @@
   uint16_t adcBuffer[2000] = {0};
 
 
-  uint16_t REGISTERS[4] = {0};
+  uint16_t REGISTERS[5] = {0};
   uint8_t OLED = 1;
   uint8_t t = 0;
   uint8_t rxBuffer[8] = {0};

@@ -69,7 +69,7 @@ void readREG (Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out,
 		start_address = (data[2] << 8) | data[3];
 		quantity = (data[4] << 8) | data[5];
 		
-		if (quantity > LEN_0X03_REGISTERS || start_address + quantity > LEN_0X03_REGISTERS) 
+		if (quantity > LEN_0X03_REGISTERS || start_address + quantity > LEN_0X03_REGISTERS)
 		{
 			modbus_response_err(protocol,data, data_out, len_out, 0x02);  //Illegal Data Address
 			return;
@@ -138,8 +138,8 @@ void writeREG(Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out,
 	{
 		uint16_t address = (data[2] << 8) | data[3];
 		
-		if (address < WRITE_REGISTERS_ADDRESS || 
-			address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS)
+		if ((address < WRITE_REGISTERS_ADDRESS || 
+			address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
 		{
 			modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
 			return;
@@ -169,16 +169,16 @@ void writeREG(Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out,
 		}
 
 		uint8_t unit_id = data[6]; // Unit ID
-		uint16_t register_address = (data[8] << 8) | data[9]; 
+		uint16_t address = (data[8] << 8) | data[9]; 
 		uint16_t register_value = (data[10] << 8) | data[11]; 
-		if (register_address < WRITE_REGISTERS_ADDRESS || 
-			register_address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS)
+		if ((address < WRITE_REGISTERS_ADDRESS || 
+			address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
 		{
 			modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
 			return;
 		}
 
-		REGISTERS[register_address] = register_value;
+		REGISTERS[address] = register_value;
 
 		data_out[0] = (transaction_id >> 8) & 0xFF;
 		data_out[1] = transaction_id & 0xFF;
@@ -188,8 +188,8 @@ void writeREG(Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out,
 		data_out[5] = 0x06; 
 		data_out[6] = unit_id; 
 		data_out[7] = 0x06; 
-		data_out[8] = (register_address >> 8) & 0xFF;
-		data_out[9] = register_address & 0xFF;
+		data_out[8] = (address >> 8) & 0xFF;
+		data_out[9] = address & 0xFF;
 		data_out[10] = (register_value >> 8) & 0xFF;
 		data_out[11] = register_value & 0xFF;
                 *len_out = 12;
