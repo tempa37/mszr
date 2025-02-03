@@ -12,6 +12,159 @@ function extractValue(value) {
 	return value.replace(/<!--.*?-->/, '').trim(); // Убираем шаблон и лишние пробелы
 }
 
+let timeAlertShown = false;
+
+function showModal(modalId) {
+    // Скрываем все окна с классом .modal_time
+    document.querySelectorAll('.modal_time').forEach(function(modal) {
+        modal.style.display = 'none';
+    });
+    // Показываем окно с нужным id
+    document.getElementById(modalId).style.display = 'block';
+}
+
+
+
+ function close_time_alert(){
+	 var timeSection = document.getElementById('time3');
+	 timeSection.style.display = 'none';	 
+ }
+
+ function show_2st_alert(){
+      showModal("time2")
+    }
+
+    function show_1st_alert(){
+      showModal("time1")
+    }
+
+    function show_3st_alert(){
+	  
+
+	  
+	  
+	  globalHours = document.getElementById('hours').value.trim();
+	  globalMinutes = document.getElementById('minutes').value.trim();
+	  globalSeconds = document.getElementById('seconds').value.trim();
+	  
+	  
+	 console.log("globalHours:", globalHours);
+	console.log("globalMinutes:", globalMinutes);
+	console.log("globalSeconds:", globalSeconds);
+	  
+	   if (!globalHours || !globalMinutes || !globalSeconds) {
+		alert('Пожалуйста, заполните все поля');
+		return; 
+	  }
+	  
+	  
+     showModal("time3")
+    }
+
+
+
+
+    document.addEventListener('DOMContentLoaded', function() {
+      const maxValues = {
+        hours: 24,
+        minutes: 59,
+        seconds: 59
+      };
+
+      const fields = ['hours', 'minutes', 'seconds'];
+
+      fields.forEach((field, index) => {
+        const input = document.getElementById(field);
+        if(input) {
+          input.addEventListener('input', function(e) {
+            this.value = this.value.replace(/\D/g, '');
+            let value = parseInt(this.value, 10);
+            if (!isNaN(value) && value > maxValues[field]) {
+              this.value = maxValues[field];
+            }
+            if (this.value.length === this.maxLength) {
+              const nextField = fields[index + 1];
+              if (nextField) {
+                document.getElementById(nextField).focus();
+              }
+            }
+          });
+
+          input.addEventListener('keydown', function(e) {
+            if (e.key === 'Backspace' && this.value.length === 0) {
+              const prevField = fields[index - 1];
+              if (prevField) {
+                document.getElementById(prevField).focus();
+              }
+            }
+          });
+        }
+      });
+      
+      // Обработка клика по дням календаря
+      document.querySelectorAll('.calendar-days .day').forEach(day => {
+        day.addEventListener('click', function() {
+          document.querySelectorAll('.calendar-days .day').forEach(d => d.classList.remove('selected'));
+          this.classList.add('selected');
+          selectedDay = this.getAttribute('data-day');
+        });
+      });
+    });
+
+   
+var globalHours = "";
+var globalMinutes = "";
+var globalSeconds = "";
+
+
+    let selectedDay = null;
+
+    function confirmDate() {
+      const month = document.getElementById('calendar-month').value;
+      const year = document.getElementById('calendar-year').value;
+      if (!selectedDay) {
+        alert('День не выбран');
+        return;
+      }
+      console.log('Выбрана дата: ' + selectedDay + '-' + month + '-' + year + '- время: ' + globalHours + '-' + globalMinutes + '-' + globalSeconds);
+	  saveDateTime();
+
+    }
+	
+	
+
+function saveDateTime() {
+    // Собираем данные даты и времени
+    const month = document.getElementById('calendar-month').value;
+    const year = document.getElementById('calendar-year').value;
+    const date = `${selectedDay}-${month}-${year}`;
+    const time = `${globalHours}-${globalMinutes}-${globalSeconds}`;
+
+    // Логируем для проверки
+    console.log('Выбрана дата: ' + date + ' время: ' + time);
+
+    // Формируем объект с данными
+    const dateTimeData = {
+        date: date,
+        time: time
+    };
+
+    // Формируем строку запроса
+    const queryString = new URLSearchParams(dateTimeData).toString();
+
+    // Отправляем данные на сервер (пути можешь менять по необходимости)
+    fetch(`/save?${queryString}`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+   
+}
+
+
+
+
 window.onload = function() {
 	
     var inputField1 = document.getElementById("field3");
@@ -261,16 +414,27 @@ window.onload = function() {
 				 const someAlert_temp = parseALERT(fullText);
 				 let someAlert = 0;
 				 
-				 if ((someAlert_temp & 0x01) !== 0) 
+				 if ((someAlert_temp & 0x01) === 0x01) 
 				 {
 					 someAlert = 1;
 				 }
 				 
-				 if((someAlert_temp & 0x02) !== 0)
+				 if ((someAlert_temp & 0x02) === 0x02)
 				 {
 					 someAlert = 2;
 				 }
 				 
+				if ((someAlert_temp & 0x04) === 0x04) {
+					 if (!timeAlertShown) {
+                    console.log("Есть запрос на время");
+                    timeAlertShown = true;
+                    show_1st_alert();
+                }
+				} else {
+					// Флаг сброшен
+					close_time_alert();
+					timeAlertShown = false;
+				}
 				 
 				 
 
@@ -310,6 +474,10 @@ window.onload = function() {
 						}, 2000);
 				 }
 				}
+				
+
+
+				
 				
 				alertbefore = someAlert;
 				 

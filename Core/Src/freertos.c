@@ -229,6 +229,15 @@ uint8_t pinaccept = 0;
 #define SECTOR_ENABLED_ADDRESS 0x0800C088 //1 - нет новой ОС, 2 - есть новоя ОС
 
 
+
+#define MINUTE_10_SIZE 10
+#define HOUR_1_SIZE 6
+#define DAY_2_SIZE 48
+
+volatile uint16_t avg1h = 0;
+volatile uint16_t avg2d = 0;
+
+
 //--------------------------(critical flags)------------------------------------
 //после изменения этих флагов нужно вызвать WriteFlash(0, 0); 
 //для их автоматической запиши во флеш
@@ -260,6 +269,24 @@ volatile uint32_t er = 0;
 uint8_t response_data[20] = {0};
 
 //-------------------------------------------------------------------------------------------------------------------
+typedef struct {
+    uint16_t arr[MINUTE_10_SIZE];
+    uint8_t index;
+    uint32_t sum; 
+} CircularBuffer10Min;
+
+typedef struct {
+    uint16_t arr[HOUR_1_SIZE];
+    uint8_t index;
+    uint32_t sum;
+} CircularBuffer1Hour;
+
+typedef struct {
+    uint16_t arr[DAY_2_SIZE];
+    uint8_t index;
+    uint32_t sum;
+} CircularBuffer2Day;
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -354,6 +381,18 @@ void CRC_Config(void);
 uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str);
 char *parser(uint8_t *buf, uint16_t len, const char *str);
 
+
+
+void initBuffer10Min(CircularBuffer10Min *buffer);
+void initBuffer1Hour(CircularBuffer1Hour *buffer);
+void initBuffer2Day(CircularBuffer2Day *buffer);
+void init_circular_buffers(CircularBuffer10Min *buffer, CircularBuffer1Hour *buffer2, CircularBuffer2Day *buffer3);
+void addValue10Min(CircularBuffer10Min *buffer, uint16_t value);
+void addValue1Hour(CircularBuffer1Hour *buffer, uint16_t value);
+void addValue2Day(CircularBuffer2Day *buffer, uint16_t value);
+float getAverage10Min(CircularBuffer10Min *buffer);
+float getAverage1Hour(CircularBuffer1Hour *buffer);
+float getAverage2Day(CircularBuffer2Day *buffer);
 
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
@@ -536,6 +575,14 @@ void StartTask02(void *argument)
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
 
   
+  CircularBuffer10Min buffer10;
+  CircularBuffer1Hour buffer1Hour;
+  CircularBuffer2Day buffer2Day;
+  
+  
+  initBuffer10Min(&buffer10);
+  initBuffer1Hour(&buffer1Hour);
+  initBuffer2Day(&buffer2Day);
   
   for(;;)
   {
@@ -548,7 +595,7 @@ void StartTask02(void *argument)
         uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
         REGISTERS[1] = (uint16_t)(rms * 0.019922);  // REGISTERS[1] = ((((rms / 4096) * 3.3) * 3) / (121.1775) * 1000);
         */
-      
+        
         uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
         //rms = 300; //for test
         osDelay(50);
@@ -562,7 +609,38 @@ void StartTask02(void *argument)
         
         uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
         REGISTERS[1] = max_val;
-            
+        
+        
+        
+//----------------------------------------------------------------------------------WARNING-LOGIC-------------
+        static uint8_t lasttime = 0;
+        static uint8_t lasttime_hour = 0;
+       
+        static uint8_t count = 0;
+        
+        if(lasttime != time.minutes)
+        {
+          static uint8_t count = 0;
+          lasttime = time.minutes;
+          count++;
+          addValue10Min(&buffer10, REGISTERS[1]);
+          
+          if((time.minutes % 10) == 0)
+          {
+            uint16_t Average10min = (uint16_t)getAverage10Min(&buffer10);
+            count = 0;
+            addValue1Hour(&buffer1Hour, Average10min);
+            if(lasttime_hour != time.hours)
+            {
+              uint16_t Average1h = (uint16_t) getAverage1Hour(&buffer1Hour);
+              avg1h = Average1h;
+              lasttime_hour = time.hours;
+              addValue2Day(&buffer2Day, Average1h);
+              avg2d = getAverage2Day(&buffer2Day);
+            }
+          }
+        }
+//----------------------------------------------------------------------------------WARNING-LOGIC-END----------
     }
     
     if(REGISTERS[1] >= TARGET_VALUE)
@@ -575,6 +653,7 @@ void StartTask02(void *argument)
       theme = 1;
     }
     
+    //warning 2
     if(REGISTERS[1] >= WARNING_VALUE)
     {
       REGISTERS[4] = (REGISTERS[4] |= 0x02);
@@ -912,6 +991,20 @@ void StartTask06(void *argument)
     else
     {
       RS485 = 1;
+    }
+    
+    
+    //warning 1
+    if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2))
+    {
+      if(avg1h > avg2d)
+      {   
+        uint16_t delta = (avg2d - avg1h);
+        if(delta >= 5)
+        {
+          REGISTERS[4] = (REGISTERS[4] |= 0x01);
+        }
+      }
     }
    
     
@@ -2570,9 +2663,70 @@ float calculate_rms_C_macros(uint16_t rms)
     return result;
 }
 
+//--------------------------------------------------------------------------------------Positive Leakage Trend Analysis
+
+//------------------------------------
+void initBuffer10Min(CircularBuffer10Min *buffer) {
+    for(int i = 0; i < MINUTE_10_SIZE; i++) buffer->arr[i] = 0;
+    buffer->index = 0;
+    buffer->sum = 0;
+}
+void initBuffer1Hour(CircularBuffer1Hour *buffer) {
+    for(int i = 0; i < HOUR_1_SIZE; i++) buffer->arr[i] = 0;
+    buffer->index = 0;
+    buffer->sum = 0;
+}
+void initBuffer2Day(CircularBuffer2Day *buffer) {
+    for(int i = 0; i < DAY_2_SIZE; i++) buffer->arr[i] = 0;
+    buffer->index = 0;
+    buffer->sum = 0;
+}
+//-----------------------------------------
+void init_circular_buffers(CircularBuffer10Min *buffer, CircularBuffer1Hour *buffer2, CircularBuffer2Day *buffer3)
+{
+  initBuffer10Min(buffer);
+  initBuffer1Hour(buffer2);
+  initBuffer2Day(buffer3);
+}
+//---------------------------------------------
+
+void addValue10Min(CircularBuffer10Min *buffer, uint16_t value) {
+    // Вычитаем старое значение из суммы
+    buffer->sum -= buffer->arr[buffer->index];
+    // Добавляем новое значение
+    buffer->arr[buffer->index] = value;
+    buffer->sum += value;
+    // Сдвигаем индекс
+    buffer->index = (buffer->index + 1) % MINUTE_10_SIZE;
+}
+
+void addValue1Hour(CircularBuffer1Hour *buffer, uint16_t value) {
+    buffer->sum -= buffer->arr[buffer->index];
+    buffer->arr[buffer->index] = value;
+    buffer->sum += value;
+    buffer->index = (buffer->index + 1) % HOUR_1_SIZE;
+}
+
+void addValue2Day(CircularBuffer2Day *buffer, uint16_t value) {
+    buffer->sum -= buffer->arr[buffer->index];
+    buffer->arr[buffer->index] = value;
+    buffer->sum += value;
+    buffer->index = (buffer->index + 1) % DAY_2_SIZE;
+}
 
 
-  
+
+float getAverage10Min(CircularBuffer10Min *buffer) {
+    return (float)buffer->sum / MINUTE_10_SIZE;
+}
+
+float getAverage1Hour(CircularBuffer1Hour *buffer) {
+    return (float)buffer->sum / HOUR_1_SIZE;
+}
+
+float getAverage2Day(CircularBuffer2Day *buffer) {
+    return (float)buffer->sum / DAY_2_SIZE;
+}
   
 
 
