@@ -16,7 +16,7 @@
         <div class="right-section_admin">
 		<form class="mac-form">
 		  <label class="mac-label">MAC Адрес:</label>
-		  <div class="mac-input">
+		  <div class="mac-input no-fixed-width">
 			<input type="text" value="00" disabled>
 			<span></span>
 			<input type="text" value="10" disabled>

@@ -319,6 +319,11 @@
     background-color: #444444;
 	 width: 80px;
   }
+	.mac-input.no-fixed-width input:disabled {
+		color: #FFFFFF;
+		background-color: #444444;
+		width: 35px;
+	}
   
           .container_admin {
 			  display: flex;
