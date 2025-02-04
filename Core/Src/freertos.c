@@ -237,6 +237,22 @@ uint8_t pinaccept = 0;
 volatile uint16_t avg1h = 0;
 volatile uint16_t avg2d = 0;
 
+//-------------------------TIME---SECTION---------------------------------------
+
+
+typedef struct {
+    uint8_t seconds;   // 0-59
+    uint8_t minutes;   // 0-59
+    uint8_t hours;     // 0-23 (24-часовой формат)
+    uint8_t day;       // 1-31 (день месяца)
+    uint8_t month;     // 1-12
+    uint16_t year;     // Пример: 2023 (полный год)   //not used
+} DateTime;
+
+
+volatile uint8_t time_acepted = 0;  //not used
+
+
 
 //--------------------------(critical flags)------------------------------------
 //после изменения этих флагов нужно вызвать WriteFlash(0, 0); 
@@ -374,7 +390,7 @@ void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
 
-
+void save_to_log(uint8_t arr);
 void swichSector();
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
 void CRC_Config(void);
@@ -570,6 +586,9 @@ void StartTask02(void *argument)
   /* Infinite loop */
   
   REGISTERS[0] = soft_ver_modbus;
+  uint16_t mask = (1 << 2);  
+  REGISTERS[4] = (REGISTERS[4] | mask); 
+
   HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_RESET);
   ReadFlash(SERIAL, SERIAL_ADDRESS);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
@@ -1256,6 +1275,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char target_value_str[18] = {0};
   char hw_protection_arr[18] = {0};
   char warning_value_str[18] = {0};
+  char date_arr[50] = {0};
 
   uint8_t c_phase_a_flag     = 0;
   uint8_t r_leak_a_flag      = 0;
@@ -1266,6 +1286,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   uint8_t target_value_flag  = 0;
   uint8_t hw_protection_flag = 0;
   uint8_t warning_value_flag = 0;
+  uint8_t date_flag          = 0;
   
   uint8_t ip_flag = 0;
   uint8_t mask_flag = 0;
@@ -1397,9 +1418,20 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     {
       button_ivent = 1;
     }
+    else if(strcmp(pcParam[i], "date") == 0)
+    {
+      strncpy(date_arr, pcValue[i], sizeof(date_arr) - 1);
+      date_flag = 1;
+    }
+
   
   }
   
+  if(date_flag != 0)
+  {
+    save_to_log((uint8_t) date_arr);
+    date_flag = 0;
+  }
   
   if(mac_flag != 0)
   {
@@ -2728,7 +2760,14 @@ float getAverage2Day(CircularBuffer2Day *buffer) {
     return (float)buffer->sum / DAY_2_SIZE;
 }
   
+void save_to_log(uint8_t arr)
+{
+  uint16_t mask = ~(1 << 2);
+  REGISTERS[4] = (REGISTERS[4] & mask);
 
+  
+  
+}
 
 
 /* USER CODE END Application */
