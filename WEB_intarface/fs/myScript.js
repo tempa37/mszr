@@ -166,7 +166,7 @@ function saveDateTime() {
 
 
 window.onload = function() {
-	
+	console.log('функции загрузились');
     var inputField1 = document.getElementById("field3");
     if (inputField1) {
         inputField1.value = inputField1.value.replace("<!--#MASK-->", "");
@@ -229,17 +229,18 @@ window.onload = function() {
         inputFieldAlert.value = inputFieldAlert.value.replace("<!--#ALERT-->", "");
     }
 	
-	initialData.mask = document.getElementById('field3').value;
-	initialData.ip = document.getElementById('field2').value;
-	initialData.gateway = document.getElementById('field4').value;
-
 	
+	if (inputField2) {
+		initialData.mask = document.getElementById('field3').value;
+		initialData.ip = document.getElementById('field2').value;
+		initialData.gateway = document.getElementById('field4').value;
+		var inputField99 = document.getElementById("field20");
+		 console.log('взяли filed20');
+	}
 	
-	
-	var inputField99 = document.getElementById("field20");
 	if(inputField99)
 	{
-
+		 console.log('зашли в блок с графиком');
 		// Устанавливаем значение скорости RS-485
 		const defaultSpeed = extractValue(document.getElementById('field20').value);
 		const speedSelect = document.getElementById('field4-speed');
@@ -556,13 +557,18 @@ window.onload = function() {
 			return match && match[1] ? match[1] : 'N/A';
 		  }
 			
-		  
+		 changeButtonTextBasedOnResolution();
 
 		// Установка интервала обновления каждые 500 мс
 		setInterval(updateValues, 500);
+		
 	}
 
-	var errorPin = document.getElementById('field5').value;
+
+	if (window.location.href.includes("notion.shtml")) {
+		var errorPin = document.getElementById('field5').value;
+	}
+	
 	if(errorPin)
 	{
 	errorPin = errorPin.replace("<!--#PIN-->", "").trim();
@@ -582,7 +588,7 @@ window.onload = function() {
 		}, 35000);
 	}
 	
-	changeButtonTextBasedOnResolution();
+
 	
 };
 
