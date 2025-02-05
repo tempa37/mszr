@@ -41,6 +41,9 @@
 #include <string.h>
 #include "adc.h"
 #include "timers.h"
+#include "stm32f4xx_hal.h"
+#include "stm32f4xx_hal_rtc.h"
+
 /* USER CODE END Includes */
 #include "test.h"
 #include "lwip/tcp.h"
@@ -75,7 +78,9 @@ float R_leak_B = 0;
 float C_phase_C = 0;
 float R_leak_C = 0;
 uint8_t TARGET_VALUE = 0;
+uint8_t TARGET_VALUE_DEF = 60;
 uint8_t WARNING_VALUE = 0;
+uint8_t WARNING_VALUE_DEF = 50;
 
 uint8_t hw_protection = 1;
 #define FLASH_ADDRESS_C_PHASE_A 0x0800C0A0
@@ -237,7 +242,7 @@ uint8_t pinaccept = 0;
 volatile uint16_t avg1h = 0;
 volatile uint16_t avg2d = 0;
 
-//-------------------------TIME---SECTION---------------------------------------
+//-------------------------TIME-&-LOG--SECTION---------------------------------------
 
 
 typedef struct {
@@ -250,7 +255,22 @@ typedef struct {
 } DateTime;
 
 
+ typedef struct {
+    uint8_t timestamp[6];  // ss:mm:hh:dd:mm:yy (временная метка)
+    uint8_t event_code;    // код события
+    uint8_t data[5];       //поле данных
+  } LogEntry; 
+                           //12 байт
+
+
 volatile uint8_t time_acepted = 0;  //not used
+
+uint32_t log_ptr = 0;
+RTC_HandleTypeDef hrtc;
+
+#define LOG_START_ADDR 0x08120000  //17-23 sectors (128х7)
+#define LOG_END_ADDR 0x081FFFFF  
+#define LOG_ENTRY_SIZE  (12U)
 
 
 
@@ -381,7 +401,9 @@ void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
 //=======
 void EXTI6_Init(void);
 void EXTI9_5_IRQHandler(void);
+void RTC_Init(void);
 
+uint32_t find_next_free_log_address(void);
 
 void convert_str_to_float_bytes(const char* input, uint8_t* output);
 void load_values_from_flash(void);
@@ -389,8 +411,8 @@ void load_values_from_flash(void);
 void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
-
-void save_to_log(uint8_t arr);
+void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len);
+void save_time_to_log(uint8_t arr);
 void swichSector();
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
 void CRC_Config(void);
@@ -398,7 +420,7 @@ uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str);
 char *parser(uint8_t *buf, uint16_t len, const char *str);
 
 
-
+void get_current_timestamp(uint8_t *timestamp);
 void initBuffer10Min(CircularBuffer10Min *buffer);
 void initBuffer1Hour(CircularBuffer1Hour *buffer);
 void initBuffer2Day(CircularBuffer2Day *buffer);
@@ -541,6 +563,8 @@ void StartDefaultTask(void *argument)
   
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
   load_flags_from_flash();
+  osDelay(100);
+  RTC_Init();
   xSemaphoreGive(xPacketSaved);
   /* Infinite loop */
 
@@ -666,6 +690,10 @@ void StartTask02(void *argument)
     {
       setrelay(0);
       theme = 2;
+      taskENTER_CRITICAL();
+      uint8_t temp_value = (uint8_t)REGISTERS[1];
+      write_to_log(0x33, &temp_value, 1);
+      taskEXIT_CRITICAL();
     }
     else if(REGISTERS[1] < TARGET_VALUE)
     {
@@ -1429,7 +1457,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   
   if(date_flag != 0)
   {
-    save_to_log((uint8_t) date_arr);
+    save_time_to_log((uint8_t) date_arr);
     date_flag = 0;
   }
   
@@ -1954,7 +1982,7 @@ void load_values_from_flash(void)
     // Чтение и проверка TARGET_VALUE
     TARGET_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_TARGET_VALUE;
     if (TARGET_VALUE == 0xFF) {
-        TARGET_VALUE = 25;
+        TARGET_VALUE = TARGET_VALUE_DEF;
     }
     
     
@@ -1965,8 +1993,18 @@ void load_values_from_flash(void)
     
     WARNING_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_WARNING_VALUE;
     if(WARNING_VALUE == 0xFF) {
-       WARNING_VALUE = 1;
+       WARNING_VALUE = WARNING_VALUE_DEF;
     }
+    
+    
+    
+
+    
+    
+    
+    
+    
+    
 
 }
 
@@ -2352,6 +2390,8 @@ void load_flags_from_flash(void)
     {
       sector_enabled = 1;
     }
+    
+    log_ptr = find_next_free_log_address();
 }
 
 /*
@@ -2746,6 +2786,74 @@ void addValue2Day(CircularBuffer2Day *buffer, uint16_t value) {
     buffer->index = (buffer->index + 1) % DAY_2_SIZE;
 }
 
+void RTC_Init(void) {
+  
+  
+  
+  
+  
+    __HAL_RCC_PWR_CLK_ENABLE();
+    HAL_PWR_EnableBkUpAccess();
+
+    /* Проверяем, какой источник тактирования уже установлен */
+
+        /* Сбрасываем настройки источника тактирования RTC */
+        __HAL_RCC_BACKUPRESET_FORCE();
+        __HAL_RCC_BACKUPRESET_RELEASE();
+
+        /* Включаем LSE и ждем его стабилизации */
+        __HAL_RCC_LSI_ENABLE();
+        while (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY) == RESET) {}
+
+        /* Выбираем LSI в качестве источника тактирования RTC */
+        __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSI);
+    
+    __HAL_RCC_RTC_ENABLE();
+
+    
+    HAL_Delay(100);
+  
+    RTC_TimeTypeDef sTime = {0};
+    RTC_DateTypeDef sDate = {0};
+    
+    /** Инициализация RTC с использованием LSI/LSE **/
+    hrtc.Instance = RTC;
+    hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+    hrtc.Init.AsynchPrediv = 127;
+    hrtc.Init.SynchPrediv = 255;
+    hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+    hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+    hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+    
+    HAL_StatusTypeDef rtc_status;
+    rtc_status = HAL_RTC_Init(&hrtc);
+    
+    if (rtc_status != HAL_OK) {
+        // Обработка ошибки инициализации
+        Error_Handler();
+    }
+
+    /** Установка времени: 00:00:00 **/
+    sTime.Hours = 0;
+    sTime.Minutes = 0;
+    sTime.Seconds = 0;
+    sTime.TimeFormat = RTC_HOURFORMAT12_AM;
+    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
+        Error_Handler();
+    }
+
+    /** Установка даты: 01.01.2025 **/
+    sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
+    sDate.Month = RTC_MONTH_JANUARY;
+    sDate.Date = 1;
+    sDate.Year = 25; // 2025 год (HAL использует 2 последних цифры)
+    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
+        Error_Handler();
+    }
+}
+
 
 
 float getAverage10Min(CircularBuffer10Min *buffer) {
@@ -2760,7 +2868,7 @@ float getAverage2Day(CircularBuffer2Day *buffer) {
     return (float)buffer->sum / DAY_2_SIZE;
 }
   
-void save_to_log(uint8_t arr)
+void save_time_to_log(uint8_t arr)
 {
   uint16_t mask = ~(1 << 2);
   REGISTERS[4] = (REGISTERS[4] & mask);
@@ -2769,6 +2877,210 @@ void save_to_log(uint8_t arr)
   
 }
 
+
+void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
+{
+
+  /* вынесена в шапку
+  
+  typedef struct {
+    uint8_t timestamp[6];  // ss:mm:hh:dd:mm:yy (временная метка)
+    uint8_t event_code;    // код события
+    uint8_t data[5];       //поле данных
+  } LogEntry; 
+                           //12 байт
+  */
+  
+  //код события (основные)
+  //0x30 - изменение тока утечки на 10%
+  //0x31 - ТЕСТ
+  //0x32 - Предупреждение
+  //0x33 - сработала защита
+  
+  
+  //код события (настройки)
+  //0х02 - IP адрес 
+  //0х03 - Маска подсети 
+  //0х04 - Шлюз 
+  //0х05 - REGISTERS[2] (состоянее реле, данный код говорит о том, что реле переключлили с кнопки) (0х00/0х01)
+  //0x07 - Приняли новое П.О.
+  //0x09 - USART скорость (uint16_t)
+  //0x10 - USART четность (0x00 - none / 0x01 - even / 0x02 - odd)
+  //0x11 - USART стоп бит
+  
+  //0х12 - C_phase_A (все значения тут - float, без скоращения)
+  //0x13 - C_phase_B
+  //0x14 - C_phase_C
+  //0x15 - R_leak_A
+  //0x16 - R_leak_B
+  //0x17 - R_leak_C
+  
+  //0x18 - TARGET_VALUE (uint8_t пороговое значение тока)
+  //0x19 - WARNING_VALUE (uint8_t пороговое значение тока)
+  
+  
+  
+
+  uint32_t startAddress = log_ptr;
+  uint8_t final_data[12] = {0};//массив для записи во флеш
+    
+    
+  LogEntry frame;
+  
+  if((log_ptr + 12) >= (LOG_END_ADDR))
+  {
+    uint16_t mask = (1 << 3);  // Бит 4 (0000 1000)
+    REGISTERS[4] = (REGISTERS[4] | mask);
+  }
+  else
+  {
+    get_current_timestamp(frame.timestamp); //текущее время
+    
+    frame.event_code = code; //код события
+    
+    // Заполняем массив данных нулями
+    memset(frame.data, 0, sizeof(frame.data));
+    memcpy(frame.data, log_data, copy_len);
+    
+    
+    memcpy(final_data, &frame, sizeof(frame));
+    HAL_FLASH_Unlock();
+
+      
+      for (uint32_t i = 0; i < sizeof(LogEntry); i++) {
+          if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, final_data[i]) != HAL_OK) {
+              HAL_FLASH_Lock();
+              return;
+          }
+      }
+
+     HAL_FLASH_Lock();
+     
+    
+     log_ptr += sizeof(LogEntry);
+  }
+}
+
+static uint8_t flash_read_byte(uint32_t address)
+{
+    // В реальном проекте: читать напрямую из памяти можно не всегда!
+    // Здесь для упрощения:
+    return *((volatile uint8_t*)address);
+}
+
+
+static void flash_write_byte(uint32_t address, uint8_t value)
+{
+    taskENTER_CRITICAL();
+    HAL_FLASH_Unlock();
+
+    if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, address, value) != HAL_OK)
+    {
+        // Обработка ошибки
+        HAL_FLASH_Lock();
+        taskEXIT_CRITICAL();
+        return;
+    }
+
+    HAL_FLASH_Lock();
+    taskEXIT_CRITICAL();
+}
+
+
+
+uint32_t find_next_free_log_address(void)
+{
+    // Адрес, с которого начнём смотреть (последний байт в области)
+    uint32_t addr = LOG_END_ADDR - 1;
+
+    // 1. Ищем «последний занятый байт», т.е. первый не 0xFF с конца.
+    //    Если таких нет, значит память пуста.
+    while (1)
+    {
+        // Если ушли за начало лога, значит вся область пуста.
+        if (addr < LOG_START_ADDR)
+        {
+            // Нет записанных данных
+            return LOG_START_ADDR; 
+        }
+
+        if (flash_read_byte(addr) != 0xFF)
+        {
+            // Нашли байт, который НЕ равен 0xFF – это и будет последний занятый байт.
+            break;
+        }
+
+        addr--;
+    }
+
+    // 2. Подсчитываем, сколько байт всего занято
+    //    (LOG_START_ADDR ... addr включительно).
+    //    Например, если addr = LOG_START_ADDR, то размер = 1.
+    uint32_t used_size = (addr - LOG_START_ADDR) + 1; 
+
+    // 3. Проверяем кратность размеру записи (12 байт).
+    uint32_t remainder = used_size % LOG_ENTRY_SIZE;
+    if (remainder == 0)
+    {
+        // 3.1. Если всё чётко по границам 12 байт, 
+        //      то свободный адрес – сразу за последним занятым байтом.
+      if((LOG_START_ADDR + used_size) < LOG_END_ADDR)
+      {
+        return LOG_START_ADDR + used_size; 
+      }
+      else
+      {
+        return 0;
+      }
+    }
+    else
+    {
+        // 3.2. Иначе — нужно «дозаписать» остаток до ближайших 12 байт символами 0xF0,
+        //      чтобы при следующем чтении было понятно, что эта запись недействительна.
+
+        // Сколько байт не хватает до кратного размера
+        uint32_t need_fill = LOG_ENTRY_SIZE - remainder;
+
+        // Адрес начала «обрывка». 
+        // Текущее «начало» последней записи по границе 12 байт:
+        // Например, если used_size=25, remainder=1, тогда последняя корректная граница – 24.
+        uint32_t partial_start = (LOG_START_ADDR + used_size) - remainder; 
+        // Верхняя граница, которую мы зальём 0xF0, чтобы закрыть 12-байтную запись:
+        uint32_t partial_end   = partial_start + LOG_ENTRY_SIZE - 1; 
+        if (partial_end >= LOG_END_ADDR) 
+        {
+            // На всякий случай проверяем, чтобы не выйти за пределы.
+            return 0;
+        }
+
+        // Заполняем нужный диапазон 0xF0, превращая остаток в "невалидную запись".
+        for (uint32_t fill_addr = partial_start; fill_addr <= partial_end; fill_addr++)
+        {
+            flash_write_byte(fill_addr, 0xF0);
+        }
+
+        // Теперь свободный адрес — сразу за этой 12-байтной «фейковой» записью.
+        return (partial_end + 1);
+    }
+}
+  
+
+   
+   
+   
+
+
+void get_current_timestamp(uint8_t *timestamp)
+{
+    // Пример "заглушка". Нужно заменить на реальный код чтения RTC.
+    // Допустим, возвращаем "01:23:12 07.02.25" (ss=01, mm=23, hh=12, dd=07, MM=02, yy=25).
+    timestamp[0] = 1;   // секунды
+    timestamp[1] = 23;  // минуты
+    timestamp[2] = 12;  // часы
+    timestamp[3] = 7;   // день
+    timestamp[4] = 2;   // месяц
+    timestamp[5] = 25;  // год (условно 2025)
+}
 
 /* USER CODE END Application */
 
