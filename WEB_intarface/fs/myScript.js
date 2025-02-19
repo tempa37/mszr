@@ -1,4 +1,51 @@
-
+/*
+ * extractValue(value)
+ * showModal(modalId)
+ * getTimeWindows()
+ * close_time_alert()
+ * show_2st_alert()
+ * show_1st_alert()
+ * show_3st_alert()
+ * give_time()
+ * confirmDate()
+ * saveDateTime()
+ * validateData(ip, mask, gateway)
+ * saveChanges()
+ * closeCustomModal()
+ * confirmChanges()
+ * invaliddata()
+ * closemodal()
+ * saveData()
+ * saveDataAdmin()
+ * setrelay()
+ * test()
+ *
+ * parseCurrent(str)
+ * parseRelayButton(str)
+ * parseALERT(str)
+ *
+ * decodeLogEntry(bytes)
+ * appendLogEntry(log)
+ * renderPage(page)
+ * generatePageNumbers(currentPage, totalPages)
+ * updateSaveButtonState()
+ * renderFilterMenu()
+ * parseLogData(byteArray)
+ * fetchLogs()
+ *
+ * validateDataAdmin(macFull, serial)
+ * saveChangesAdmin()
+ * confirmChangesAdmin()
+ *
+ * redirectToUpdatePage()
+ * editbuttoninline()
+ * changeButtonTextBasedOnResolution()
+ *
+ * showAlert(alertType)
+ * closeAlertModal()
+ *
+ * go_to_log()
+ */
 
 let initialData = {
     mac: '',
@@ -8,11 +55,18 @@ let initialData = {
 	pin: ''
 };
 
+let timeAlertShown = false;
+var globalHours = "";
+var globalMinutes = "";
+var globalSeconds = "";
+let selectedDay = null;
+let canvas_logic = 1;
+
 function extractValue(value) {
 	return value.replace(/<!--.*?-->/, '').trim(); // Убираем шаблон и лишние пробелы
 }
 
-let timeAlertShown = false;
+/*Функции для запроса времени (календарик, подтяжка с винды и прочее) на index.shtml*/
 
 function showModal(modalId) {
     // Скрываем все окна с классом .modal_time
@@ -23,148 +77,190 @@ function showModal(modalId) {
     document.getElementById(modalId).style.display = 'block';
 }
 
+function getTimeWindows() {
+    const now = new Date();
+
+    let day = now.getDate();
+    let month = now.getMonth() + 1; // месяцы начинаются с 0
+    let year = now.getFullYear();
+    let hours = now.getHours();
+    let minutes = now.getMinutes();
+    let seconds = now.getSeconds();
+
+    // Дополняем нулём, если нужно
+    day = day < 10 ? '0' + day : day;
+    month = month < 10 ? '0' + month : month;
+    hours = hours < 10 ? '0' + hours : hours;
+    minutes = minutes < 10 ? '0' + minutes : minutes;
+    seconds = seconds < 10 ? '0' + seconds : seconds;
+
+    const date = `${day}-${month}-${year}`;
+    const time = `${hours}-${minutes}-${seconds}`;
+
+    console.log('Синхронизировано: ' + date + ' время: ' + time);
+
+    const dateTimeParam = `${date}-${time}`; // формируем строку, как "31-12-2023-10-20-59"
+    
+    fetch(`/save?date=${dateTimeParam}`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    });
+}
 
 
  function close_time_alert(){
-	 var timeSection = document.getElementById('time3');
-	 timeSection.style.display = 'none';	 
+	var timeSection1 = document.getElementById('time1');
+	if(timeSection1)
+	{
+		timeSection1.style.display = 'none';
+	}
+	
+	var timeSection3 = document.getElementById('time3');
+	if(timeSection3)
+	{
+		timeSection3.style.display = 'none';	
+	}
  }
 
  function show_2st_alert(){
       showModal("time2")
     }
 
-    function show_1st_alert(){
+ function show_1st_alert(){
       showModal("time1")
     }
 
-    function show_3st_alert(){
-	  
-
-	  
-	  
-	  globalHours = document.getElementById('hours').value.trim();
-	  globalMinutes = document.getElementById('minutes').value.trim();
-	  globalSeconds = document.getElementById('seconds').value.trim();
-	  
-	  
-	 console.log("globalHours:", globalHours);
+ function show_3st_alert(){
+ 
+	globalHours = document.getElementById('hours').value.trim();
+	globalMinutes = document.getElementById('minutes').value.trim();
+	globalSeconds = document.getElementById('seconds').value.trim();
+	    
+	console.log("globalHours:", globalHours);
 	console.log("globalMinutes:", globalMinutes);
 	console.log("globalSeconds:", globalSeconds);
 	  
-	   if (!globalHours || !globalMinutes || !globalSeconds) {
-		alert('Пожалуйста, заполните все поля');
-		return; 
-	  }
-	  
-	  
+	if (!globalHours || !globalMinutes || !globalSeconds) {
+	alert('Пожалуйста, заполните все поля');
+	return; 
+	} 
      showModal("time3")
     }
 
 
 
-
-    document.addEventListener('DOMContentLoaded', function() {
-      const maxValues = {
-        hours: 24,
-        minutes: 59,
-        seconds: 59
-      };
-
-      const fields = ['hours', 'minutes', 'seconds'];
-
-      fields.forEach((field, index) => {
-        const input = document.getElementById(field);
-        if(input) {
-          input.addEventListener('input', function(e) {
-            this.value = this.value.replace(/\D/g, '');
-            let value = parseInt(this.value, 10);
-            if (!isNaN(value) && value > maxValues[field]) {
-              this.value = maxValues[field];
-            }
-            if (this.value.length === this.maxLength) {
-              const nextField = fields[index + 1];
-              if (nextField) {
-                document.getElementById(nextField).focus();
-              }
-            }
-          });
-
-          input.addEventListener('keydown', function(e) {
-            if (e.key === 'Backspace' && this.value.length === 0) {
-              const prevField = fields[index - 1];
-              if (prevField) {
-                document.getElementById(prevField).focus();
-              }
-            }
-          });
+function give_time(){
+	    fetch(`/save?givetime= 0`, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json'
         }
-      });
-      
-      // Обработка клика по дням календаря
-      document.querySelectorAll('.calendar-days .day').forEach(day => {
-        day.addEventListener('click', function() {
-          document.querySelectorAll('.calendar-days .day').forEach(d => d.classList.remove('selected'));
-          this.classList.add('selected');
-          selectedDay = this.getAttribute('data-day');
-        });
-      });
     });
+}
+
+
+document.addEventListener('DOMContentLoaded', function() {
+  const maxValues = {
+	hours: 24,
+	minutes: 59,
+	seconds: 59
+  };
+
+  const fields = ['hours', 'minutes', 'seconds'];
+
+  fields.forEach((field, index) => {
+	const input = document.getElementById(field);
+	if(input) {
+	  input.addEventListener('input', function(e) {
+		this.value = this.value.replace(/\D/g, '');
+		let value = parseInt(this.value, 10);
+		if (!isNaN(value) && value > maxValues[field]) {
+		  this.value = maxValues[field];
+		}
+		if (this.value.length === this.maxLength) {
+		  const nextField = fields[index + 1];
+		  if (nextField) {
+			document.getElementById(nextField).focus();
+		  }
+		}
+	  });
+
+	  input.addEventListener('keydown', function(e) {
+		if (e.key === 'Backspace' && this.value.length === 0) {
+		  const prevField = fields[index - 1];
+		  if (prevField) {
+			document.getElementById(prevField).focus();
+		  }
+		}
+	  });
+	}
+  });
+  
+  // Обработка клика по дням календаря
+  document.querySelectorAll('.calendar-days .day').forEach(day => {
+	day.addEventListener('click', function() {
+	  document.querySelectorAll('.calendar-days .day').forEach(d => d.classList.remove('selected'));
+	  this.classList.add('selected');
+	  selectedDay = this.getAttribute('data-day');
+	});
+  });
+});
 
    
-var globalHours = "";
-var globalMinutes = "";
-var globalSeconds = "";
 
+function confirmDate() {
+  let month = document.getElementById('calendar-month').value;
+  month = month.padStart(2, '0');
+  const year = document.getElementById('calendar-year').value;
+  if (!selectedDay) {
+	alert('День не выбран');
+	return;
+  }
+  
+  selectedDay = selectedDay.padStart(2, '0');
+  
+  console.log('Выбрана дата: ' + selectedDay + '-' + month + '-' + year + '- время: ' + globalHours + '-' + globalMinutes + '-' + globalSeconds);
+  saveDateTime();
 
-    let selectedDay = null;
-
-    function confirmDate() {
-      const month = document.getElementById('calendar-month').value;
-      const year = document.getElementById('calendar-year').value;
-      if (!selectedDay) {
-        alert('День не выбран');
-        return;
-      }
-      console.log('Выбрана дата: ' + selectedDay + '-' + month + '-' + year + '- время: ' + globalHours + '-' + globalMinutes + '-' + globalSeconds);
-	  saveDateTime();
-
-    }
+}
 	
 	
 
 function saveDateTime() {
     // Собираем данные даты и времени
-    const month = document.getElementById('calendar-month').value;
+    let month = document.getElementById('calendar-month').value;
+	month = month.padStart(2, '0');
     const year = document.getElementById('calendar-year').value;
     const date = `${selectedDay}-${month}-${year}`;
-    const time = `${globalHours}-${globalMinutes}-${globalSeconds}`;
+    let hoursString = globalHours.padStart(2, '0');
+	let minutesString = globalMinutes.padStart(2, '0');
+	let secondsString = globalSeconds.padStart(2, '0');
+
+	const time = `${hoursString}-${minutesString}-${secondsString}`;
 
     // Логируем для проверки
     console.log('Выбрана дата: ' + date + ' время: ' + time);
 
-    // Формируем объект с данными
-    const dateTimeData = {
-        date: date,
-        time: time
-    };
+    // Формируем единую строку
+    const dateTimeParam = `${date}-${time}`; // "31-12-2023-10-20-59"
 
-    // Формируем строку запроса
-    const queryString = new URLSearchParams(dateTimeData).toString();
-
-    // Отправляем данные на сервер (пути можешь менять по необходимости)
-    fetch(`/save?${queryString}`, {
+    // Отправляем данные на сервер
+    fetch(`/save?date=${dateTimeParam}`, {
         method: 'GET',
         headers: {
             'Content-Type': 'application/json'
         }
-    })
-   
+    });
 }
 
 
 
 
+
+
+/*Основная функция, общая для многих страниц*/
 window.onload = function() {
 	console.log('функции загрузились');
     var inputField1 = document.getElementById("field3");
@@ -238,6 +334,7 @@ window.onload = function() {
 		 console.log('взяли filed20');
 	}
 	
+	/*заход в этот блок означает, что мы на index.shtml, весь код внутри IF относится к данной странице*/
 	if(inputField99)
 	{
 		 console.log('зашли в блок с графиком');
@@ -267,14 +364,14 @@ window.onload = function() {
 		console.log("Parity value:", document.getElementById('field21').value);
 		
 		
-			//настройка размеров кнопок
-			const relayButton = document.querySelector('.button-relay');
-			const testButton = document.querySelector('.button-test');
+		//настройка размеров кнопок
+		const relayButton = document.querySelector('.button-relay');
+		const testButton = document.querySelector('.button-test');
 
-			// Подхватить размеры первой кнопки
-			const { width, height } = getComputedStyle(relayButton);
-			testButton.style.width = width;
-			testButton.style.height = height;
+		// Подхватить размеры первой кнопки
+		const { width, height } = getComputedStyle(relayButton);
+		testButton.style.width = width;
+		testButton.style.height = height;
 		
 		
 		const dataPoints = [];
@@ -288,6 +385,8 @@ window.onload = function() {
 
 		  function drawChart() {
 			const canvas = document.getElementById('chartCanvas');
+			if(canvas_logic == "1")
+			{
 			const ctx = canvas.getContext('2d');
 
 			// Очищаем холст
@@ -391,6 +490,7 @@ window.onload = function() {
 			ctx.strokeStyle = 'red';
 			ctx.lineWidth = 1.5;
 			ctx.stroke();
+			}
 		  }
 		  
 		  
@@ -436,9 +536,6 @@ window.onload = function() {
 					close_time_alert();
 					timeAlertShown = false;
 				}
-				 
-				 
-
 				if(alertbefore != someAlert)
 				  {
 					if(someAlert == 1)
@@ -449,8 +546,7 @@ window.onload = function() {
 					  {
 						alert2 = 0;
 					  }
-				  }
-				
+				  }	
 				if(alert1 == 0)
 				{
 				 if(someAlert == 1)
@@ -462,8 +558,6 @@ window.onload = function() {
 						}, 2000);
 				 }
 				}
-				
-				
 				if(alert2 == 0)
 				{
 				 if(someAlert == 2)
@@ -475,37 +569,24 @@ window.onload = function() {
 						}, 2000);
 				 }
 				}
-				
-
-
-				
-				
-				alertbefore = someAlert;
-				 
-				 
+				alertbefore = someAlert; 
 				const relayButton = document.getElementById('buttonrel');
 				if (relayButton) {
 					relayButton.innerHTML = relayStatus;
 				} else {
 					console.error("Кнопка с id 'buttonrel' не найдена.");
 				}
-				
-				
 			  })
 			  .catch(error => {
 				console.error('Ошибка парсера', error);
 			  });
 			}
 
-		  function parseCurrent(str) {
-			  
-			  console.log("Полный ответ сервера:", str); // Выводим полный текст ответа
-			  
-			  
+		  function parseCurrent(str) {		  
+			console.log("Полный ответ сервера:", str); // Выводим полный текст ответа  
 			const regex = /"current"\s*:\s*(\d+(?:\.\d+)?)/;
 			const match = regex.exec(str);
-			
-			
+
 			if (match) {
 				console.log("Найдено значение current:", match[1]); // Если нашли число
 				return match[1];
@@ -513,10 +594,6 @@ window.onload = function() {
 				console.error("Не удалось найти current в строке."); // Если ничего не нашли
 				return 'N/A';
 			  }
-			
-			
-			
-			
 			return match && match[1] ? match[1] : 'N/A';
 		  }
 		  
@@ -537,15 +614,10 @@ window.onload = function() {
 			}
 			
 			
-		  function parseALERT(str) {
-			  
-			  console.log("Полный ALERT", str); // Выводим полный текст ответа
-			  
-			  
+		  function parseALERT(str) {	  
+			console.log("Полный ALERT", str); // Выводим полный текст ответа  
 			const regex = /<!--#ALERT-->\s*(\d+)/;
 			const match = regex.exec(str);
-			
-			
 			if (match) {
 				console.log("Найдено значение alert:", match[1]); // Если нашли число
 				return match[1];
@@ -553,7 +625,6 @@ window.onload = function() {
 				console.error("Не удалось найти alert в строке."); // Если ничего не нашли
 				return 'N/A';
 			  }
-
 			return match && match[1] ? match[1] : 'N/A';
 		  }
 			
@@ -564,7 +635,7 @@ window.onload = function() {
 		
 	}
 
-
+	/*логика для notion.shtml*/
 	if (window.location.href.includes("notion.shtml")) {
 		var errorPin = document.getElementById('field5').value;
 	}
@@ -589,10 +660,431 @@ window.onload = function() {
 	}
 	
 
-	
+
+/*Логика для страницы с логами - log.shtml*/
+var sortButton = document.getElementById("field213");
+    if (sortButton) {
+      console.log('функция 213');
+
+      // Флаги и параметры
+      let isLoading = false;
+      let allLogsLoaded = false;
+      let page = 1;
+
+      // Переменные для пагинации и сортировки
+      let allLogs = [];
+      let currentPage = 1;
+      const logsPerPage = 30;
+      let sortAscending = false;
+
+      // Обработчик клика по кнопке сортировки
+      sortButton.addEventListener('click', function() {
+        sortAscending = !sortAscending;
+        currentPage = 1;
+        renderPage(currentPage);
+        updatePaginationControls();
+      });
+      
+      let activeFilters = {};
+
+      // Обновление активных фильтров при получении новых логов
+      function updateActiveFilters(newLogs) {
+        newLogs.forEach(log => {
+          if (!(log.event in activeFilters)) {
+            activeFilters[log.event] = true;
+          }
+        });
+        // Перерисовываем меню фильтров
+        renderFilterMenu();
+      }
+
+      // Получение отсортированного и отфильтрованного списка логов
+      function getFilteredLogs() {
+        let filteredLogs = allLogs.filter(log => activeFilters[log.event] !== false);
+        filteredLogs.sort((a, b) => sortAscending ? b.number - a.number : a.number - b.number);
+        return filteredLogs;
+      }
+
+      // Декодирование одной записи из 12 байт
+      function decodeLogEntry(bytes) {
+        if (bytes.length < 12) return null;
+        const [sec, min, hour, day, month, year] = bytes.slice(0, 6);
+        const formattedDate = `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')} ${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${2000 + year}`;
+
+        const eventCode = bytes[6];
+        const data = bytes.slice(7, 12);
+        let eventText = "";
+        let description = "";
+
+        switch (eventCode) {
+          case 0x30:
+            eventText = "Изменение тока утечки";
+            description = "Изменение тока утечки на 10%";
+            break;
+          case 0x31:
+            eventText = "ТЕСТ";
+            description = "Тестовое событие";
+            break;
+          case 0x32:
+            eventText = "Предупреждение";
+            description = `Системное предупреждение о превышении порога (${parseInt(data[0])} mA)`;
+            break;
+          case 0x33:
+            eventText = "Защита";
+            description = `Сработала защита (${parseInt(data[0])} mA)`;
+            break;
+          case 0x02:
+            eventText = "IP адрес";
+            description = data.slice(0, 4).join('.');
+            break;
+          case 0x03:
+            eventText = "Маска подсети";
+            description = data.slice(0, 4).join('.');
+            break;
+          case 0x04:
+            eventText = "Шлюз";
+            description = data.slice(0, 4).join('.');
+            break;
+          case 0x05:
+            eventText = "Изменение состояния реле";
+            description = (data[0] === 0x00 ? "Выключено" : "Включено");
+            break;
+          case 0x07:
+            eventText = "Приняли новое ПО";
+            description = "Обновление прошивки";
+            break;
+          case 0x09:
+            eventText = "USART скорость";
+            description = data.slice(0, 4).map(b => b.toString()).join('');
+            break;
+          case 0x10:
+            eventText = "USART четность";
+            description = String.fromCharCode(data[0]) === 'O' ? "odd" : "even";
+            break;
+          case 0x11:
+            eventText = "USART стоп бит";
+            description = data[0].toString();
+            break;
+          case 0x12:
+            eventText = "C_phase_A";
+            description = parseFloat(new DataView(new Uint8Array(data.slice(0, 4)).buffer).getFloat32(0, true)).toFixed(2);
+            break;
+          case 0x13:
+            eventText = "C_phase_B";
+            description = parseFloat(new DataView(new Uint8Array(data.slice(0, 4)).buffer).getFloat32(0, true)).toFixed(2);
+            break;
+          case 0x14:
+            eventText = "C_phase_C";
+            description = parseFloat(new DataView(new Uint8Array(data.slice(0, 4)).buffer).getFloat32(0, true)).toFixed(2);
+            break;
+          case 0x15:
+            eventText = "R_leak_A";
+            description = parseFloat(new DataView(data.buffer, data.byteOffset, 4).getFloat32(0, true)).toFixed(2);
+            break;
+          case 0x16:
+            eventText = "R_leak_B";
+            description = parseFloat(new DataView(data.buffer, data.byteOffset, 4).getFloat32(0, true)).toFixed(2);
+            break;
+          case 0x17:
+            eventText = "R_leak_C";
+            description = parseFloat(new DataView(data.buffer, data.byteOffset, 4).getFloat32(0, true)).toFixed(2);
+            break;
+          case 0x18:
+            eventText = "TARGET_VALUE";
+            description = data[0].toString();
+            break;
+          case 0x19:
+            eventText = "WARNING_VALUE";
+            description = data[0].toString();
+            break;
+          case 0x20:
+            eventText = "Аппаратная защита";
+            description = (data[0] === 0x01 ? "Включена" : "Выключена");
+            break;
+          default:
+            eventText = "Неизвестное событие";
+            description = `Код: 0x${eventCode.toString(16)}`;
+            break;
+        }
+        return {
+          date: formattedDate,
+          event: eventText,
+          description: description,
+          timestamp: new Date(2000 + year, month - 1, day, hour, min, sec).getTime()
+        };
+      }
+
+      // Добавление записи в DOM
+      function appendLogEntry(log) {
+		  const container = document.getElementById('logsContainer');
+		  const item = document.createElement('div');
+		  item.className = 'log-item';
+		  item.innerHTML = `
+			<div class="log-number">${log.number}</div>
+			<div class="log-date">${log.date}</div>
+			<div class="log-event">${log.event}</div>
+			<div class="log-description">${log.description}</div>
+		  `;
+		  container.appendChild(item);
+		}
+
+      // Рендеринг страницы логов
+      function renderPage(page) {
+        const container = document.getElementById('logsContainer');
+        container.innerHTML = '';
+        const filteredLogs = getFilteredLogs();
+        const startIndex = (page - 1) * logsPerPage;
+        const pageLogs = filteredLogs.slice(startIndex, startIndex + logsPerPage);
+        pageLogs.forEach(log => appendLogEntry(log));
+      }
+
+      // Генерация номеров страниц
+      function generatePageNumbers(currentPage, totalPages) {
+        const pages = [];
+        if (totalPages <= 7) {
+          for (let i = 1; i <= totalPages; i++) pages.push(i);
+          return pages;
+        }
+        pages.push(1);
+        let startWindow = currentPage - 2;
+        let endWindow = currentPage + 2;
+        if (startWindow < 2) {
+          startWindow = 2;
+          endWindow = startWindow + 4;
+        }
+        if (endWindow > totalPages - 1) {
+          endWindow = totalPages - 1;
+          startWindow = endWindow - 4;
+        }
+        if (startWindow > 2) pages.push('...');
+        for (let i = startWindow; i <= endWindow; i++) pages.push(i);
+        if (endWindow < totalPages - 1) pages.push('...');
+        pages.push(totalPages);
+        return pages;
+      }
+	  
+	  //кнопка скачать (активно/нет)
+	  function updateSaveButtonState() {
+		  const saveButton = document.getElementById('saveButton');
+		  saveButton.disabled = !allLogsLoaded;
+		}
+		
+		var saveButton = document.getElementById("saveButton");
+		
+		if (saveButton) {
+		  saveButton.addEventListener('click', function() {
+			// Формируем содержимое файла, например, по одному логу в строке:
+			let content = allLogs.map(log => {
+			  return `#${log.number} ${log.date} - ${log.event}: ${log.description}`;
+			}).join('\n');
+			
+			// Создаем Blob с типом text/plain
+			const blob = new Blob([content], { type: 'text/plain' });
+			// Генерируем временный URL для Blob
+			const url = window.URL.createObjectURL(blob);
+			
+			// Создаем временную ссылку и кликаем по ней для скачивания файла
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = 'logs_mszr_380.txt';
+			document.body.appendChild(a);
+			a.click();
+			
+			// Очищаем за собой
+			document.body.removeChild(a);
+			window.URL.revokeObjectURL(url);
+		  });
+		}
+	  
+
+      // Обновление пагинации
+      function updatePaginationControls() {
+		  const paginationContainer = document.getElementById('paginationControls');
+		  const filteredLogs = getFilteredLogs();
+		  const totalPages = Math.ceil(filteredLogs.length / logsPerPage) || 1;
+		  const pages = generatePageNumbers(currentPage, totalPages);
+		  let html = '<div class="pagination">';
+		  pages.forEach(pageItem => {
+			if (pageItem === '...') {
+			  html += `<span class="page ellipsis">${pageItem}</span> `;
+			} else {
+			  html += `<span class="page ${pageItem === currentPage ? 'active' : ''}" data-page="${pageItem}">${pageItem}</span> `;
+			}
+		  });
+
+		  // Если не все логи загружены, добавляем индикатор загрузки
+		  if (!allLogsLoaded) {
+			// Вариант 1: простой текст
+			html += `<span class="loading">Загрузка...</span>`;
+			
+			// Вариант 2: анимированный индикатор (раскомментируйте нижеследующую строку и добавьте CSS)
+			//html += `<span class="spinner"></span>`;
+		  }
+
+		  html += '</div>';
+		  paginationContainer.innerHTML = html;
+		  document.querySelectorAll('.page').forEach(el => {
+			if (el.classList.contains('ellipsis')) return;
+			el.addEventListener('click', function() {
+			  currentPage = parseInt(this.getAttribute('data-page'));
+			  renderPage(currentPage);
+			  updatePaginationControls();
+			});
+		  });
+		}
+
+      // Отрисовка выпадающего меню фильтров
+      function renderFilterMenu() {
+        let menu = document.getElementById('filterMenu');
+        menu.innerHTML = '<strong>Фильтр по событиям</strong><br>';
+        for (let event in activeFilters) {
+          let checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.id = 'filter_' + event;
+          checkbox.checked = activeFilters[event];
+          checkbox.addEventListener('change', function() {
+            activeFilters[event] = this.checked;
+            renderPage(currentPage);
+            updatePaginationControls();
+          });
+          let label = document.createElement('label');
+          label.htmlFor = 'filter_' + event;
+          label.style.marginLeft = '5px';
+          label.textContent = event;
+          let container = document.createElement('div');
+          container.style.margin = '5px 0';
+          container.appendChild(checkbox);
+          container.appendChild(label);
+          menu.appendChild(container);
+        }
+      }
+
+      // Парсинг логов из Uint8Array
+	  function parseLogData(byteArray) {
+	  // Инициализация статического счётчика, если он ещё не определён
+	  if (typeof parseLogData.logCounter === 'undefined') {
+		parseLogData.logCounter = 0;
+	  }
+
+	  const startMarker = new Uint8Array([0x3c, 0x21, 0x2d, 0x2d, 0x23, 0x4c, 0x4f, 0x47, 0x2d, 0x2d, 0x3e]);
+	  const endMarker = new Uint8Array([0x2f, 0x2f, 0x2f]);
+
+	  function indexOfSubarray(array, subarray, start = 0) {
+		for (let i = start; i <= array.length - subarray.length; i++) {
+		  let found = true;
+		  for (let j = 0; j < subarray.length; j++) {
+			if (array[i + j] !== subarray[j]) {
+			  found = false;
+			  break;
+			}
+		  }
+		  if (found) return i;
+		}
+		return -1;
+	  }
+
+	  const startIndex = indexOfSubarray(byteArray, startMarker, 0);
+	  if (startIndex === -1) return [];
+	  const endIndex = indexOfSubarray(byteArray, endMarker, startIndex + startMarker.length);
+	  if (endIndex === -1) return [];
+	  const logsBytes = byteArray.slice(startIndex + startMarker.length, endIndex);
+
+	  const terminationPattern = new Uint8Array([13, 10, 45, 13, 10]);
+	  if (indexOfSubarray(logsBytes, terminationPattern) !== -1) {
+		allLogsLoaded = true;
+	  }
+		
+		updateSaveButtonState();
+		
+	  const logs = [];
+	  for (let i = 0; i + 12 <= logsBytes.length; i += 12) {
+		const entryBytes = logsBytes.slice(i, i + 12);
+		if (entryBytes.every(byte => byte === 0)) continue;
+		if (entryBytes.every(byte => byte === 0xFF)) continue;
+		if (
+		  entryBytes[0] === 13 &&
+		  entryBytes[1] === 10 &&
+		  entryBytes[2] === 45 &&
+		  entryBytes[3] === 13 &&
+		  entryBytes[4] === 10
+		) continue;
+		const logEntry = decodeLogEntry(entryBytes);
+		if (logEntry) logs.push(logEntry);
+	  }
+
+
+	  // Присваиваем уникальную нумерацию, продолжая с предыдущего значения
+	  logs.forEach((log) => {
+		parseLogData.logCounter++;
+		log.number = parseLogData.logCounter;
+	  });
+
+	  updateActiveFilters(logs);
+	  return logs;
+	}
+
+      // Загрузка логов с сервера
+      async function fetchLogs() {
+		  if (allLogsLoaded) return;
+
+		  try {
+			// Отправляем запрос к /logdata.shtml и ждём ответа
+			const response = await fetch('/logdata.shtml');
+			if (!response.ok) {
+			  throw new Error('Ошибка сети');
+			}
+			const buffer = await response.arrayBuffer();
+			const bytes = new Uint8Array(buffer);
+			const newLogs = parseLogData(bytes);
+			
+			if (newLogs.length) {
+			  allLogs = allLogs.concat(newLogs);
+			  updatePaginationControls();
+			  updateActiveFilters(newLogs);
+			  renderPage(currentPage);
+			}
+		  } catch (err) {
+			console.error("Ошибка получения логов:", err);
+		  } finally {
+			// Как только получен ответ и обработан, сразу запускаем следующий запрос,
+			// если логи ещё не закончились
+			if (!allLogsLoaded) {
+			  fetchLogs();
+			}
+		  }
+		}
+
+      
+      // Обработчик кнопки фильтров
+      var filtersButton = document.getElementById("filtersButton");
+      if (filtersButton) {
+        filtersButton.addEventListener('click', function(e) {
+          let menu = document.getElementById('filterMenu');
+          if (menu.style.display === 'block') {
+            menu.style.display = 'none';
+          } else {
+            menu.style.display = 'block';
+            let rect = filtersButton.getBoundingClientRect();
+            let wrapperRect = document.querySelector('.logs-wrapper').getBoundingClientRect();
+            menu.style.top = (rect.bottom - wrapperRect.top) + 'px';
+            menu.style.left = (rect.left - wrapperRect.left) + 'px';
+          }
+          e.stopPropagation();
+        });
+      }
+      
+      // Скрытие меню при клике вне его области
+      document.addEventListener('click', function(e) {
+        let menu = document.getElementById('filterMenu');
+        if (menu && e.target !== menu && !menu.contains(e.target) && e.target !== filtersButton) {
+          menu.style.display = 'none';
+        }
+      });  
+      fetchLogs();
+    }
 };
 
-
+/*Прочие функции*/
 
 function validateData( ip, mask, gateway) {
 	
@@ -752,15 +1244,10 @@ function saveDataAdmin()
         return;
     }
 	
-	
-
-	
-	
 	if (!validateDataAdmin(macFull, serial)) {
 	invaliddata();
 	return; 
     }
-	
 	
 	const queryString = new URLSearchParams(updatedData).toString();
 
@@ -792,8 +1279,6 @@ function setrelay()
 			'Content-Type': 'application/json'
 		}
 	})
-
-
 }
 
 
@@ -871,45 +1356,57 @@ function editbuttoninline() {
 }
 
 function changeButtonTextBasedOnResolution() {
-        var button = document.getElementById('buttonS');
-        
-        // Проверяем разрешение экрана
-        if (window.innerWidth < 1920 && window.innerHeight < 1080) {
-            button.textContent = "Обновить П.О.";
-        } else {
-            button.textContent = "Загрузить новую версию П.О.";
-        }
+	var button = document.getElementById('buttonS');
+	
+	const canvas = document.getElementById("chartCanvas");
+	const parent_canvas = document.getElementById("uptime-sectionid");
+	const parentWidth = parent_canvas.offsetWidth;
+	canvas.width = parentWidth * 0.95;
+	
+	
+	
+	// Проверяем разрешение экрана
+	if (window.innerWidth < 1680 || window.innerHeight < 1050) {
+		button.textContent = "Обновить П.О.";
+	} else {
+		button.textContent = "Загрузить новую версию П.О.";
+	}
     }
 
 
-	function showAlert(alertType) {
-			const modal = document.getElementById('alertModal');
-			const alertMessege = document.getElementById('alertMessege');
-				
-			
+function showAlert(alertType) {
+	const modal = document.getElementById('alertModal');
+	const alertMessege = document.getElementById('alertMessege');
+		
+	
 
-			console.log("Найдено значение lert massege:", alertMessege.textContent); // Если нашли число
+	console.log("Найдено значение lert massege:", alertMessege.textContent); // Если нашли число
 
 
-						//текст в зависимости от аргумента
-			if (alertType === 1) {
-				alertMessege.textContent = 'Устройство зарегистрировало устойчивый рост тока утечки. Это может указывать на деградацию изоляционных материалов. Рекомендуется провести технический осмотр и диагностику электросети. ';
-			} else if (alertType === 2) {
-				alertMessege.textContent = 'Внимание, ток утечки превысил порог предупреждения!';
-			} else {
-				alertMessege.textContent = 'дефолтный текст.';
-			}
+	//текст в зависимости от аргумента
+	if (alertType === 1) {
+		alertMessege.textContent = 'Устройство зарегистрировало устойчивый рост тока утечки. Это может указывать на деградацию изоляционных материалов. Рекомендуется провести технический осмотр и диагностику электросети. ';
+	} else if (alertType === 2) {
+		alertMessege.textContent = 'Внимание, ток утечки превысил порог предупреждения!';
+	} else {
+		alertMessege.textContent = 'дефолтный текст.';
+	}
 
-			modal.style.display = 'block';
-			setTimeout(() => {
-				modal.classList.add('active');
-			}, 10);
-		}
+	modal.style.display = 'block';
+	setTimeout(() => {
+		modal.classList.add('active');
+	}, 10);
+}
 
-		function closeAlertModal() {
-			const modal = document.getElementById('alertModal');
-			modal.classList.remove('active');
-			setTimeout(() => {
-				modal.style.display = 'none';
-			}, 300); // Ждем завершения анимации
-		}
+function closeAlertModal() {
+	const modal = document.getElementById('alertModal');
+	modal.classList.remove('active');
+	setTimeout(() => {
+		modal.style.display = 'none';
+	}, 300); // Ждем завершения анимации
+}
+		
+		
+function go_to_log(){
+	window.location.href = "log.shtml";
+}

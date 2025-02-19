@@ -44,6 +44,9 @@
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_hal_rtc.h"
 
+
+
+
 /* USER CODE END Includes */
 #include "test.h"
 #include "lwip/tcp.h"
@@ -80,7 +83,7 @@ float R_leak_C = 0;
 uint8_t TARGET_VALUE = 0;
 uint8_t TARGET_VALUE_DEF = 60;
 uint8_t WARNING_VALUE = 0;
-uint8_t WARNING_VALUE_DEF = 50;
+uint8_t WARNING_VALUE_DEF = 60;
 
 uint8_t hw_protection = 1;
 #define FLASH_ADDRESS_C_PHASE_A 0x0800C0A0
@@ -128,11 +131,11 @@ extern struct httpd_state *hs;
 struct netconn * nc;
 struct netconn * in_nc;
 struct netbuf * nb;
-struct netconn *newconn = NULL;
+struct netconn *newconn = NULL; 
 
 const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
-"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "CRCACC", "JSON", "WVALUE", "ALERT"};
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "CRCACC", "JSON", "WVALUE", "ALERT", "LOG"};
 
 
 typedef enum 
@@ -232,6 +235,7 @@ uint8_t pinaccept = 0;
 #define SECTOR_2_ADDRESS 0x08080000 // end in 0x080E0000 (sector 8/9/10) 384kb in total
 #define BOOTLOADER_ADDRESS 0x08000000 //end in 0x0800C080  48kb in total
 #define SECTOR_ENABLED_ADDRESS 0x0800C088 //1 - нет новой ОС, 2 - есть новоя ОС
+#define LOG_SECTOR_ACTIVE 0x0800C204 //в каком секторе мы пишем лог сейчас
 
 
 
@@ -265,14 +269,24 @@ typedef struct {
 
 volatile uint8_t time_acepted = 0;  //not used
 
-uint32_t log_ptr = 0;
+volatile uint32_t log_ptr = 0;
 RTC_HandleTypeDef hrtc;
 
-#define LOG_START_ADDR 0x08120000  //17-23 sectors (128х7)
-#define LOG_END_ADDR 0x081FFFFF  
+volatile uint32_t LOG_START_ADDR = 0;
+volatile uint32_t LOG_END_ADDR = 0;
+
+volatile uint8_t log_sector_active = 0;
+
+
+#define LOG_START_ADDR_BLOCK 0x08120000  //17-23 sectors (128х7)
+#define LOG_END_ADDR_BLOCK 0x081FFFF8 
 #define LOG_ENTRY_SIZE  (12U)
+#define LOG_BUFF_SIZE 1026
+
+volatile uint8_t log_for_wed[LOG_BUFF_SIZE] = {0}; //1kb
 
 
+static int first_call = 1;
 
 //--------------------------(critical flags)------------------------------------
 //после изменения этих флагов нужно вызвать WriteFlash(0, 0); 
@@ -340,7 +354,7 @@ const osThreadAttr_t defaultTask_attributes = {
 osThreadId_t Relay_taskHandle;
 const osThreadAttr_t Relay_task_attributes = {
   .name = "Relay_task",
-  .stack_size = 1128 * 4,
+  .stack_size = 1128 * 6,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for mobdus */
@@ -390,6 +404,12 @@ void EXTI12_Init(void);
 void EXTI15_10_IRQHandler(void);
 
 
+void log_for_web_init();
+
+
+void Swipe_Log_Sector();
+void parse_http_time_request(uint8_t *http_request, uint8_t temp_arr[6]);
+
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
 void UpdateSector3();
 void load_flags_from_flash(void);
@@ -412,7 +432,7 @@ void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
 void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len);
-void save_time_to_log(uint8_t arr);
+void save_time_to_rtc(uint8_t* arr);
 void swichSector();
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
 void CRC_Config(void);
@@ -447,10 +467,13 @@ void EXTI6_DeInit(void);
 
 const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
 const char * JSON_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
+const char * LOG_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
 
 const tCGI SAVE_CGI = {"/save", SAVE_CGI_Handler};
 const tCGI JSON_CGI = {"/json", JSON_CGI_Handler};
-tCGI CGI_TAB[2];
+const tCGI LOG_CGI = {"/logdata", LOG_CGI_Handler};
+
+tCGI CGI_TAB[3];
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -550,7 +573,8 @@ void StartDefaultTask(void *argument)
   
   CGI_TAB[0] = SAVE_CGI;
   CGI_TAB[1] = JSON_CGI;
-  http_set_cgi_handlers(CGI_TAB, 2);
+  CGI_TAB[2] = LOG_CGI;
+  http_set_cgi_handlers(CGI_TAB, 3);
   xPacketSemaphore = xSemaphoreCreateBinary();
   xPacketSaved = xSemaphoreCreateBinary();
   
@@ -610,9 +634,12 @@ void StartTask02(void *argument)
   /* Infinite loop */
   
   REGISTERS[0] = soft_ver_modbus;
+  
+  /*
   uint16_t mask = (1 << 2);  
   REGISTERS[4] = (REGISTERS[4] | mask); 
-
+  */
+  
   HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_RESET);
   ReadFlash(SERIAL, SERIAL_ADDRESS);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
@@ -686,6 +713,8 @@ void StartTask02(void *argument)
 //----------------------------------------------------------------------------------WARNING-LOGIC-END----------
     }
     
+    
+    
     if(REGISTERS[1] >= TARGET_VALUE)
     {
       setrelay(0);
@@ -700,12 +729,37 @@ void StartTask02(void *argument)
       theme = 1;
     }
     
+    
+    
+if(!start)
+{
+      
     //warning 2
     if(REGISTERS[1] >= WARNING_VALUE)
     {
       REGISTERS[4] = (REGISTERS[4] |= 0x02);
+      uint8_t data = REGISTERS[1];
+      write_to_log(0x32, &data, 1);
     }
+    
+    static uint8_t flag_1 = 0; // или bool flag_1 = false;
 
+    if(avg1h)
+    {
+      // Если мгновенный ток на 10% выше часового среднего и флаг не выставлен – записываем лог
+      if((REGISTERS[1] > (avg1h * 1.1)) && (flag_1 == 0))
+      {
+        uint8_t data = REGISTERS[1];
+        write_to_log(0x32, &data, 1);
+        flag_1 = 1;
+      }
+      // Сброс флага, когда ток снижается ниже среднего
+      else if ((REGISTERS[1] < (avg1h)) && (flag_1 == 1))
+      {
+        flag_1 = 0;
+      }
+    }
+ }
     
     if(hw_protection)
     {
@@ -733,6 +787,8 @@ void StartTask02(void *argument)
 
           if(crc_os == crc_stm)
           {
+            uint8_t data = 0x00;
+            write_to_log(0x07, &data, 1);
             crc_accepted = 1;
             sector_enabled = 2;
             WriteFlash(0, 0);
@@ -741,6 +797,8 @@ void StartTask02(void *argument)
           }
           else if(crc_os != crc_stm)
           {
+            uint8_t data = 0xFF;
+            write_to_log(0x07, &data, 1);
             crc_accepted = 0;
             sector_enabled = 2;
             next_free_addr = 0;
@@ -980,6 +1038,7 @@ void StartTask04(void *argument)
         setrelay(1);
       }
       button_ivent = 0;
+      write_to_log(0x31, 0x00, 1);
     }
     osDelay(10);
 
@@ -1050,6 +1109,8 @@ void StartTask06(void *argument)
         if(delta >= 5)
         {
           REGISTERS[4] = (REGISTERS[4] |= 0x01);
+          uint8_t data = 0x02;
+          write_to_log(0x32, &data, 1);
         }
       }
     }
@@ -1098,9 +1159,17 @@ void StartTask06(void *argument)
 
 void setrelay(uint16_t i)
 {
+  static uint8_t last_i = 0;
+  
+  if(last_i != i)
+  {
+  last_i = i;
+  uint8_t data = (uint8_t) i;
+  write_to_log(0x05, &data, 1);
   osMutexWait(RelayMutexHandle, osWaitForever);
   REGISTERS[2] = i;
   osMutexRelease(RelayMutexHandle);
+  }
 }
 
 //---------------------------------------------------------------------------------HTTPD-SERVER-LOGICS-START---
@@ -1108,7 +1177,9 @@ void setrelay(uint16_t i)
 uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen) 
 {
   uint8_t buffer[50] = {0};
-  uint8_t bufferSize = sizeof(buffer);
+  uint8_t bufferSize = 50;
+  
+  
   
   if (iIndex == 0) 
   {
@@ -1152,6 +1223,10 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
   else if(iIndex == 10)
   {
+    if(!first_call)
+    {
+    first_call = 1;
+    }
     if(REGISTERS[2])
     {
       snprintf((char*)buffer, bufferSize, "РЕЛЕ В СОСТОЯНИИ - ВКЛ");
@@ -1209,12 +1284,6 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
   else if(iIndex == 17)
   {
-    snprintf((char*)buffer, bufferSize, "%d", crc_accepted);
-  }
-  
-  
-  else if(iIndex == 17)
-  {
     snprintf((char*)buffer, bufferSize, "%.9f", C_phase_A);
   }
   else if(iIndex == 18)
@@ -1254,6 +1323,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
   else if(iIndex == 26)
   {
+
     snprintf((char*)buffer, bufferSize, "{\"current\":%u}", REGISTERS[1]);   //like a JSON
   }
   else if(iIndex == 27)
@@ -1264,7 +1334,12 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   {
     snprintf((char*)buffer, bufferSize, "%d", REGISTERS[4]);
   }
-  
+  else if(iIndex == 29)
+  {
+     log_for_web_init();
+     memcpy(pcInsert, (void const *)log_for_wed, 1025);
+     return 1025;
+  }
 
   
   snprintf(pcInsert, iInsertLen, "%s", buffer);
@@ -1274,15 +1349,155 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 
 void httpd_ssi_init(void) 
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 29);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 30);
 }
 
+void log_for_web_init()
+{
+      // Порог пустых записей (0xFF)
+    uint8_t FF_THRESHOLD = 5;
+    
+    // Статические переменные для отслеживания состояния между вызовами
+    // current_addr – текущая позиция чтения (идём в обратном направлении)
+    // initial_addr – адрес, с которого начался текущий цикл передачи (для определения полного круга)
+    // first_call – флаг первого вызова в рамках одной последовательной передачи логов
+    static uint32_t current_addr = 0;
+    static uint32_t initial_addr = 0;
 
+    memset((void *)log_for_wed, 0, LOG_BUFF_SIZE);
+    
+    int buf_index = 0;
+    int max_buf_size = sizeof(log_for_wed);  // Размер выходного буфера (например, 1 КБ)
+    int max_entries = max_buf_size / LOG_ENTRY_SIZE; // Количество записей, умещающихся в буфере
+    int consecutive_ff = 0; // Счётчик подряд идущих пустых (0xFF) записей
+
+    // При первом вызове начинаем с самой новой записи
+    if (first_call)
+    {
+        if (log_ptr == LOG_START_ADDR_BLOCK)
+            // Если указатель равен началу, начинаем с последней валидной записи
+            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
+        else
+            current_addr = log_ptr - LOG_ENTRY_SIZE;
+        // Запоминаем стартовую позицию для определения полного круга
+        initial_addr = current_addr;
+        first_call = 0;
+    }
+
+    // Чтение логов в обратном порядке (от самой новой записи)
+    for (int i = 0; i < max_entries; i++)
+    {
+        // Если уже прошли полный круг, прекращаем чтение
+        if (i > 0 && current_addr == initial_addr)
+            break;
+
+        // Проверка корректности указателя; если он вне диапазона,
+        // устанавливаем его на последнюю валидную запись
+        if (current_addr < LOG_START_ADDR_BLOCK || current_addr > (LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE)) {
+            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
+        }
+        
+        uint8_t entry[LOG_ENTRY_SIZE];
+        // Считываем одну запись по текущему адресу
+        
+        
+        
+        //Логика для пропуска лишних 8-ми байт в конце каждого сектора (иначе сбивается кратность 12-ти)
+        if ((current_addr & 0xDFFFF) == 0xDFFF4) 
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0xBFFFF) == 0xBFFF4)
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0x9FFFF) == 0x9FFF4)
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0x7FFFF) == 0x7FFF4)
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0x5FFFF) == 0x5FFF4)
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0x3FFFF) == 0x3FFF4)
+        {
+          current_addr -= 8;
+        }
+          
+          
+          
+          
+        memcpy(entry, (const void *)current_addr, LOG_ENTRY_SIZE);
+
+        // Проверяем, является ли запись "пустой" (все байты равны 0xFF)
+        int is_ff = 1;
+        for (int j = 0; j < LOG_ENTRY_SIZE; j++)
+        {
+            if (entry[j] != 0xFF)
+            {
+                is_ff = 0;
+                break;
+            }
+        }
+
+        // Подсчёт подряд идущих пустых записей
+        if (is_ff)
+            consecutive_ff++;
+        else
+            consecutive_ff = 0;
+
+        // Если встречено достаточное число пустых записей, считаем, что валидных логов больше нет
+        if (consecutive_ff >= FF_THRESHOLD)
+            break;
+
+        // Копируем запись в выходной буфер
+        memcpy((void *)&log_for_wed[buf_index], entry, LOG_ENTRY_SIZE);
+        buf_index += LOG_ENTRY_SIZE;
+
+
+        // Обновляем указатель. Если вычитание размера записи привело бы к значению ниже начала сектора,
+        // переносим указатель на последнюю валидную запись
+        if (current_addr - LOG_ENTRY_SIZE < LOG_START_ADDR_BLOCK)
+            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
+        else
+            current_addr -= LOG_ENTRY_SIZE;
+    }
+
+    // Если достигнут конец логов (либо по порогу пустых записей, либо полный круг пройден),
+    // добавляем сигнальную последовательность в конец выходного буфера
+    if (consecutive_ff >= FF_THRESHOLD || ((!first_call) && current_addr == initial_addr) || current_addr == (initial_addr - 1) ||current_addr == (initial_addr - 2) ||current_addr == (initial_addr + 2) ||current_addr == (initial_addr + 1) ||current_addr == (initial_addr + 3) ||current_addr == (initial_addr -3)) 
+    {
+        const char marker[] = "\r\n-\r\n";
+        int marker_len = sizeof(marker) - 1; // Без завершающего '\0'
+        if (buf_index + marker_len < max_buf_size)
+        {
+            memcpy((void *)&log_for_wed[buf_index], marker, marker_len);
+            buf_index += marker_len;
+        }
+        // Сброс состояния для следующей передачи – в следующий раз начинаем с самой свежей записи
+        first_call = 1;
+    }
+    else if(first_call)
+    {
+      first_call = 0;
+    }
+    // Функция используется для SSI (<!--LOG-->),
+    // поэтому возвращаем 0 
+
+}
 
 
 //Логика обработки /Save запросов от клиента в веб интерфейсе
 const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
 {
+  
+  first_call = 1;
+  
+  
   char ip[16] = {0};
   char mask[16] = {0};
   char gateway[16] = {0};
@@ -1451,14 +1666,21 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       strncpy(date_arr, pcValue[i], sizeof(date_arr) - 1);
       date_flag = 1;
     }
+    else if (strcmp(pcParam[i], "givetime") == 0) 
+    {
+       uint16_t mask = (1 << 2);  
+       REGISTERS[4] = (REGISTERS[4] | mask); 
+    }
 
   
   }
   
   if(date_flag != 0)
   {
-    save_time_to_log((uint8_t) date_arr);
+    taskENTER_CRITICAL();
+    save_time_to_rtc((uint8_t*) date_arr);
     date_flag = 0;
+    taskEXIT_CRITICAL();
   }
   
   if(mac_flag != 0)
@@ -1491,6 +1713,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       c_phase_a_flag = 0;
       C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
+      
+      write_to_log(0x12, (uint8_t *)&C_phase_A, sizeof(C_phase_A));
     }
 
     if (r_leak_a_flag != 0)
@@ -1500,6 +1724,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       r_leak_a_flag = 0;
       R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
+      
+      write_to_log(0x15, (uint8_t *)&R_leak_A, sizeof(R_leak_A));
     }
 
     if (c_phase_b_flag != 0)
@@ -1509,6 +1735,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       c_phase_b_flag = 0;
       C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
+      
+      write_to_log(0x13, (uint8_t *)&C_phase_B, sizeof(C_phase_B));
     }
 
     if (r_leak_b_flag != 0)
@@ -1518,6 +1746,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       r_leak_b_flag = 0;
       R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
+      
+      write_to_log(0x16, (uint8_t *)&R_leak_B, sizeof(R_leak_B));
     }
 
     if (c_phase_c_flag != 0)
@@ -1527,6 +1757,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       c_phase_c_flag = 0;
       C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
+      
+      write_to_log(0x14, (uint8_t *)&C_phase_C, sizeof(C_phase_C));
     }
 
     if (r_leak_c_flag != 0)
@@ -1536,6 +1768,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       r_leak_c_flag = 0;
       R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
+      
+      write_to_log(0x17, (uint8_t *)&R_leak_C, sizeof(R_leak_C));
     }
 
     if (target_value_flag != 0)
@@ -1545,6 +1779,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       target_value_flag = 0;
       TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
+      
+      write_to_log(0x18, &TARGET_VALUE, 1);
     }
   
       if (warning_value_flag != 0)
@@ -1554,6 +1790,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       warning_value_flag = 0;
       WARNING_VALUE = *((uint8_t *)FLASH_ADDRESS_WARNING_VALUE);
+      
+      write_to_log(0x19, &WARNING_VALUE, 1);
     }
   
     if (hw_protection_flag != 0)
@@ -1563,6 +1801,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       hw_protection_flag = 0;
       hw_protection = *((uint8_t *)FLASH_ADDRESS_HW_PROTECTION);
+      
+      write_to_log(0x20, &hw_protection, 1);
     }
 
     
@@ -1596,6 +1836,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       ip_flag = 0; 
       ReadFlash(IP, IP_ADDRESS);
+      
+      write_to_log(0x02, IP_ADDRESS, 4);
     }  
     if(mask_flag != 0)
     {
@@ -1604,6 +1846,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       mask_flag = 0;
       ReadFlash(NETMASK, NETMASK_ADDRESS);
+      
+      write_to_log(0x03, NETMASK_ADDRESS, 4);
     } 
     if(gateway_flag != 0)
     {
@@ -1612,6 +1856,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       gateway_flag = 0;   
       ReadFlash(GATEWAY, GATEWAY_ADDRESS);
+      
+      write_to_log(0x04, GATEWAY_ADDRESS, 4);
     }      
     if(speed_flag != 0)
     {
@@ -1620,6 +1866,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       speed_flag = 0;   
       ReadFlash(RS485SPEED, USART_3_SPEED);
+      
+      write_to_log(0x09, USART_3_SPEED, 4);
     }
     if(paritiy_flag != 0)
     {
@@ -1628,6 +1876,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       paritiy_flag = 0;   
       ReadFlash(RS485PARITIY, (uint8_t*)uartPARITY);
+      
+      write_to_log(0x10, (uint8_t*)uartPARITY, 4);
     }
     if(stopbit_flag != 0)
     {
@@ -1636,6 +1886,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       memset(output, 0, sizeof(output));
       stopbit_flag = 0;   
       ReadFlash(RS485STOPBIT, uartStopBits);
+      
+      write_to_log(0x11, uartStopBits, 1);
     }
     
     
@@ -1655,9 +1907,155 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
 
 const char * JSON_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
 {
+  first_call = 1;
+  
   return 0; //там просто подставить SSI тег текущего тока
 }
 
+uint8_t loghhh = 0;
+
+
+const char * LOG_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
+{       
+  
+  
+  /*
+    // Порог пустых записей (0xFF)
+    uint8_t FF_THRESHOLD = 5;
+    
+    // Статические переменные для отслеживания состояния между вызовами
+    // current_addr – текущая позиция чтения (идём в обратном направлении)
+    // initial_addr – адрес, с которого начался текущий цикл передачи (для определения полного круга)
+    // first_call – флаг первого вызова в рамках одной последовательной передачи логов
+    static uint32_t current_addr = 0;
+    static uint32_t initial_addr = 0;
+
+    memset((void *)log_for_wed, 0, LOG_BUFF_SIZE);
+    
+    int buf_index = 0;
+    int max_buf_size = sizeof(log_for_wed);  // Размер выходного буфера (например, 1 КБ)
+    int max_entries = max_buf_size / LOG_ENTRY_SIZE; // Количество записей, умещающихся в буфере
+    int consecutive_ff = 0; // Счётчик подряд идущих пустых (0xFF) записей
+
+    // При первом вызове начинаем с самой новой записи
+    if (first_call)
+    {
+        if (log_ptr == LOG_START_ADDR_BLOCK)
+            // Если указатель равен началу, начинаем с последней валидной записи
+            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
+        else
+            current_addr = log_ptr - LOG_ENTRY_SIZE;
+        // Запоминаем стартовую позицию для определения полного круга
+        initial_addr = current_addr;
+        first_call = 0;
+    }
+
+    // Чтение логов в обратном порядке (от самой новой записи)
+    for (int i = 0; i < max_entries; i++)
+    {
+        // Если уже прошли полный круг, прекращаем чтение
+        if (i > 0 && current_addr == initial_addr)
+            break;
+
+        // Проверка корректности указателя; если он вне диапазона,
+        // устанавливаем его на последнюю валидную запись
+        if (current_addr < LOG_START_ADDR_BLOCK || current_addr > (LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE)) {
+            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
+        }
+        
+        uint8_t entry[LOG_ENTRY_SIZE];
+        // Считываем одну запись по текущему адресу
+        
+        
+        
+        //Логика для пропуска лишних 8-ми байт в конце каждого сектора (иначе сбивается кратность 12-ти)
+        if ((current_addr & 0xDFFFF) == 0xDFFF4) 
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0xBFFFF) == 0xBFFF4)
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0x9FFFF) == 0x9FFF4)
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0x7FFFF) == 0x7FFF4)
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0x5FFFF) == 0x5FFF4)
+        {
+          current_addr -= 8;
+        }
+        else if ((current_addr & 0x3FFFF) == 0x3FFF4)
+        {
+          current_addr -= 8;
+        }
+          
+          
+          
+          
+        memcpy(entry, (const void *)current_addr, LOG_ENTRY_SIZE);
+
+        // Проверяем, является ли запись "пустой" (все байты равны 0xFF)
+        int is_ff = 1;
+        for (int j = 0; j < LOG_ENTRY_SIZE; j++)
+        {
+            if (entry[j] != 0xFF)
+            {
+                is_ff = 0;
+                break;
+            }
+        }
+
+        // Подсчёт подряд идущих пустых записей
+        if (is_ff)
+            consecutive_ff++;
+        else
+            consecutive_ff = 0;
+
+        // Если встречено достаточное число пустых записей, считаем, что валидных логов больше нет
+        if (consecutive_ff >= FF_THRESHOLD)
+            break;
+
+        // Копируем запись в выходной буфер
+        memcpy((void *)&log_for_wed[buf_index], entry, LOG_ENTRY_SIZE);
+        buf_index += LOG_ENTRY_SIZE;
+
+
+        // Обновляем указатель. Если вычитание размера записи привело бы к значению ниже начала сектора,
+        // переносим указатель на последнюю валидную запись
+        if (current_addr - LOG_ENTRY_SIZE < LOG_START_ADDR_BLOCK)
+            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
+        else
+            current_addr -= LOG_ENTRY_SIZE;
+    }
+
+    // Если достигнут конец логов (либо по порогу пустых записей, либо полный круг пройден),
+    // добавляем сигнальную последовательность в конец выходного буфера
+    if (consecutive_ff >= FF_THRESHOLD || ((!first_call) && current_addr == initial_addr) || current_addr == (initial_addr - 1) ||current_addr == (initial_addr - 2) ||current_addr == (initial_addr + 2) ||current_addr == (initial_addr + 1) ||current_addr == (initial_addr + 3) ||current_addr == (initial_addr -3)) 
+    {
+        const char marker[] = "\r\n-\r\n";
+        int marker_len = sizeof(marker) - 1; // Без завершающего '\0'
+        if (buf_index + marker_len < max_buf_size)
+        {
+            memcpy((void *)&log_for_wed[buf_index], marker, marker_len);
+            buf_index += marker_len;
+        }
+        // Сброс состояния для следующей передачи – в следующий раз начинаем с самой свежей записи
+        first_call = 1;
+    }
+    else if(first_call)
+    {
+      first_call = 0;
+    }
+    // Функция используется для SSI (<!--LOG-->),
+    // поэтому возвращаем 0 
+*/
+    return 0;
+}
 //---------------------------------------------------------------------------------HTTPD-SERVER-LOGICS-END---
 
 
@@ -1830,6 +2228,7 @@ void WriteFlash(FlashDataType type, uint8_t* data)
     //sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
     sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
     sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
+    sectorData[LOG_SECTOR_ACTIVE - 0x0800C000] = log_sector_active;
     
 
     uint32_t index = BOOT_CRC_ADDRESS - 0x0800C000;
@@ -2285,7 +2684,7 @@ void EXTI15_10_IRQHandler(void)
     }
     else
     {
-      button_ivent = 1;
+      //button_ivent = 1;
     }
     for (int i = 0; i < 100; i++) 
     {
@@ -2389,6 +2788,46 @@ void load_flags_from_flash(void)
     if((sector_enabled != 1) && (sector_enabled != 2))
     {
       sector_enabled = 1;
+    }
+    
+    log_sector_active = *(volatile uint8_t *)LOG_SECTOR_ACTIVE;
+    if(log_sector_active == 0xFF)
+    {
+      log_sector_active = 1;
+    }
+    
+    switch (log_sector_active){
+      case 1:
+        LOG_START_ADDR = 0x08120000; 
+        LOG_END_ADDR = 0x0813FFFF;
+        break;
+      case 2: 
+        LOG_START_ADDR = 0x08140000; 
+        LOG_END_ADDR = 0x0815FFFF;
+        break;
+      case 3:
+        LOG_START_ADDR = 0x08160000; 
+        LOG_END_ADDR = 0x0817FFFF;
+        break;
+      case 4:
+        LOG_START_ADDR = 0x08180000; 
+        LOG_END_ADDR = 0x0819FFFF;
+        break;
+      case 5:
+        LOG_START_ADDR = 0x081A0000; 
+        LOG_END_ADDR = 0x081BFFFF;
+        break;
+      case 6:
+        LOG_START_ADDR = 0x081C0000; 
+        LOG_END_ADDR = 0x081DFFFF;
+        break;
+      case 7:
+        LOG_START_ADDR = 0x081E0000; 
+        LOG_END_ADDR = 0x081FFFFF;
+        break;      
+      
+      
+      
     }
     
     log_ptr = find_next_free_log_address();
@@ -2786,27 +3225,21 @@ void addValue2Day(CircularBuffer2Day *buffer, uint16_t value) {
     buffer->index = (buffer->index + 1) % DAY_2_SIZE;
 }
 
-void RTC_Init(void) {
-  
-  
-  
-  
+void RTC_Init(void) 
+{
+ 
   
     __HAL_RCC_PWR_CLK_ENABLE();
     HAL_PWR_EnableBkUpAccess();
 
-    /* Проверяем, какой источник тактирования уже установлен */
+    __HAL_RCC_BACKUPRESET_FORCE();
+    __HAL_RCC_BACKUPRESET_RELEASE();
 
-        /* Сбрасываем настройки источника тактирования RTC */
-        __HAL_RCC_BACKUPRESET_FORCE();
-        __HAL_RCC_BACKUPRESET_RELEASE();
 
-        /* Включаем LSE и ждем его стабилизации */
-        __HAL_RCC_LSI_ENABLE();
-        while (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY) == RESET) {}
+    __HAL_RCC_LSI_ENABLE();
+    while (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY) == RESET) {}
 
-        /* Выбираем LSI в качестве источника тактирования RTC */
-        __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSI);
+    __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSI);
     
     __HAL_RCC_RTC_ENABLE();
 
@@ -2816,7 +3249,7 @@ void RTC_Init(void) {
     RTC_TimeTypeDef sTime = {0};
     RTC_DateTypeDef sDate = {0};
     
-    /** Инициализация RTC с использованием LSI/LSE **/
+    /** Инициализация RTC с использованием LSI**/
     hrtc.Instance = RTC;
     hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
     hrtc.Init.AsynchPrediv = 127;
@@ -2867,20 +3300,94 @@ float getAverage1Hour(CircularBuffer1Hour *buffer) {
 float getAverage2Day(CircularBuffer2Day *buffer) {
     return (float)buffer->sum / DAY_2_SIZE;
 }
-  
-void save_time_to_log(uint8_t arr)
+//----------------------------------------------RTC-SECTION--------------------
+void save_time_to_rtc(uint8_t *arr)
 {
-  uint16_t mask = ~(1 << 2);
-  REGISTERS[4] = (REGISTERS[4] & mask);
 
-  
-  
+    uint16_t mask = (1 << 2);  
+    REGISTERS[4] &= ~mask;
+    
+      uint8_t day   = (arr[0] - '0') * 10 + (arr[1] - '0');
+      uint8_t month = (arr[3] - '0') * 10 + (arr[4] - '0');
+      uint16_t year = (arr[6] - '0') * 1000 + (arr[7] - '0') * 100 +
+                      (arr[8] - '0') * 10   + (arr[9] - '0');
+      uint8_t hour  = (arr[11] - '0') * 10 + (arr[12] - '0');
+      uint8_t minute = (arr[14] - '0') * 10 + (arr[15] - '0');
+      uint8_t second = (arr[17] - '0') * 10 + (arr[18] - '0');
+
+      // Настройка времени RTC
+      RTC_TimeTypeDef sTime = {0};
+      sTime.Hours = hour;
+      sTime.Minutes = minute;
+      sTime.Seconds = second;
+      sTime.TimeFormat = RTC_HOURFORMAT12_AM;
+      sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+      sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+
+      if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+      {
+          Error_Handler();
+      }
+
+      // Настройка даты RTC
+      RTC_DateTypeDef sDate = {0};
+      sDate.Date = day;
+      sDate.Month = month; 
+      sDate.Year = year % 100;  // HAL использует две последние цифры года
+      sDate.WeekDay = RTC_WEEKDAY_SUNDAY;
+
+      if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+      {
+          Error_Handler();
+      }
+    
+    
+
 }
 
 
+void get_current_timestamp(uint8_t *timestamp)
+{
+    RTC_TimeTypeDef sTime;
+    RTC_DateTypeDef sDate;
+
+    HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+    HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+
+    timestamp[0] = sTime.Seconds;
+    timestamp[1] = sTime.Minutes;
+    timestamp[2] = sTime.Hours;
+    timestamp[3] = sDate.Date;
+    timestamp[4] = sDate.Month;
+    timestamp[5] = sDate.Year;
+}
+
+
+void parse_http_time_request(uint8_t *http_request, uint8_t temp_arr[6]) {
+    int index = 0;
+    char *token = strtok(http_request, "-");
+    while (token != NULL && index < 6) {
+        int val = atoi(token);
+
+        // Если значение меньше 2000, сохраняем как есть
+        if(val < 2000) {
+            temp_arr[index++] = (uint8_t)val;
+        }
+        // Иначе сохраняем разницу (год относительно 2000)
+        else {
+            uint8_t year = (uint8_t)(val - 2000);
+            temp_arr[index++] = year;
+        }
+
+        token = strtok(NULL, "-");
+    }
+}
+
+//------------------------------------------------LOG-SECTION-------------------
 void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
 {
-
+  if(start == 0)
+  {
   /* вынесена в шапку
   
   typedef struct {
@@ -2896,16 +3403,17 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
   //0x31 - ТЕСТ
   //0x32 - Предупреждение
   //0x33 - сработала защита
+
   
   
   //код события (настройки)
   //0х02 - IP адрес 
   //0х03 - Маска подсети 
   //0х04 - Шлюз 
-  //0х05 - REGISTERS[2] (состоянее реле, данный код говорит о том, что реле переключлили с кнопки) (0х00/0х01)
+  //0х05 - REGISTERS[2] (состоянее реле изменилось (кнопка в вебе, moodbus, аппаратная защита и т.д.) (0х00/0х01)
   //0x07 - Приняли новое П.О.
-  //0x09 - USART скорость (uint16_t)
-  //0x10 - USART четность (0x00 - none / 0x01 - even / 0x02 - odd)
+  //0x09 - USART скорость (4 байта, которые надо собрать в 4 первые цифры)
+  //0x10 - USART четность (char)(прям словом ~odd)
   //0x11 - USART стоп бит
   
   //0х12 - C_phase_A (все значения тут - float, без скоращения)
@@ -2917,29 +3425,30 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
   
   //0x18 - TARGET_VALUE (uint8_t пороговое значение тока)
   //0x19 - WARNING_VALUE (uint8_t пороговое значение тока)
-  
+  //0x20 - Аппаратная защита (0/1)
   
   
 
   uint32_t startAddress = log_ptr;
-  uint8_t final_data[12] = {0};//массив для записи во флеш
+  uint8_t final_data[12] = {0};
     
     
   LogEntry frame;
   
-  if((log_ptr + 12) >= (LOG_END_ADDR))
-  {
-    uint16_t mask = (1 << 3);  // Бит 4 (0000 1000)
-    REGISTERS[4] = (REGISTERS[4] | mask);
-  }
-  else
-  {
-    get_current_timestamp(frame.timestamp); //текущее время
     
-    frame.event_code = code; //код события
+    while ((log_ptr + sizeof(LogEntry)) >= LOG_END_ADDR)
+    {
+       Swipe_Log_Sector();
+       startAddress = log_ptr;
+    }
+
+  
+    get_current_timestamp(frame.timestamp); 
     
-    // Заполняем массив данных нулями
-    memset(frame.data, 0, sizeof(frame.data));
+    frame.event_code = code;
+    
+    
+    memset(frame.data, 0, sizeof(frame.data)); // Заполняем массив данных нулями
     memcpy(frame.data, log_data, copy_len);
     
     
@@ -2956,15 +3465,12 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
 
      HAL_FLASH_Lock();
      
-    
      log_ptr += sizeof(LogEntry);
   }
 }
 
 static uint8_t flash_read_byte(uint32_t address)
 {
-    // В реальном проекте: читать напрямую из памяти можно не всегда!
-    // Здесь для упрощения:
     return *((volatile uint8_t*)address);
 }
 
@@ -2976,7 +3482,6 @@ static void flash_write_byte(uint32_t address, uint8_t value)
 
     if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, address, value) != HAL_OK)
     {
-        // Обработка ошибки
         HAL_FLASH_Lock();
         taskEXIT_CRITICAL();
         return;
@@ -2990,7 +3495,7 @@ static void flash_write_byte(uint32_t address, uint8_t value)
 
 uint32_t find_next_free_log_address(void)
 {
-    // Адрес, с которого начнём смотреть (последний байт в области)
+
     uint32_t addr = LOG_END_ADDR - 1;
 
     // 1. Ищем «последний занятый байт», т.е. первый не 0xFF с конца.
@@ -3063,24 +3568,71 @@ uint32_t find_next_free_log_address(void)
         return (partial_end + 1);
     }
 }
-  
-
-   
-   
    
 
 
-void get_current_timestamp(uint8_t *timestamp)
+
+
+void Swipe_Log_Sector()
 {
-    // Пример "заглушка". Нужно заменить на реальный код чтения RTC.
-    // Допустим, возвращаем "01:23:12 07.02.25" (ss=01, mm=23, hh=12, dd=07, MM=02, yy=25).
-    timestamp[0] = 1;   // секунды
-    timestamp[1] = 23;  // минуты
-    timestamp[2] = 12;  // часы
-    timestamp[3] = 7;   // день
-    timestamp[4] = 2;   // месяц
-    timestamp[5] = 25;  // год (условно 2025)
+  
+  log_sector_active = (log_sector_active % 7) + 1;
+  
+  WriteFlash(0,0);
+  
+  taskENTER_CRITICAL();
+  HAL_FLASH_Unlock();
+  switch (log_sector_active){
+      case 1:
+        LOG_START_ADDR = 0x08120000; 
+        log_ptr = 0x08120000;
+        LOG_END_ADDR = 0x0813FFFF;
+        FLASH_Erase_Sector(FLASH_SECTOR_17, VOLTAGE_RANGE_3);
+        break;
+      case 2: 
+        LOG_START_ADDR = 0x08140000; 
+        log_ptr = LOG_START_ADDR;
+        LOG_END_ADDR = 0x0815FFFF;
+        FLASH_Erase_Sector(FLASH_SECTOR_18, VOLTAGE_RANGE_3);
+        break;
+      case 3:
+        LOG_START_ADDR = 0x08160000; 
+        log_ptr = LOG_START_ADDR;
+        LOG_END_ADDR = 0x0817FFFF;
+        FLASH_Erase_Sector(FLASH_SECTOR_19, VOLTAGE_RANGE_3);
+        break;
+      case 4:
+        LOG_START_ADDR = 0x08180000; 
+        log_ptr = LOG_START_ADDR;
+        LOG_END_ADDR = 0x0819FFFF;
+        FLASH_Erase_Sector(FLASH_SECTOR_20, VOLTAGE_RANGE_3);
+        break;
+      case 5:
+        LOG_START_ADDR = 0x081A0000;
+        log_ptr = LOG_START_ADDR;
+        LOG_END_ADDR = 0x081BFFFF;
+        FLASH_Erase_Sector(FLASH_SECTOR_21, VOLTAGE_RANGE_3);
+        break;
+      case 6:
+        LOG_START_ADDR = 0x081C0000; 
+        log_ptr = LOG_START_ADDR;
+        LOG_END_ADDR = 0x081DFFFF;
+        FLASH_Erase_Sector(FLASH_SECTOR_22, VOLTAGE_RANGE_3);
+        break;
+      case 7:
+        LOG_START_ADDR = 0x081E0000; 
+        log_ptr = LOG_START_ADDR;
+        LOG_END_ADDR = 0x081FFFF8;
+        FLASH_Erase_Sector(FLASH_SECTOR_23, VOLTAGE_RANGE_3);
+        break;      
+    }
+  HAL_FLASH_Lock();
+  taskEXIT_CRITICAL();
 }
+
+
+
+
 
 /* USER CODE END Application */
 

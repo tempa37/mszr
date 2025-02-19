@@ -79,9 +79,27 @@
 			box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
 			width: 40%;
         }
-        .info-field {
-            margin-bottom: 20px;
-        }
+		.info-field {
+		  position: relative; /* обязательно для корректного позиционирования псевдоэлемента */
+		  margin-bottom: 20px;
+		}
+		
+		
+		.info-field::before { /*Доп слой над полями для организации кнопок в полях*/
+		  content: "";
+		  position: absolute;
+		  top: 0;
+		  left: 0;
+		  width: 100%;
+		  height: 100%;
+		  background: transparent;
+		  pointer-events: none; /* чтобы слой не мешал кликам по элементам ниже */
+		}
+		
+		
+		
+		
+		
         .info-field label {
             display: block;
             margin-bottom: 5px;
@@ -261,6 +279,71 @@
 			background-color: #555; /* Цвет кнопки при наведении */
 			color: #ffffff;
 		}
+		
+		.input-group {
+		  display: flex;
+		  align-items: center;
+		}
+
+		.input-group input {
+		  flex: 1;            /* Поле ввода занимает всю оставшуюся ширину */
+		  margin-right: 10px;  /* Отступ между полем и кнопкой */
+		}
+		
+		
+		
+		.input-group {
+			   display: flex;               /* вместо inline-flex */
+				width: 98%; 
+			  border: 1px solid #555;       /* рамка вокруг «единого» поля */
+			  border-radius: 5px;           /* скруглённые углы */
+			  overflow: hidden;             /* обрезаем «лишнее», если что-то вылезет за границы */
+			  background-color: #444444;       /* общий тёмный фон */
+			}
+
+			/* Само поле ввода */
+			.input-group input {
+			  border: none;                 /* убираем стандартную рамку инпута */
+			  background-color: transparent;/* фон прозрачен, т.к. у нас общий фон .input-group */
+			  color: #fff;                  /* цвет текста */
+			  padding: 10px;
+			  width: 100%;                  /* займёт всю доступную ширину в группе */
+			  outline: none;                /* убираем подсветку при фокусе, если не нужна */
+			  font-size: 16px;
+			}
+
+			/* Кнопка в группе */
+			.time-btn {
+			  border: none;         
+			  background-color: #444;       /* можно оставить общий фон #333, но тогда «сольётся» с input */
+			  color: #fff;
+			  padding: 10px 15px;           /* немного отступов вокруг */
+			  cursor: pointer;
+			  display: flex;                /* чтобы иконка и текст располагались красиво */
+			  align-items: center;          /* выравниваем иконку и текст по центру по вертикали */
+			  font-size: 14px;             
+			  transition: background-color 0.3s ease;
+			}
+
+			.time-btn:hover {
+			  background-color: #555;       /* при наведении слегка осветлим */
+			}
+
+			.time-btn:active {
+			  background-color: #666;       /* при нажатии ещё темнее или светлее — на ваше усмотрение */
+}
+
+		
+		
+		
+		.icon {
+			margin-right: 5px;
+            width: 16px;
+            height: 16px;
+            margin-right: 5px;
+            fill: currentColor; /* иконка подстраивается под цвет текста */
+            stroke: #000000;
+        }
 
 		.button-relay:active {
 			background-color: #779c6d; /* Цвет кнопки при нажатии */
@@ -325,13 +408,13 @@
 		width: 35px;
 	}
   
-          .container_admin {
-			  display: flex;
-				align-items: center; /* Центровка по вертикали */
-			justify-content: center; /* Центровка по горизонтали */
-            display: flex;
-            padding: 20px;
-			margin-bottom: 20px;
+	  .container_admin {
+		display: flex;
+		align-items: center; /* Центровка по вертикали */
+		justify-content: center; /* Центровка по горизонтали */
+		display: flex;
+		padding: 20px;
+		margin-bottom: 20px;
         }
 		
 		

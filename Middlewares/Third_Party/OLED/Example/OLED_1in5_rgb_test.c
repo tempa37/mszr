@@ -22,7 +22,7 @@ extern void WriteReg(uint8_t Reg);
 extern uint8_t BlackImage[32768];
 extern uint8_t OLED;
 extern struct netif gnetif;
-extern uint16_t REGISTERS[3];
+extern uint16_t REGISTERS[5];
 extern osEventFlagsId_t evt_id;
 extern uint8_t IP_ADDRESS[4];
 extern uint8_t NETMASK_ADDRESS[4];
@@ -38,6 +38,7 @@ extern uint32_t usart_speed;
 extern char uartStopBits[];
 extern char uartPARITY[];
 
+void Fill_YELLOW();
 void Fill_RED();
 void DrawCenteredSemiCircle();
 void DrawCenteredSemiCircle2(UWORD percent);
@@ -193,7 +194,7 @@ void OLED_1in5_rgb_run() {
       
       int OLED_RESET2 = 0;
       
-      if(OLED_RESET2) //OLED_RESET2 - OFF 
+      if(OLED_RESET == 1) //OLED_RESET2 - OFF  OLED_RESET - ON 
       {
         
 
@@ -247,6 +248,43 @@ void OLED_1in5_rgb_run() {
           
           OLED_RESET = 0;
           xTimerStart(myTimer, 0);
+      }
+      else if(OLED_RESET == 2)
+      {
+        uint16_t mA = REGISTERS[1];
+        char buffer[10] = {0};
+
+      
+      
+        Fill_YELLOW();
+        
+        //Paint_DrawString_EN(40, 45, "! ВНИМАНИЕ !", &Courier12R, BLACK, RED);
+        //Paint_DrawString_EN(20, 58, "СРАБОТАЛА ЗАЩИТА", &Courier12R, BLACK, RED);
+
+
+        Paint_DrawString_EN(21, 10, "! ВНИМАНИЕ !", &Courier12R, BLACK, YELLOW);
+        Paint_DrawString_EN(16, 60, "ПРЕВЫШЕН ПОРОГ", &Courier12R, BLACK, YELLOW);
+        Paint_DrawString_EN(16, 80, "ПРЕДУПРЕЖДЕНИЯ", &Courier12R, BLACK, YELLOW);
+        
+        //Paint_DrawRectangle(120, 70, 8, 120, WHITE, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+
+       
+       
+       
+       
+       
+       
+       OLED_1in5_rgb_Display(BlackImage);
+       osDelay(200); //the image will be transmitted in ~188ms (for 1.4MBits/sec)
+        
+       osDelay(1700);
+        OLED_RESET = 0;
+       xTimerStart(myTimer, 0);
+        
+        
+        
+        
+        
       }
 
 
@@ -407,10 +445,29 @@ for (Y = 0; Y < 128; Y++) {
 }
   }
 
+void Fill_YELLOW() 
+{
+UWORD X, Y;
+UWORD Color = YELLOW;
+for (Y = 0; Y < 128; Y++) {
+    for (X = 0; X < 128; X++) {
+        Paint_SetPixel(X, Y, Color);
+    }
+}
+  }
+
 
 void OLED_TimerCallback(TimerHandle_t xTimer) 
 {
-      OLED_RESET = 1;
+  if (REGISTERS[4] & 0x02) 
+  {
+    OLED_RESET = 2;
+  
+  } 
+  else 
+  {
+    OLED_RESET = 1;
+  }
 }
   
 

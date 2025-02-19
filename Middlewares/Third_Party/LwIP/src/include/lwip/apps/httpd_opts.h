@@ -150,7 +150,7 @@
  * If this buffer is not long enough, use LWIP_HTTPD_SSI_MULTIPART.
  */
 #if !defined LWIP_HTTPD_MAX_TAG_INSERT_LEN || defined __DOXYGEN__
-#define LWIP_HTTPD_MAX_TAG_INSERT_LEN 192
+#define LWIP_HTTPD_MAX_TAG_INSERT_LEN 1050
 #endif
 
 #if !defined LWIP_HTTPD_POST_MANUAL_WND || defined __DOXYGEN__
