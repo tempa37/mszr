@@ -69,7 +69,7 @@ extern  uint8_t rxBuffer[50];
 extern uint8_t IP_ADDRESS[4];
 extern uint8_t NETMASK_ADDRESS[4];
 extern uint8_t GATEWAY_ADDRESS[4];
-extern uint16_t REGISTERS[5];
+extern uint16_t REGISTERS[9];
 extern uint32_t usart_speed;
 uint8_t SERIAL_ADDRESS[6] = {0};
 
@@ -122,6 +122,7 @@ uint8_t adc_ready = 0;
 //-------------------------------------------------------------------
 uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x02};
 uint16_t soft_ver_modbus = 101;
+
 extern struct httpd_state *hs;
 
 /* USER CODE END PD */
@@ -316,7 +317,7 @@ uint8_t i9 = 0;
 uint8_t fff = 0;
 uint8_t ch = 0;
 volatile uint32_t er = 0;
-uint8_t response_data[20] = {0};
+uint8_t response_data[50] = {0};
 
 //-------------------------------------------------------------------------------------------------------------------
 typedef struct {
@@ -585,6 +586,9 @@ void StartDefaultTask(void *argument)
     EXTI6_Init();
   }
   
+  
+  REGISTERS[4] = (REGISTERS[4] |= 0x04);
+  REGISTERS[0] = soft_ver_modbus;
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
   load_flags_from_flash();
   osDelay(100);
@@ -633,7 +637,6 @@ void StartTask02(void *argument)
   /* USER CODE BEGIN StartTask02 */
   /* Infinite loop */
   
-  REGISTERS[0] = soft_ver_modbus;
   
   /*
   uint16_t mask = (1 << 2);  
@@ -750,11 +753,11 @@ if(!start)
       if((REGISTERS[1] > (avg1h * 1.1)) && (flag_1 == 0))
       {
         uint8_t data = REGISTERS[1];
-        write_to_log(0x32, &data, 1);
+        write_to_log(0x30, &data, 1);
         flag_1 = 1;
       }
       // Сброс флага, когда ток снижается ниже среднего
-      else if ((REGISTERS[1] < (avg1h)) && (flag_1 == 1))
+      else if ((REGISTERS[1] <= (avg1h)) && (flag_1 == 1))
       {
         flag_1 = 0;
       }
@@ -784,7 +787,6 @@ if(!start)
     { 
           address = SECTOR_2_ADDRESS;
           uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
-
           if(crc_os == crc_stm)
           {
             uint8_t data = 0x00;
@@ -1102,15 +1104,20 @@ void StartTask06(void *argument)
     
     //warning 1
     if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2))
-    {
+    {     
+      static uint8_t period = 0;
       if(avg1h > avg2d)
       {   
+        if(period != time.hours)
+        {
+        period = time.hours;
         uint16_t delta = (avg2d - avg1h);
         if(delta >= 5)
         {
           REGISTERS[4] = (REGISTERS[4] |= 0x01);
           uint8_t data = 0x02;
           write_to_log(0x32, &data, 1);
+        }
         }
       }
     }
@@ -3631,7 +3638,87 @@ void Swipe_Log_Sector()
 }
 
 
+/*
+void save_time_unix()
+{
+  
+    uint16_t mask = (1 << 2);  
+    REGISTERS[4] &= ~mask;
+  
+  
+  
+  
+    // Считываем 64-битное Unix время из массива регистров.
+    // Предполагается, что каждый регистр (REGISTERS[5]...REGISTERS[8]) содержит по 16 бит.
+    uint64_t timestamp = ((uint64_t)REGISTERS[5] << 48) |
+                         ((uint64_t)REGISTERS[6] << 32) |
+                         ((uint64_t)REGISTERS[7] << 16) |
+                         ((uint64_t)REGISTERS[8]);
 
+    // Извлекаем компоненты времени (секунды, минуты, часы)
+    uint32_t sec    = timestamp % 60;
+    uint32_t minute = (timestamp / 60) % 60;
+    uint32_t hour   = (timestamp / 3600) % 24;
+    // Количество дней, прошедших с 1 января 1970 (эпоха Unix)
+    uint32_t days = timestamp / 86400;
+
+    // Вычисляем год, месяц и день
+    int year = 1970;
+    while (1) {
+        // Определяем количество дней в текущем году с учётом високосного года
+        int daysInYear = ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ? 366 : 365);
+        if (days >= daysInYear) {
+            days -= daysInYear;
+            year++;
+        } else {
+            break;
+        }
+    }
+    int month = 1;
+    int daysInMonth[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    // Если год високосный, февраль имеет 29 дней
+    if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) {
+        daysInMonth[1] = 29;
+    }
+    while (days >= daysInMonth[month - 1]) {
+        days -= daysInMonth[month - 1];
+        month++;
+    }
+    int day = days + 1;
+
+    // Вычисляем день недели.
+    // 1 января 1970 был четвергом. При условии, что в RTC дни недели нумеруются от 1 (понедельник) до 7 (воскресенье),
+    // можно использовать формулу: weekday = ((daysSinceEpoch + 3) % 7) + 1.
+    //uint32_t weekday = ((timestamp / 86400 + 3) % 7) + 1;
+
+    // Настройка времени RTC
+    RTC_TimeTypeDef sTime = {0};
+    sTime.Hours         = hour;
+    sTime.Minutes       = minute;
+    sTime.Seconds       = sec;
+    sTime.TimeFormat    = RTC_HOURFORMAT12_AM;  // Если нужен 24-часовой формат, настройте соответствующим образом
+    sTime.DayLightSaving= RTC_DAYLIGHTSAVING_NONE;
+    sTime.StoreOperation= RTC_STOREOPERATION_RESET;
+
+    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    // Настройка даты RTC
+    RTC_DateTypeDef sDate = {0};
+    sDate.Date    = day;
+    sDate.Month   = month;
+    sDate.Year    = year % 100;  // HAL принимает две последние цифры года
+    //sDate.WeekDay = weekday;
+
+    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+*/
 
 
 /* USER CODE END Application */

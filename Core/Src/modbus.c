@@ -37,11 +37,14 @@ void modbus(uint8_t *data, uint16_t len, uint8_t *data_out, uint16_t *len_out, P
                   case 06:
                     writeREG(protocol, data, len, data_out, len_out);
                     break;
-                    
+                    /*
+                  case 0x10:
+                    writeMoreReg(protocol, data, len, data_out, len_out);
+                    break;
                   case 0:  //crc error
 
                     break;
-                    
+                    */
                   default:
                     modbus_response_err(protocol, data, data_out, len_out, 0x01);  //Illegal Function
                     break;
@@ -197,6 +200,95 @@ void writeREG(Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out,
 }
 
 
+void writeMoreReg(Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out, uint16_t *len_out)
+{
+	if(protocol == RTU)
+	{
+		uint16_t address = (data[2] << 8) | data[3];
+		
+		if ((address < WRITE_REGISTERS_ADDRESS || 
+			address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
+		{
+			modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
+			return;
+		}
+		
+		uint16_t count = (data[4] << 8) | data[5];
+		
+                 for (int i = 0; i < count; i++) 
+                 {
+                   WRITE_REGISTERS[address +i] = (data[7+i*2] << 8) | data[8+i*2];
+                 }
+
+		for (int i = 0; i < 6; i++) 
+		{
+			data_out[i] = data[i];
+		}
+
+                *len_out = len + 2;   
+                
+                //save_time_unix();
+	}
+	else if(protocol == TCP)
+	{
+            uint16_t transaction_id = (data[0] << 8) | data[1];
+            uint16_t protocol_id    = (data[2] << 8) | data[3];
+            uint16_t message_len    = (data[4] << 8) | data[5];
+
+            // Проверяем корректность заголовка TCP (минимальная длина – 7 байт после заголовка)
+            if (protocol_id != 0x0000 || message_len < 7)
+            {
+                modbus_response_err(protocol, data, data_out, len_out, 0x02); // Illegal Data Address
+                return;
+            }
+
+            uint8_t unit_id      = data[6];
+            uint8_t function_code = data[7]; // Обычно 0x10 для записи нескольких регистров
+            uint16_t address     = (data[8] << 8) | data[9];
+            uint16_t count       = (data[10] << 8) | data[11];
+            
+            uint8_t byte_count   = data[12];
+            // Проверяем, соответствует ли байт-счётчик количеству переданных байтов (2 байта на регистр)
+            if (byte_count != count * 2)
+            {
+                modbus_response_err(protocol, data, data_out, len_out, 0x03); // Можно использовать иной код ошибки, например, Illegal Data Value
+                return;
+            }
+            
+
+            // Проверка адреса на валидность
+            if ((address < WRITE_REGISTERS_ADDRESS || 
+                 address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
+            {
+                modbus_response_err(protocol, data, data_out, len_out, 0x02); // Illegal Data Address
+                return;
+            }
+
+            // Записываем несколько регистров аналогично RTU
+            for (int i = 0; i < count; i++) 
+            {
+                WRITE_REGISTERS[address + i] = (data[13 + 2*i] << 8) | data[13 + 2*i + 1];
+            }
+
+            // Формируем ответ: echo заголовка с начальным адресом и количеством записанных регистров
+            data_out[0] = (transaction_id >> 8) & 0xFF;
+            data_out[1] = transaction_id & 0xFF;
+            data_out[2] = (protocol_id >> 8) & 0xFF;
+            data_out[3] = protocol_id & 0xFF;
+            data_out[4] = 0x00;
+            data_out[5] = 0x06; // Длина ответа: unit_id + function_code + адрес (2) + count (2)
+            data_out[6] = unit_id;
+            data_out[7] = function_code;
+            data_out[8] = (address >> 8) & 0xFF;
+            data_out[9] = address & 0xFF;
+            data_out[10] = (count >> 8) & 0xFF;
+            data_out[11] = count & 0xFF;
+            *len_out = 12;
+
+            //save_time_unix();
+        }
+
+}
 
 
 

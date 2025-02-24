@@ -22,7 +22,7 @@ extern void WriteReg(uint8_t Reg);
 extern uint8_t BlackImage[32768];
 extern uint8_t OLED;
 extern struct netif gnetif;
-extern uint16_t REGISTERS[5];
+extern uint16_t REGISTERS[9];
 extern osEventFlagsId_t evt_id;
 extern uint8_t IP_ADDRESS[4];
 extern uint8_t NETMASK_ADDRESS[4];

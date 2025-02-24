@@ -992,6 +992,7 @@ var sortButton = document.getElementById("field213");
 	  const terminationPattern = new Uint8Array([13, 10, 45, 13, 10]);
 	  if (indexOfSubarray(logsBytes, terminationPattern) !== -1) {
 		allLogsLoaded = true;
+		updatePaginationControls();
 	  }
 		
 		updateSaveButtonState();
