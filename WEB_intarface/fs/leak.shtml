@@ -248,6 +248,11 @@
             margin: 0;
             color: #ff9800; /* оранжевый цвет текста */
         }
+		
+		.toggle input:disabled + .slider {
+			background-color: #888; /* серый цвет */
+			cursor: not-allowed;
+		}
     </style>
 </head>
 <body>
@@ -330,19 +335,20 @@
         </form>
 
 
-        <div class="toggle-container">
-            <span class="toggle-label">Аппаратная защита:</span>
-            <label class="toggle">
-                <input type="checkbox" id="hardwareProtectionToggle" data-ssi="<!--#HWPRT-->">
-                <span class="slider"></span>
-            </label>
-        </div>
-    </div>
+				<div class="toggle-container">
+					<span class="toggle-label">Аппаратная защита:</span>
+					<label class="toggle">
+						<input type="checkbox" id="hardwareProtectionToggle" data-ssi="<!--#HWPRT-->" disabled>
+               	<span class="slider"></span>
+					</label>
+				</div>
+			</div>
 
-    <!-- Блок предупреждения, который будет разворачиваться -->
-    <div class="hardware-warning" id="hardwareWarning">
-        <p>Внимание! Аппаратная защита использует свои встроенные параметры. Если ваши настройки не согласуются с ними, поведение системы будет неопределенным. При изменении настроек рекомендуется отключить аппаратную защиту!</p>
-    </div>
+			<!-- Блок предупреждения, который будет разворачиваться -->
+<!--    	<div class="hardware-warning" id="hardwareWarning">
+				<p>Внимание! Аппаратная защита использует свои встроенные параметры. Если ваши настройки не согласуются с ними, поведение системы будет неопределенным. При изменении настроек рекомендуется отключить аппаратную защиту!</p>
+			</div>
+-->
 
     <button class="submit-button" onclick="saveChangesAdmin()">Сохранить изменения</button>
 
@@ -409,7 +415,7 @@
             const targetValue = document.getElementById('target_value').value;
 			const warningValue = document.getElementById('warning_value').value
 			
-			const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
+			//const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
 			
             const updatedData = {};
 				
@@ -422,7 +428,7 @@
             if (targetValue) updatedData.target_value = targetValue;
 			if (warningValue) updatedData.warning_value = warningValue;
 			
-			updatedData.checked = hardwareProtectionToggle.checked ? 1 : 0;
+			//updatedData.checked = hardwareProtectionToggle.checked ? 1 : 0;
 			
             if (Object.keys(updatedData).length === 0) {
                 alert('Нет измененных данных для сохранения.');
@@ -470,14 +476,16 @@
             return fracPart.length > 0 ? intPart + '.' + fracPart : intPart;
         }
 
+
         window.addEventListener('DOMContentLoaded', function () {
 
 
-            const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
-            const hardwareWarning = document.getElementById('hardwareWarning');
+            //const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
+            //const hardwareWarning = document.getElementById('hardwareWarning');
 			
 			
 			// При загрузке страницы найдём чекбокс и блок предупреждения
+			/*
 			const checkbox = document.querySelector("#hardwareProtectionToggle");
 			if (checkbox.dataset.ssi.includes("checked")) {
 			  checkbox.checked = true;
@@ -492,8 +500,9 @@
                 } else {
                     // Если выключили — скрываем предупреждение
                     hardwareWarning.style.display = 'none';
-                }
+               }
             });
+			*/
 
             // Автоматическое округление значений 
             var inputs = document.querySelectorAll('input');
@@ -501,7 +510,7 @@
                 input.value = roundValue(input.value);
             });
         });
-		
+
     </script>
 </body>
 </html>

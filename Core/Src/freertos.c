@@ -43,7 +43,7 @@
 #include "timers.h"
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_hal_rtc.h"
-
+#include "stm32f4xx.h"
 
 
 
@@ -61,6 +61,7 @@ uint8_t packetReceived = 0;
 
 osMutexId_t flashMutexHandle;
 osMutexId_t RelayMutexHandle;
+SemaphoreHandle_t xHighPrioritySemaphore;
 
 
 extern struct netif gnetif;
@@ -69,11 +70,23 @@ extern  uint8_t rxBuffer[50];
 extern uint8_t IP_ADDRESS[4];
 extern uint8_t NETMASK_ADDRESS[4];
 extern uint8_t GATEWAY_ADDRESS[4];
-extern uint16_t REGISTERS[9];
+extern volatile uint16_t REGISTERS[9];
 extern uint32_t usart_speed;
 uint8_t SERIAL_ADDRESS[6] = {0};
 
 //----------------------------ADC---LOGIC---------------------------------------
+
+volatile uint8_t last_position = 0;
+volatile uint8_t mode = 0;
+
+uint32_t g_tick;   //-------//------//-----
+uint32_t diff;     //-------//------//-----
+
+
+//volatile uint8_t manual_mode = 0;
+
+uint8_t reley_auto_protection = 1;
+
 float C_phase_A = 0;
 float R_leak_A = 0;
 float C_phase_B = 0;
@@ -81,11 +94,11 @@ float R_leak_B = 0;
 float C_phase_C = 0;
 float R_leak_C = 0;
 uint8_t TARGET_VALUE = 0;
-uint8_t TARGET_VALUE_DEF = 60;
+uint8_t TARGET_VALUE_DEF = 25; //25
 uint8_t WARNING_VALUE = 0;
-uint8_t WARNING_VALUE_DEF = 60;
+uint8_t WARNING_VALUE_DEF = 20; //20
 
-uint8_t hw_protection = 1;
+//uint8_t hw_protection = 0;
 #define FLASH_ADDRESS_C_PHASE_A 0x0800C0A0
 #define FLASH_ADDRESS_R_LEAK_A  0x0800C0B0
 #define FLASH_ADDRESS_C_PHASE_B 0x0800C0C0
@@ -113,8 +126,8 @@ char uartPARITY[10];
 uint8_t output[200] = {0};
 
 
-uint16_t ADC_BUFFER_SIZE = 2000;
-extern uint16_t adcBuffer[2000];
+uint16_t ADC_BUFFER_SIZE = 700;  //2000
+extern uint16_t adcBuffer[700];  //2000
 uint8_t adc_ready = 0;
 
 
@@ -136,7 +149,7 @@ struct netconn *newconn = NULL;
 
 const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
-"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "HWPRT" , "CRCACC", "JSON", "WVALUE", "ALERT", "LOG"};
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "MODE" , "CRCACC", "JSON", "WVALUE", "ALERT", "LOG"};
 
 
 typedef enum 
@@ -248,6 +261,13 @@ volatile uint16_t avg1h = 0;
 volatile uint16_t avg2d = 0;
 
 //-------------------------TIME-&-LOG--SECTION---------------------------------------
+UBaseType_t uxHighWaterMark1;
+UBaseType_t uxHighWaterMark2;
+UBaseType_t uxHighWaterMark3;
+UBaseType_t uxHighWaterMark4;
+UBaseType_t uxHighWaterMark5;
+UBaseType_t uxHighWaterMark6;
+UBaseType_t uxHighWaterMark;
 
 
 typedef struct {
@@ -314,7 +334,7 @@ uint8_t OLED_RESET = 1;
 uint8_t RS485 = 0;
 uint8_t RX_Flag = 0;
 uint8_t i9 = 0;
-uint8_t fff = 0;
+uint8_t fff = 1;
 uint8_t ch = 0;
 volatile uint32_t er = 0;
 uint8_t response_data[50] = {0};
@@ -344,6 +364,14 @@ typedef struct {
 /* USER CODE BEGIN Variables */
 
 /* USER CODE END Variables */
+
+osThreadId_t HighPriorityTaskHandle;
+const osThreadAttr_t HighPriorityTask_attributes = {
+   .name = "HighPriorityTask",
+   .stack_size = 1024 * 10, // Размер стека (измените при необходимости)
+   .priority = (osPriority_t) osPriorityHigh, // Приоритет выше остальных      osPriorityHigh
+};
+
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
@@ -383,7 +411,7 @@ const osThreadAttr_t LWGL_control_attributes = {
 osThreadId_t WDIHandle;
 const osThreadAttr_t WDI_attributes = {
   .name = "WDI",
-  .stack_size = 128 * 4,
+  .stack_size = 528 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 
@@ -398,6 +426,8 @@ void setrelay(uint16_t i);
 void send_uart(const uint8_t *response, uint16_t len);
 void DrawCenteredSemiCircle2(UWORD percent);
 void DrawCenteredSemiCircle();
+void startMyTimer_UPDATE(uint32_t timeout_ms);
+void vMyTimer2Callback(TimerHandle_t xTimer);
 void startMyTimer_RESET(uint32_t timeout_ms);
 void vMyTimerCallback(TimerHandle_t xTimer);
 void convert_str_to_uint8_array_serial(const char* input, uint8_t* output);
@@ -420,7 +450,7 @@ char* extract_body(uint8_t *packet);
 const char *handle_file_upload(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
 //=======
-void EXTI6_Init(void);
+//void EXTI6_Init(void);
 void EXTI9_5_IRQHandler(void);
 void RTC_Init(void);
 
@@ -428,6 +458,9 @@ uint32_t find_next_free_log_address(void);
 
 void convert_str_to_float_bytes(const char* input, uint8_t* output);
 void load_values_from_flash(void);
+
+void erise_update_sector(void);
+
 
 void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
@@ -483,6 +516,7 @@ void StartTask03(void *argument);
 void StartTask04(void *argument);
 void StartTask05(void *argument);
 void StartTask06(void *argument);
+void HighPriorityTask(void *argument);
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -498,7 +532,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END Init */
   
   /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
+  xHighPrioritySemaphore = xSemaphoreCreateBinary();
   /* USER CODE END RTOS_MUTEX */
   
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -518,22 +552,22 @@ void MX_FREERTOS_Init(void) {
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
   
   /* creation of Relay_task */
-  Relay_taskHandle = osThreadNew(StartTask02, NULL, &Relay_task_attributes);
+  Relay_taskHandle = osThreadNew(StartTask02, NULL, &Relay_task_attributes); //не помогает
   
   /* creation of mobdus */
-  mobdusHandle = osThreadNew(StartTask03, NULL, &mobdus_attributes);
+  mobdusHandle = osThreadNew(StartTask03, NULL, &mobdus_attributes);  //помогает
   
   /* creation of Relay_control */
-  Relay_controlHandle = osThreadNew(StartTask04, NULL, &Relay_control_attributes);
+  Relay_controlHandle = osThreadNew(StartTask04, NULL, &Relay_control_attributes); //не помогает
   
   /* creation of LWGL_control */
-  LWGL_controlHandle = osThreadNew(StartTask05, NULL, &LWGL_control_attributes);
+  LWGL_controlHandle = osThreadNew(StartTask05, NULL, &LWGL_control_attributes); //не помогает
   
   /* creation of WDI */
-  WDIHandle = osThreadNew(StartTask06, NULL, &WDI_attributes);
+  WDIHandle = osThreadNew(StartTask06, NULL, &WDI_attributes); //помогает
   
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+  HighPriorityTaskHandle = osThreadNew(HighPriorityTask, NULL, &HighPriorityTask_attributes); //не помогает
   /* USER CODE END RTOS_THREADS */
   
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -581,11 +615,12 @@ void StartDefaultTask(void *argument)
   
   load_values_from_flash();
   
+  /*
   if(hw_protection)
   {
     EXTI6_Init();
   }
-  
+  */
   
   REGISTERS[4] = (REGISTERS[4] |= 0x04);
   REGISTERS[0] = soft_ver_modbus;
@@ -594,12 +629,47 @@ void StartDefaultTask(void *argument)
   osDelay(100);
   RTC_Init();
   xSemaphoreGive(xPacketSaved);
+
   /* Infinite loop */
 
   
   
   for(;;)     //------------------------------------------------------modbus_RTU------------------------------
   {
+    uxHighWaterMark1 = uxTaskGetStackHighWaterMark(NULL);
+    
+    
+    static uint8_t first = 1;
+    if(first)
+    {
+      
+      uint8_t *flash_ptr = (uint8_t *)0x08080000;
+      uint8_t all_ff = 1;
+      for (int i = 0; i < 20; i++) {
+          if (flash_ptr[i] != 0xFF) {
+              all_ff = 0;
+              break;
+          }
+      }
+
+      if(!all_ff)
+      {
+          erise_update_sector();
+          first = 0;
+      }
+    }
+    
+    if (REGISTERS[4] & (1 << 4)) 
+    {
+    // 4-й бит установлен (1)
+    mode = 1;
+    } 
+    else 
+    {
+    // 4-й бит сброшен (0)
+    mode = 0;
+    }
+    
     
     if (xSemaphoreTake(xPacketSemaphore, portMAX_DELAY) == pdTRUE) 
     {
@@ -661,17 +731,20 @@ void StartTask02(void *argument)
   {
     
     //---------------------------------ADC-and-Realay-logic-------------------------
-    
+    uxHighWaterMark2 = uxTaskGetStackHighWaterMark(NULL);
+
     if(adc_ready == 1)
     {
+      
+
         /*
         uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
         REGISTERS[1] = (uint16_t)(rms * 0.019922);  // REGISTERS[1] = ((((rms / 4096) * 3.3) * 3) / (121.1775) * 1000);
         */
-        
+        /*
         uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
         //rms = 300; //for test
-        osDelay(50);
+        //osDelay(50);
         float leak_phase_A_macros = calculate_rms_A_macros(rms);
         float leak_phase_B_macros = calculate_rms_B_macros(rms);
         float leak_phase_C_macros = calculate_rms_C_macros(rms);
@@ -682,8 +755,8 @@ void StartTask02(void *argument)
         
         uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
         REGISTERS[1] = max_val;
-        
-        
+        */
+      
         
 //----------------------------------------------------------------------------------WARNING-LOGIC-------------
         static uint8_t lasttime = 0;
@@ -717,7 +790,7 @@ void StartTask02(void *argument)
     }
     
     
-    
+    /*
     if(REGISTERS[1] >= TARGET_VALUE)
     {
       setrelay(0);
@@ -731,19 +804,30 @@ void StartTask02(void *argument)
     {
       theme = 1;
     }
-    
+    */
     
     
 if(!start)
 {
-      
+    static uint8_t value_was_changed = 1;
     //warning 2
-    if(REGISTERS[1] >= WARNING_VALUE)
+    if(REGISTERS[1] >= WARNING_VALUE) 
     {
+      if(value_was_changed == 1)
+      {
       REGISTERS[4] = (REGISTERS[4] |= 0x02);
       uint8_t data = REGISTERS[1];
+      taskENTER_CRITICAL();
       write_to_log(0x32, &data, 1);
+      taskEXIT_CRITICAL();
+      value_was_changed = 0;
+      }
     }
+    else if(REGISTERS[1] < WARNING_VALUE)
+    {
+      value_was_changed = 1;
+    }
+    
     
     static uint8_t flag_1 = 0; // или bool flag_1 = false;
 
@@ -753,8 +837,10 @@ if(!start)
       if((REGISTERS[1] > (avg1h * 1.1)) && (flag_1 == 0))
       {
         uint8_t data = REGISTERS[1];
+        taskENTER_CRITICAL();
         write_to_log(0x30, &data, 1);
         flag_1 = 1;
+        taskEXIT_CRITICAL();
       }
       // Сброс флага, когда ток снижается ниже среднего
       else if ((REGISTERS[1] <= (avg1h)) && (flag_1 == 1))
@@ -764,6 +850,9 @@ if(!start)
     }
  }
     
+     
+      
+    /*  
     if(hw_protection)
     {
       if (HAL_GPIO_ReadPin(Fixing_the_leak_GPIO_Port, Fixing_the_leak_Pin) == GPIO_PIN_SET)
@@ -771,7 +860,7 @@ if(!start)
         setrelay(0);
       } 
     }
-    
+    */
     
     
     
@@ -785,6 +874,7 @@ if(!start)
     
     if((boot_flag_new == 1) && (next_free_addr != 0))
     { 
+          taskENTER_CRITICAL();
           address = SECTOR_2_ADDRESS;
           uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
           if(crc_os == crc_stm)
@@ -807,12 +897,13 @@ if(!start)
             WriteFlash(0, 0);
             startMyTimer_RESET(7000);
           }
+          taskEXIT_CRITICAL();
         
     }
     
 //----------------------------------------------------------------OS-UPDATE-END--
-    osDelay(25);
-    
+     osDelay(25);
+     //taskYIELD();
     
     //--------------------------------------------------------------------
     
@@ -868,6 +959,8 @@ void StartTask03(void *argument)
     
     while (1)
     {
+      uxHighWaterMark3 = uxTaskGetStackHighWaterMark(NULL);
+
       switch (current_state)
       {
       case STATE_INIT:
@@ -984,6 +1077,7 @@ void StartTask03(void *argument)
         break;
       }
     }
+
   }
   /* USER CODE END StartTask03 */
 }
@@ -1005,42 +1099,64 @@ void StartTask04(void *argument)
   for(;;)
   {
     
-    switch(REGISTERS[2])
+    uxHighWaterMark4 = uxTaskGetStackHighWaterMark(NULL);
+    
+    
+    if(mode)
     {
-    case 0:
-      HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
-      break;
       
-    case 1:
-      HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-      break;  
+      
+      switch(REGISTERS[2])
+      {
+      case 0:
+        if(last_position != 0)
+        {
+        HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+        uint8_t temp[1] = {0x00};
+        write_to_log(0x05, &temp[0], 1);
+        last_position = 0;
+        }
+        break;
+        
+      case 1:
+        if(last_position != 1)
+        {
+        HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+        last_position = 1;
+        uint8_t temp[1] = {0x01};
+        write_to_log(0x05, &temp[0], 1);
+        }
+        break;  
+      }
     }
+    
+    
     if(fff)
     {
+      reley_auto_protection = 0;
       setrelay(0);
       osDelay(5000);
-      if(REGISTERS[1] <= TARGET_VALUE)
-      {
-        setrelay(1);
-      }
+      reley_auto_protection = 1;
+      
       start = 0;
       fff = 0;
     }
 
     if(button_ivent)
     {
+      reley_auto_protection = 0;
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
       osDelay(3000);
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
       osDelay(500);
-      if(REGISTERS[1] <= TARGET_VALUE)
-      {
-        setrelay(1);
-      }
+      
       button_ivent = 0;
+      taskENTER_CRITICAL();
       write_to_log(0x31, 0x00, 1);
+      reley_auto_protection = 1;
+      taskEXIT_CRITICAL();
     }
     osDelay(10);
 
@@ -1062,8 +1178,12 @@ void StartTask05(void *argument)
   /* Infinite loop */
   for(;;)
   {
+     uxHighWaterMark5 = uxTaskGetStackHighWaterMark(NULL);
+
     if(start == 0)
     {
+      uxHighWaterMark5 = uxTaskGetStackHighWaterMark(NULL);
+
       OLED_1in5_rgb_run();
     }
 
@@ -1091,6 +1211,12 @@ void StartTask06(void *argument)
     osDelay(100);
     HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
     osDelay(300);
+    
+    
+
+    uxHighWaterMark6 = uxTaskGetStackHighWaterMark(NULL);
+
+
     size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
     if(HAL_GPIO_ReadPin(RS485_1_ON_GPIO_Port, RS485_1_ON_Pin) == GPIO_PIN_SET)
     {
@@ -1100,6 +1226,7 @@ void StartTask06(void *argument)
     {
       RS485 = 1;
     }
+    
     
     
     //warning 1
@@ -1116,7 +1243,9 @@ void StartTask06(void *argument)
         {
           REGISTERS[4] = (REGISTERS[4] |= 0x01);
           uint8_t data = 0x02;
+          taskENTER_CRITICAL();
           write_to_log(0x32, &data, 1);
+          taskEXIT_CRITICAL();
         }
         }
       }
@@ -1126,6 +1255,7 @@ void StartTask06(void *argument)
           if(ch == 1)
           {
             HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
+            reley_auto_protection = 0;
             setrelay(0);
             
             
@@ -1153,6 +1283,7 @@ void StartTask06(void *argument)
             
             HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
             setrelay(1);
+            reley_auto_protection = 1;
             ch = 0;
           }
     
@@ -1160,6 +1291,98 @@ void StartTask06(void *argument)
   /* USER CODE END StartTask06 */
   
 }
+
+
+
+void HighPriorityTask(void *argument) 
+{
+   uint32_t timetag = HAL_GetTick(); //-------//------//-----
+   static uint8_t last_state = 5;
+    for(;;) 
+    {   
+      
+        if (xSemaphoreTake(xHighPrioritySemaphore, portMAX_DELAY) == pdTRUE) 
+        {
+          
+          uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+          
+          uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
+          //rms = 300; //for test
+          //osDelay(50);
+          float leak_phase_A_macros = calculate_rms_A_macros(rms);
+          float leak_phase_B_macros = calculate_rms_B_macros(rms);
+          float leak_phase_C_macros = calculate_rms_C_macros(rms);
+          
+          uint16_t AA = (uint16_t)leak_phase_A_macros;
+          uint16_t BB = (uint16_t)leak_phase_B_macros;
+          uint16_t CC = (uint16_t)leak_phase_C_macros;
+          
+          uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
+          REGISTERS[1] = max_val;
+          
+          
+          if(!mode)
+          {
+              if((REGISTERS[1] >= TARGET_VALUE) && reley_auto_protection)
+              {
+                osMutexWait(RelayMutexHandle, osWaitForever);
+                REGISTERS[2] = 0;
+                osMutexRelease(RelayMutexHandle);
+              }
+              else if ((REGISTERS[1] <= TARGET_VALUE) && reley_auto_protection)
+              {
+                osMutexWait(RelayMutexHandle, osWaitForever);
+                REGISTERS[2] = 1;
+                osMutexRelease(RelayMutexHandle);
+              }
+                  
+
+             
+              if((REGISTERS[2] == 0) && (last_position != REGISTERS[2]))
+              {
+                HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+                theme = 2;
+                if(!start)
+                {
+                taskENTER_CRITICAL();
+                uint8_t temp_value = (uint8_t)REGISTERS[1];
+                write_to_log(0x33, &temp_value, 1);
+                uint8_t temp[1] = {0x00};
+                write_to_log(0x05, &temp[0], 1);
+                taskEXIT_CRITICAL();
+                }
+                last_position = REGISTERS[2];
+              }
+              else if((REGISTERS[2] == 1) && (last_position != REGISTERS[2]))
+              {
+                HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+                last_position = REGISTERS[2];
+                uint8_t temp[1] = {0x01};
+                write_to_log(0x05, &temp[0], 1);
+              }
+          }
+          
+          HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+          
+          //osDelay(25); 
+          g_tick = HAL_GetTick();   //-------//------//-----
+          diff = g_tick - timetag;  //-------//------//-----
+          
+          timetag = g_tick;         //-------//------//-----
+          //osDelay(100);
+          
+          
+        }
+    
+}
+}
+
+
+
+
+
+
+
 
 /* Private application code */
 /* USER CODE BEGIN Application */
@@ -1172,12 +1395,16 @@ void setrelay(uint16_t i)
   {
   last_i = i;
   uint8_t data = (uint8_t) i;
+  taskENTER_CRITICAL();
   write_to_log(0x05, &data, 1);
   osMutexWait(RelayMutexHandle, osWaitForever);
   REGISTERS[2] = i;
   osMutexRelease(RelayMutexHandle);
+  taskEXIT_CRITICAL();
   }
 }
+
+
 
 //---------------------------------------------------------------------------------HTTPD-SERVER-LOGICS-START---
 
@@ -1319,10 +1546,13 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
     else if(iIndex == 24)
   {
+    /*
     if(hw_protection)
     {
       snprintf((char*)buffer, bufferSize, "checked");
     }
+    */
+    snprintf((char*)buffer, bufferSize, "%d", mode);
   }
   else if(iIndex == 25)
   {
@@ -1678,6 +1908,20 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
        uint16_t mask = (1 << 2);  
        REGISTERS[4] = (REGISTERS[4] | mask); 
     }
+    else if (strcmp(pcParam[i], "swichmode") == 0) 
+    {
+       REGISTERS[4] ^= (1 << 3);
+       
+       if(mode)
+       {
+         mode = 0;
+       }
+       else
+       {
+         mode = 1;
+       }
+    }
+    
 
   
   }
@@ -1693,22 +1937,26 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   if(mac_flag != 0)
   {
     convert_str_to_uint8_array(mac, output, 1);
+    taskENTER_CRITICAL();
     WriteFlash(MAC, output);
     memset(output, 0, sizeof(output));
     mac_flag = 0;
     ReadFlash(MAC, gnetif.hwaddr);
     restart = 1;
     pinaccept = 1;
+    taskEXIT_CRITICAL();
   }
   if(serial_flag != 0)
   {
     convert_str_to_uint8_array_serial(serial, output);
+    taskENTER_CRITICAL();
     WriteFlash(SERIAL, output);
     memset(output, 0, sizeof(output));
     mask_flag = 0;
     ReadFlash(SERIAL, SERIAL_ADDRESS);
     restart = 1;
     pinaccept = 1;
+    taskEXIT_CRITICAL();
   }
 
   
@@ -1716,27 +1964,31 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   if (c_phase_a_flag != 0)
     {
       convert_str_to_float_bytes(c_phase_a_str, output); 
+      taskENTER_CRITICAL();
       WriteFlash(C_PHASE_A, output);
       memset(output, 0, sizeof(output));
       c_phase_a_flag = 0;
       C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
-      
       write_to_log(0x12, (uint8_t *)&C_phase_A, sizeof(C_phase_A));
+      taskEXIT_CRITICAL();
     }
 
     if (r_leak_a_flag != 0)
     {
       convert_str_to_float_bytes(r_leak_a_str, output);
+      taskENTER_CRITICAL();
       WriteFlash(R_LEAK_A, output);
       memset(output, 0, sizeof(output));
       r_leak_a_flag = 0;
       R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
       
       write_to_log(0x15, (uint8_t *)&R_leak_A, sizeof(R_leak_A));
+      taskEXIT_CRITICAL();
     }
 
     if (c_phase_b_flag != 0)
     {
+      taskENTER_CRITICAL();
       convert_str_to_float_bytes(c_phase_b_str, output); 
       WriteFlash(C_PHASE_B, output);
       memset(output, 0, sizeof(output));
@@ -1744,10 +1996,12 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
       
       write_to_log(0x13, (uint8_t *)&C_phase_B, sizeof(C_phase_B));
+      taskEXIT_CRITICAL();
     }
 
     if (r_leak_b_flag != 0)
     {
+      taskENTER_CRITICAL();
       convert_str_to_float_bytes(r_leak_b_str, output);
       WriteFlash(R_LEAK_B, output);
       memset(output, 0, sizeof(output));
@@ -1755,10 +2009,12 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
       
       write_to_log(0x16, (uint8_t *)&R_leak_B, sizeof(R_leak_B));
+      taskEXIT_CRITICAL();
     }
 
     if (c_phase_c_flag != 0)
     {
+      taskENTER_CRITICAL();
       convert_str_to_float_bytes(c_phase_c_str, output);
       WriteFlash(C_PHASE_C, output);
       memset(output, 0, sizeof(output));
@@ -1766,10 +2022,12 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
       
       write_to_log(0x14, (uint8_t *)&C_phase_C, sizeof(C_phase_C));
+      taskEXIT_CRITICAL();
     }
 
     if (r_leak_c_flag != 0)
     {
+      taskENTER_CRITICAL();
      convert_str_to_float_bytes(r_leak_c_str, output);
       WriteFlash(R_LEAK_C, output);
       memset(output, 0, sizeof(output));
@@ -1777,10 +2035,12 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
       
       write_to_log(0x17, (uint8_t *)&R_leak_C, sizeof(R_leak_C));
+      taskEXIT_CRITICAL();
     }
 
     if (target_value_flag != 0)
     {
+      taskENTER_CRITICAL();
       output[0] = (uint8_t)atoi(target_value_str);
       WriteFlash(TaRGET_VALUE, output);
       memset(output, 0, sizeof(output));
@@ -1788,10 +2048,12 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
       
       write_to_log(0x18, &TARGET_VALUE, 1);
+      taskEXIT_CRITICAL();
     }
   
       if (warning_value_flag != 0)
     {
+      taskENTER_CRITICAL();
       output[0] = (uint8_t)atoi(warning_value_str);
       WriteFlash(Warning_VALUE, output);
       memset(output, 0, sizeof(output));
@@ -1799,8 +2061,10 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       WARNING_VALUE = *((uint8_t *)FLASH_ADDRESS_WARNING_VALUE);
       
       write_to_log(0x19, &WARNING_VALUE, 1);
+      taskEXIT_CRITICAL();
     }
   
+    /*
     if (hw_protection_flag != 0)
     {
       output[0] = (uint8_t)atoi(hw_protection_arr);
@@ -1811,7 +2075,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       
       write_to_log(0x20, &hw_protection, 1);
     }
-
+    */
     
     
 
@@ -1822,6 +2086,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     
 
     //отключить аппаратное срабатывание защиты, т.к. настройки фаз изменились
+    /*
     if(hw_protection == 0)
     {
       EXTI6_DeInit();  
@@ -1830,12 +2095,13 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     {
       EXTI6_Init();
     }
-  
+    */
  
   
   
   if(pinaccept)
   {
+    taskENTER_CRITICAL();
     if(ip_flag != 0)
     {
       convert_str_to_uint8_array(ip, output, 0);
@@ -1897,7 +2163,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       write_to_log(0x11, uartStopBits, 1);
     }
     
-    
+    taskEXIT_CRITICAL();
     restart = 1;
 
     return 0;
@@ -2230,7 +2496,7 @@ void WriteFlash(FlashDataType type, uint8_t* data)
     }
     
     
-    // Изменение значений в буфере
+    // Изменение значений в буфере 
     sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
     //sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
     sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
@@ -2391,11 +2657,12 @@ void load_values_from_flash(void)
         TARGET_VALUE = TARGET_VALUE_DEF;
     }
     
-    
+    /*
     hw_protection = *(volatile uint8_t *)FLASH_ADDRESS_HW_PROTECTION;
     if (hw_protection == 0xFF) {
         hw_protection = 1;
     }
+    */
     
     WARNING_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_WARNING_VALUE;
     if(WARNING_VALUE == 0xFF) {
@@ -2500,6 +2767,9 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 //Функция расчета U_rms
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
 {
+  
+  
+  
   uint16_t rms = 0;
   uint16_t drop1 = 0;
   uint16_t drop2 = 0;
@@ -2529,7 +2799,7 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
     j++;
     
     
-    if (stable_count >= 70) 
+    if (stable_count >= 30)                        //----------------70 in def 
     {
       //находим нижние точки синусоиды
       stable_count = 0;
@@ -2590,7 +2860,7 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
   }
   
   
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+  //HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
   
   return rms;
 }
@@ -2602,6 +2872,10 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
   {
     adc_ready = 1;
     HAL_ADC_Stop_DMA(&hadc1);
+    //----------------------------
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xSemaphoreGiveFromISR(xHighPrioritySemaphore, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
   }
 }
 
@@ -2640,6 +2914,49 @@ void vMyTimerCallback(TimerHandle_t xTimer)
 {
   HAL_NVIC_SystemReset();
 }
+
+
+
+void startMyTimer_UPDATE(uint32_t timeout_ms) 
+{
+  TimerHandle_t myTimer2 = xTimerCreate
+    (
+     "OneShotTimer",                       
+     pdMS_TO_TICKS(timeout_ms),            
+     pdFALSE,                              
+     (void *) 0,                           
+     vMyTimer2Callback                      
+       );
+  
+  if (myTimer2 != NULL) 
+  {
+    HAL_NVIC_DisableIRQ(ADC_IRQn);
+    osThreadSuspend(HighPriorityTaskHandle);
+    osThreadSuspend(defaultTaskHandle);
+    osThreadSuspend(Relay_taskHandle);
+    osThreadSuspend(mobdusHandle);
+    osThreadSuspend(Relay_controlHandle);
+    osThreadSuspend(LWGL_controlHandle);
+    xTimerStart(myTimer2, 0);  
+  } 
+  else 
+  {
+    while(1);
+  }
+}
+//---↑
+//---↑
+void vMyTimer2Callback(TimerHandle_t xTimer) 
+{
+  HAL_NVIC_EnableIRQ(ADC_IRQn);
+  osThreadResume(HighPriorityTaskHandle);
+  osThreadResume(defaultTaskHandle);
+  osThreadResume(Relay_taskHandle);
+  osThreadResume(mobdusHandle);
+  osThreadResume(Relay_controlHandle);
+  osThreadResume(LWGL_controlHandle);
+}
+
 
 
 char stackOverflowTaskName[64];
@@ -2683,16 +3000,12 @@ void EXTI15_10_IRQHandler(void)
   if (EXTI->PR & EXTI_PR_PR12) 
   { 
     EXTI->PR |= EXTI_PR_PR12; 
-    setrelay(0);
     
-    if(start == 1)
-    {
-      fff = 1;
-    }
-    else
-    {
-      //button_ivent = 1;
-    }
+    //setrelay(0);
+    
+
+    button_ivent = 1;
+    
     for (int i = 0; i < 100; i++) 
     {
     }
@@ -2701,7 +3014,7 @@ void EXTI15_10_IRQHandler(void)
 }
 //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
 
-
+/*
 //Прерывание с пина PA6 (fixing the leak)
 void EXTI6_Init(void)   
 {
@@ -2734,6 +3047,8 @@ void EXTI9_5_IRQHandler(void)
   }
   
 }
+
+*/
 
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf)
 {
@@ -2784,12 +3099,13 @@ void load_flags_from_flash(void)
     }
     
     //boot_flag_crc = *(volatile uint8_t *)BOOT_FLAG_CRC_ADDRESS;
+    /*
     boot_flag_new = *(volatile uint8_t *)BOOT_FLAG_NEW_ADDRESS;
     if(boot_flag_new == 0xFF)
     {
       boot_flag_new = 0;
     }
-    
+    */
     
     sector_enabled = *(volatile uint8_t *)SECTOR_ENABLED_ADDRESS;
     if((sector_enabled != 1) && (sector_enabled != 2))
@@ -2864,7 +3180,29 @@ void UpdateSector3()
         
 HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
 {
-    HAL_StatusTypeDef status = HAL_OK;
+  
+  taskENTER_CRITICAL();
+  HAL_FLASH_Unlock();
+  HAL_StatusTypeDef status = HAL_OK;
+  /*
+    static uint8_t first = 1;
+    if(first)
+    {
+      first = 0;
+      startMyTimer_UPDATE(10000);
+    }
+    
+    taskENTER_CRITICAL();
+    // Разблокировка флеш памяти для записи
+    HAL_FLASH_Unlock();
+    __disable_irq();
+    
+   
+    
+
+    
+    
+    
     
     if(next_free_addr == 0)
     {
@@ -2877,17 +3215,27 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
     }
     
     
-    
-    
+    __enable_irq();
+    */
+  
+    static uint8_t first = 1;
+    if(first)
+    {
+      address = SECTOR_2_ADDRESS;
+      len = 393216;
+      next_free_addr = SECTOR_2_ADDRESS;
+      
+      first = 0;
+    }
+  
+  
     // Проверка на переполнение области
     if ((next_free_addr + packet_size) == (address + len + 1))
     {
         return HAL_ERROR; // Флеш память переполнена
     }
     
-    taskENTER_CRITICAL();
-    // Разблокировка флеш памяти для записи
-    HAL_FLASH_Unlock();
+
 
     // Запись пакета во флеш по байтам (или словам, в зависимости от требований)
     for (uint16_t i = 0; i < packet_size; i += 4)
@@ -2919,6 +3267,37 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
     taskEXIT_CRITICAL();
     //xSemaphoreGive(xPacketSaved);
     return status;
+}
+
+void erise_update_sector(void)
+{
+  
+      taskENTER_CRITICAL();
+    // Разблокировка флеш памяти для записи
+    HAL_FLASH_Unlock();
+    __disable_irq();
+    
+    HAL_StatusTypeDef status = HAL_OK;
+    
+
+    
+    
+    
+    
+    if(next_free_addr == 0)
+    {
+            address = SECTOR_2_ADDRESS;
+            len = 393216;
+            next_free_addr = SECTOR_2_ADDRESS;
+            FLASH_Erase_Sector(FLASH_SECTOR_8, VOLTAGE_RANGE_3);
+            FLASH_Erase_Sector(FLASH_SECTOR_9, VOLTAGE_RANGE_3);
+            FLASH_Erase_Sector(FLASH_SECTOR_10, VOLTAGE_RANGE_3);
+    }
+    
+    
+    __enable_irq();
+    HAL_FLASH_Lock();
+    taskEXIT_CRITICAL();
 }
 
 //---------------------------------------------------------------------------------OS-UDATE-FUNCTIONS---
@@ -3023,7 +3402,7 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
       packetData[BinDataLength-3] = 0xFF;
     }
     
-    // Обработка данных (например, запись во флеш)
+
     if (Flash_WritePacket(packetData, BinDataLength) != HAL_OK)
     {
         pbuf_free(p);
@@ -3128,7 +3507,7 @@ void swichSector()
 //--------------------------RMS--BY--MACROS----------------------------------------
 float calculate_rms_A_macros(uint16_t rms)
 {
-    float I_s = rms * 0.0000535f;
+    float I_s = rms * 0.0000466f;
 
     float XC_phase_A = 1.0f / (OMEGA * (C_phase_A * 1e-6f));
 
@@ -3146,7 +3525,7 @@ float calculate_rms_A_macros(uint16_t rms)
 
 float calculate_rms_B_macros(uint16_t rms)
 {
-    float I_s = rms * 0.0000535f;
+    float I_s = rms * 0.0000466f;
 
     float XC_phase_B = 1.0f / (OMEGA * (C_phase_B * 1e-6f));
 
@@ -3165,7 +3544,7 @@ float calculate_rms_B_macros(uint16_t rms)
 
 float calculate_rms_C_macros(uint16_t rms)
 {
-    float I_s = rms * 0.0000535f;
+    float I_s = rms * 0.0000466f;
 
     float XC_phase_C = 1.0f / (OMEGA * (C_phase_C * 1e-6f));
 
@@ -3393,8 +3772,7 @@ void parse_http_time_request(uint8_t *http_request, uint8_t temp_arr[6]) {
 //------------------------------------------------LOG-SECTION-------------------
 void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
 {
-  if(start == 0)
-  {
+
   /* вынесена в шапку
   
   typedef struct {
@@ -3474,7 +3852,7 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
      
      log_ptr += sizeof(LogEntry);
   }
-}
+
 
 static uint8_t flash_read_byte(uint32_t address)
 {

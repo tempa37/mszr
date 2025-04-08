@@ -121,6 +121,7 @@
             color: #ffffff;
             font-size: 16px;
             cursor: pointer;
+			margin-bottom: 20px; 
         }
         .submit-button:hover {
             background-color: #666;
@@ -258,6 +259,14 @@
 				transform: translate(-50%, -50%);
 		}
 		
+		
+		.button-relay:disabled {
+			background-color: #424242; /* Серый цвет */
+			color: #555555;
+			border-color: #666;
+			cursor: not-allowed;
+		}
+		
 		.button-test {
 			text-align: center;
 			font-size: 20px;
@@ -278,6 +287,13 @@
 		.button-relay:hover {
 			background-color: #555; /* Цвет кнопки при наведении */
 			color: #ffffff;
+		}
+		
+		.button-relay:disabled:hover {
+			background-color: #424242; /* такой же, как для обычного disabled */
+			color: #555555;
+			border-color: #666;
+			cursor: not-allowed;
 		}
 		
 		.input-group {

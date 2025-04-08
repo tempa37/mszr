@@ -13,7 +13,7 @@
 	} Protocol;
 	
         
-        extern  uint16_t REGISTERS[9];
+        extern volatile uint16_t REGISTERS[9];
 	
 	#define SELF_ADDR 1
 

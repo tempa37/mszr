@@ -50,7 +50,7 @@
   uint16_t adcBuffer[2000] = {0};
 
 
-  uint16_t REGISTERS[9] = {0};
+  volatile uint16_t REGISTERS[9] = {0};
   uint8_t OLED = 1;
   uint8_t t = 0;
   uint8_t rxBuffer[8] = {0};
@@ -76,6 +76,8 @@
       RS485STOPBIT
     } FlashDataType;
     
+  extern uint16_t start;
+  extern uint8_t fff;
   extern TimeStruct time;
   extern uint8_t USART_3_SPEED[10];
   extern uint8_t uartStopBits[10];
@@ -121,7 +123,7 @@ void vTimerCallback(TimerHandle_t xTimer);
      
     
 
-int main(void)
+ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
@@ -363,8 +365,11 @@ void vTimerCallback(TimerHandle_t xTimer)
 {
       time_raw.seconds++;
       
+      
         if (time_raw.seconds >= 60)
           {
+            
+            
             time_raw.seconds = 0;
             time_raw.minutes++;
             REGISTERS[3] = (time_raw.minutes + (time_raw.hours * 60) + (time_raw.days * 24 * 60));

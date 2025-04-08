@@ -513,6 +513,23 @@ window.onload = function() {
 				
 				 const relayStatus = parseRelayButton(fullText);
 				 const someAlert_temp = parseALERT(fullText);
+				 const mode_relay = Number(parseMODE(fullText));
+				 
+				 if(mode_relay === 1)
+				 {
+					 enableRelayButton();
+					 document.getElementById('modeButton').innerText = 'Ручное управление Реле';
+					 console.log("режим 1 активирован");
+				 }
+				 else
+				 {
+					 disableRelayButton("Управление с кнопки недоступно в автоматическом режиме");
+					 document.getElementById('modeButton').innerText = 'Автоматическое управление Реле';
+					 console.log("режим 0 активирован");
+				 }
+				 
+				 
+				 
 				 let someAlert = 0;
 				 
 				 if ((someAlert_temp & 0x01) === 0x01) 
@@ -614,6 +631,7 @@ window.onload = function() {
 			}
 			
 			
+			
 		  function parseALERT(str) {	  
 			console.log("Полный ALERT", str); // Выводим полный текст ответа  
 			const regex = /<!--#ALERT-->\s*(\d+)/;
@@ -627,6 +645,40 @@ window.onload = function() {
 			  }
 			return match && match[1] ? match[1] : 'N/A';
 		  }
+		  
+		  
+		  function parseMODE(str) {
+			  const regex = /<!--#MODE-->\s*([^/]+)/;
+			  const match = regex.exec(str);
+			  if (match) {
+					const mode = match[1].trim(); // Убираем лишние пробелы
+					console.log("Найдено значение Mode:", mode);
+					return mode;
+				} else {
+					console.error("Не удалось найти mode в строке.");
+					return 'N/A';
+				}
+			  
+			  
+		  }
+		  
+			function disableRelayButton(reason) {
+				const btn = document.getElementById('buttonrel');
+				btn.disabled = true;
+				btn.title = reason;
+
+			}
+
+			function enableRelayButton() {
+				const btn = document.getElementById('buttonrel');
+				btn.disabled = false;
+				btn.title = "";
+
+			}
+		  
+		  
+		 
+			  
 			
 		 changeButtonTextBasedOnResolution();
 
@@ -1272,6 +1324,21 @@ function saveDataAdmin()
 function setrelay() 
 {
 	const queryString = "relay";
+	console.log("нажатие на кнопку реле");
+ 	fetch(`/save?${queryString}`, 
+	{
+		method: 'GET',
+		headers: 
+		{
+			'Content-Type': 'application/json'
+		}
+	})
+}
+
+
+function swich_mode()
+{
+	const queryString = "swichmode";
  	fetch(`/save?${queryString}`, 
 	{
 		method: 'GET',

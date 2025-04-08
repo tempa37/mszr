@@ -265,7 +265,7 @@ void USART3_IRQHandler(void)
     HAL_UART_DMAStop(&huart3);
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     xSemaphoreGiveFromISR(xPacketSemaphore, &xHigherPriorityTaskWoken);
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    //portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
   }
   
   /* USER CODE END USART3_IRQn 0 */

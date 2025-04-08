@@ -63,7 +63,7 @@
 				</div>
             </div>
 			
-			<button class="button-relay" id="buttonrel" onclick="setrelay()"><!--#RELAY--></button>
+			<button class="button-relay" id="buttonrel" onclick="setrelay()" title=""><!--#RELAY--></button>
 			<button class="button-test" onclick="test()">ТЕСТ</button>
 	</div>
         <div class="right-section">
@@ -137,6 +137,7 @@
                 <input type="text" id="field5" name="field5" maxlength="6" placeholder="Введите 6-значный PIN">
             </div>
             <button class="submit-button" onclick="saveChanges()">Изменить данные</button>
+			<button id="modeButton" class="submit-button" onclick="swich_mode()">Автоматическое управление Реле</button>
         </div>	
 		
 		
