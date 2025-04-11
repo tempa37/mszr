@@ -1144,9 +1144,11 @@ void StartTask04(void *argument)
 
     if(button_ivent)
     {
+      
       reley_auto_protection = 0;
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+      theme = 2;
       osDelay(3000);
       HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
@@ -1157,6 +1159,7 @@ void StartTask04(void *argument)
       write_to_log(0x31, 0x00, 1);
       reley_auto_protection = 1;
       taskEXIT_CRITICAL();
+      theme = 1;
     }
     osDelay(10);
 
@@ -1359,6 +1362,7 @@ void HighPriorityTask(void *argument)
                 last_position = REGISTERS[2];
                 uint8_t temp[1] = {0x01};
                 write_to_log(0x05, &temp[0], 1);
+                theme = 1;
               }
           }
           
