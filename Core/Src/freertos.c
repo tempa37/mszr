@@ -133,8 +133,8 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x02};
-uint16_t soft_ver_modbus = 101;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x04};
+uint16_t soft_ver_modbus = 104;
 
 extern struct httpd_state *hs;
 
@@ -1144,22 +1144,16 @@ void StartTask04(void *argument)
 
     if(button_ivent)
     {
-      
-      reley_auto_protection = 0;
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
-      HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
-      theme = 2;
+      //HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
       osDelay(3000);
-      HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+      //HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
-      osDelay(500);
-      
+      osDelay(500);  
       button_ivent = 0;
       taskENTER_CRITICAL();
       write_to_log(0x31, 0x00, 1);
-      reley_auto_protection = 1;
       taskEXIT_CRITICAL();
-      theme = 1;
     }
     osDelay(10);
 
@@ -1338,6 +1332,8 @@ void HighPriorityTask(void *argument)
                 REGISTERS[2] = 1;
                 osMutexRelease(RelayMutexHandle);
               }
+              
+
                   
 
              
@@ -1364,6 +1360,9 @@ void HighPriorityTask(void *argument)
                 write_to_log(0x05, &temp[0], 1);
                 theme = 1;
               }
+              
+       
+              
           }
           
           HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);

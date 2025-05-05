@@ -51,7 +51,7 @@ uint8_t OLED_START = 1;
 #define HEIGHT 128
 
 
-uint8_t OLED_RESET1 = 0;
+
 uint8_t OLED_RESET2 = 0;
 
 void OLED_1in5_rgb_run() {
@@ -253,7 +253,33 @@ void OLED_1in5_rgb_run() {
       {
         uint16_t mA = REGISTERS[1];
         char buffer[10] = {0};
+        
+        
+        OLED_1in5_rgb_Init();  
+        //osDelay(500);
+        // clear screen
+        OLED_1in5_rgb_Clear();
+        // create image
+        Paint_NewImage(BlackImage, OLED_1in5_RGB_WIDTH, OLED_1in5_RGB_HEIGHT, 0, BLACK);
+        // set scale
+        Paint_SetScale(65);
+        // Select Image
+        Paint_SelectImage(BlackImage);
+        // draw image on the screen
+        
+        
 
+        
+        WriteReg(0xae);
+        osDelay(1000);
+        // display on
+        WriteReg(0xaf);
+
+        
+        OLED_1in5_rgb_Init();
+        OLED_1in5_rgb_Clear();
+        
+        Fill_DarkGrayGradient();
       
       
         Fill_YELLOW();
@@ -462,7 +488,6 @@ void OLED_TimerCallback(TimerHandle_t xTimer)
   if (REGISTERS[4] & 0x02) 
   {
     OLED_RESET = 2;
-  
   } 
   else 
   {
