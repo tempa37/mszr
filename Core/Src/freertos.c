@@ -74,6 +74,8 @@ extern volatile uint16_t REGISTERS[9];
 extern uint32_t usart_speed;
 uint8_t SERIAL_ADDRESS[6] = {0};
 
+
+extern void MX_USART3_UART_Init(void);
 //----------------------------ADC---LOGIC---------------------------------------
 
 volatile uint8_t last_position = 0;
@@ -133,8 +135,8 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x04};
-uint16_t soft_ver_modbus = 104;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x05};
+uint16_t soft_ver_modbus = 105;
 
 extern struct httpd_state *hs;
 
@@ -671,7 +673,7 @@ void StartDefaultTask(void *argument)
     }
     
     
-    if (xSemaphoreTake(xPacketSemaphore, portMAX_DELAY) == pdTRUE) 
+     if (xSemaphoreTake(xPacketSemaphore, pdMS_TO_TICKS(1500)) == pdTRUE)
     {
       
       packetReceived = 0;
@@ -686,7 +688,41 @@ void StartDefaultTask(void *argument)
       
       send_uart(response_data, len_ext);   
       
-    } 
+    }
+
+    
+    if (
+        __HAL_UART_GET_FLAG(&huart3, UART_FLAG_FE)  ||  // Frame Error
+        __HAL_UART_GET_FLAG(&huart3, UART_FLAG_NE)  ||  // Noise Error
+        __HAL_UART_GET_FLAG(&huart3, UART_FLAG_PE)  ||  // Parity Error
+        __HAL_UART_GET_FLAG(&huart3, UART_FLAG_ORE)     // Overrun Error
+        ) 
+    {
+      
+
+    volatile uint32_t dummy = huart3.Instance->DR;
+    (void)dummy;  
+
+    memset(rxBuffer, 0, sizeof(rxBuffer));
+    
+    HAL_UART_DMAStop(&huart3);
+    
+    
+    
+    __HAL_UART_CLEAR_FEFLAG(&huart3);
+    __HAL_UART_CLEAR_NEFLAG(&huart3);
+    __HAL_UART_CLEAR_OREFLAG(&huart3);
+    __HAL_UART_CLEAR_PEFLAG(&huart3);
+    __HAL_UART_CLEAR_IDLEFLAG(&huart3);
+        
+    HAL_UART_DeInit(&huart3);
+        
+    
+    MX_USART3_UART_Init();
+    
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
+    
+    }
     osDelay(80);
   }
   
