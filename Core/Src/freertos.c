@@ -44,7 +44,7 @@
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_hal_rtc.h"
 #include "stm32f4xx.h"
-
+#include <stdbool.h>
 
 
 /* USER CODE END Includes */
@@ -128,15 +128,15 @@ char uartPARITY[10];
 uint8_t output[200] = {0};
 
 
-uint16_t ADC_BUFFER_SIZE = 700;  //2000
-extern uint16_t adcBuffer[700];  //2000
+uint16_t ADC_BUFFER_SIZE = 900;  //2000
+extern uint16_t adcBuffer[900];  //2000
 uint8_t adc_ready = 0;
 
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x05};
-uint16_t soft_ver_modbus = 105;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x06};
+uint16_t soft_ver_modbus = 106;
 
 extern struct httpd_state *hs;
 
@@ -333,7 +333,7 @@ SemaphoreHandle_t xPacketSaved;
 CRC_HandleTypeDef hcrc;
 uint16_t start = 1;
 uint8_t OLED_RESET = 1;
-uint8_t RS485 = 0;
+volatile uint8_t RS485 = 0;
 uint8_t RX_Flag = 0;
 uint8_t i9 = 0;
 uint8_t fff = 1;
@@ -1250,6 +1250,7 @@ void StartTask06(void *argument)
     uxHighWaterMark6 = uxTaskGetStackHighWaterMark(NULL);
 
 
+    /*
     size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
     if(HAL_GPIO_ReadPin(RS485_1_ON_GPIO_Port, RS485_1_ON_Pin) == GPIO_PIN_SET)
     {
@@ -1259,7 +1260,7 @@ void StartTask06(void *argument)
     {
       RS485 = 1;
     }
-    
+    */
     
     
     //warning 1
@@ -1949,7 +1950,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     }
     else if (strcmp(pcParam[i], "swichmode") == 0) 
     {
-       REGISTERS[4] ^= (1 << 3);
+       REGISTERS[4] ^= (1 << 4);
        
        if(mode)
        {
@@ -2803,26 +2804,34 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 
 //---------------------------------------------------------------------------------ADC-LOGICS-START----
-//Функция расчета U_rms
+
+
+
+
+
+
+
+
+
+
+
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
 {
   
-  
+  /*
   
   uint16_t rms = 0;
   uint16_t drop1 = 0;
   uint16_t drop2 = 0;
-  uint16_t drop3 = 0;
-  uint16_t drop4 = 0;
-  uint16_t drop5 = 0;
+
   
-  uint16_t trigger = 50;
-  uint16_t j = 0;
+  uint16_t trigger = UINT16_MAX;
+  uint16_t j = 10;
   uint16_t current_min = trigger;
   uint16_t min_index = 0;
   uint16_t stable_count = 0; 
   
-  while (j < length) {
+  while (!drop1) {
     
     if (arr[j] < current_min) 
     {
@@ -2836,73 +2845,155 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
     }
     
     j++;
+    if(j >= length)
+    {
+      drop1 = 1;
+    }
     
     
-    if (stable_count >= 30)                        //----------------70 in def 
+    if (stable_count >= 220)                        //----------------70 in def 
     {
       //находим нижние точки синусоиды
       stable_count = 0;
       
       if(drop1 == 0)
       {
-        drop1 = min_index;
-        current_min = trigger;
-      }
-      else if(drop2 == 0)
-      {
-        drop2 = min_index;
-        current_min = trigger;
-      }
-      else if(drop3 == 0)
-      {
-        drop3 = min_index;
-        current_min = trigger;
-      }
-      else if(drop4 == 0)
-      {
-        drop4 = min_index;
-        current_min = trigger;
-      }
-      else if(drop5 == 0)
-      {
-        drop5 = min_index;
-        current_min = trigger;
-      }
-      else
-      {
-        break;
+        drop1 = min_index; // после drop1 идет восходящий тренд
       }
     }
-    
+      
   }
   
-  if(drop2 && drop3)
+  j = drop1 + 50;
+  uint16_t current_max  = 0;
+  uint16_t up1 = 0;
+  uint16_t max_index = 0;
+   while (!up1) {
+    
+    if (arr[j] > current_max) 
+    {
+      current_max = arr[j];
+      max_index = j;
+      stable_count = 0;  
+    } 
+    else 
+    {
+      stable_count++;
+    }
+    
+    j++;
+    if(j >= length)
+    {
+      up1 = 1;
+    }
+    
+    
+    if (stable_count >= 220)                        //----------------70 in def 
+    {
+      
+      stable_count = 0;  
+      
+      if(up1 == 0)
+      {
+        up1 = max_index; //далее - низходящий тренд
+      }
+    }
+      
+  }
+  
+  
+  
+  
+  
+ j = up1 + 50;
+ uint16_t trgr = UINT16_MAX;
+ current_min = trgr;
+ min_index = 0;
+ stable_count = 0; 
+    
+    while (!drop2) {
+    
+    if (arr[j] < current_min) 
+    {
+      current_min = arr[j];
+      min_index = j;
+      stable_count = 0;  
+    } 
+    else 
+    {
+      stable_count++;
+    }
+    
+    j++;
+    if(j >= length)
+    {
+      drop2 = min_index;
+    }
+    
+    if (stable_count >= 220)                        //----------------70 in def 
+    {
+      //находим нижние точки синусоиды
+      stable_count = 0;
+      
+      if(drop2 == 0)
+      {
+        drop2 = min_index;  
+      }
+    }
+      
+  }
+      
+
+  
+  if(drop1 && drop2)
   {
     //между 2 и 4 'дропами' находится полный период синусоиды
     float sum = 0;
-    for (int i = drop2; i < drop4; i++)
+    for (int i = drop1; i < drop2; i++)
     {
       sum += arr[i] * arr[i];  
     }
-    rms = (uint16_t)sqrt((double)sum/ (drop4 - drop2));
+    rms = (uint16_t)sqrt((double)sum/ (drop2 - drop1));
   }
   else 
   {
     //на случай если в сигнале нельзя выделить точки падения
     //расчитываем среднеквадратичное первых 1200 значений
     float sum = 0;
-    for (int i = 0; i < 1200; i++)
+    for (int i = 0; i < 1000; i++)
     {
       sum += arr[i] * arr[i];  
     }
-    rms = (uint16_t)sqrt((double)sum / 1200);
+    rms = (uint16_t)sqrt((double)sum / 1000);
   }
   
+  return rms;
+
+*/
   
-  //HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+  
+  
+  
+  
+  
+  uint16_t rms = 0;
+  
+  
+  
+  float sum = 0;
+    for (int i = 5; i < 900; i++)
+    {
+      sum += arr[i] * arr[i];  
+    }
+    rms = (uint16_t)sqrt((double)sum / 895);
+  
   
   return rms;
+  
 }
+
+
+
 
 //показывает что данные с ADC готовы к обработке
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
@@ -3311,7 +3402,7 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
 void erise_update_sector(void)
 {
   
-      taskENTER_CRITICAL();
+    taskENTER_CRITICAL();
     // Разблокировка флеш памяти для записи
     HAL_FLASH_Unlock();
     __disable_irq();
