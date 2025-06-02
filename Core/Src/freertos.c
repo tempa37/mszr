@@ -2812,184 +2812,84 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 
 
-
+#define WINDOW 20 
 
 
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
 {
-  
-  /*
-  
-  uint16_t rms = 0;
-  uint16_t drop1 = 0;
-  uint16_t drop2 = 0;
+    int32_t peak1 = -1;
+    int32_t peak2 = -1;
 
-  
-  uint16_t trigger = UINT16_MAX;
-  uint16_t j = 10;
-  uint16_t current_min = trigger;
-  uint16_t min_index = 0;
-  uint16_t stable_count = 0; 
-  
-  while (!drop1) {
-    
-    if (arr[j] < current_min) 
+    // 1) Ищем два “устойчивых” пика: 
+    //    arr[i] должен быть наибольшим в окне [i-WINDOW ... i+WINDOW].
+    for (int32_t i = WINDOW; i < (int32_t)length - WINDOW; i++) 
     {
-      current_min = arr[j];
-      min_index = j;
-      stable_count = 0;  
-    } 
+        uint16_t center = arr[i];
+        bool is_peak = true;
+
+        // Проверяем всё окно (кроме самой точки i). Если найдём значение >= arr[i], 
+        // то i не является “утверждённым” пиком.
+        for (int32_t j = i - WINDOW; j <= i + WINDOW; j++) 
+        {
+            if (j == i) 
+                continue;
+            if (arr[j] > center) 
+            {
+                is_peak = false;
+                break;
+            }
+        }
+
+        if (!is_peak) 
+            continue;
+
+        // Если здесь — всё окно “чистое” (ни одна точка не больше или равна arr[i]), 
+        // значит arr[i] устойчиво является локальным максимумом.
+        if (peak1 < 0) 
+        {
+            peak1 = i;
+            i = (i+70);
+        }
+        else 
+        {
+            // второй пик нашли — выходим
+            peak2 = i;
+            break;
+        }
+    }
+
+    uint16_t rms = 0;
+
+    if (peak1 >= 0 && peak2 >= 0 && (peak2 - peak1) > 0) 
+    {
+        // 2) Вычисляем RMS по отрезку [peak1 ... peak2-1]
+        float sum_sq = 0.0f;
+        uint32_t count = (uint32_t)(peak2 - peak1);
+
+        for (int32_t k = peak1; k < peak2; k++) 
+        {
+            sum_sq += (float)arr[k] * (float)arr[k];
+        }
+
+        float rms_f = sqrtf(sum_sq / (float)count);
+        rms = (uint16_t)rms_f;
+    }
     else 
     {
-      stable_count++;
-    }
-    
-    j++;
-    if(j >= length)
-    {
-      drop1 = 1;
-    }
-    
-    
-    if (stable_count >= 220)                        //----------------70 in def 
-    {
-      //находим нижние точки синусоиды
-      stable_count = 0;
-      
-      if(drop1 == 0)
-      {
-        drop1 = min_index; // после drop1 идет восходящий тренд
-      }
-    }
-      
-  }
-  
-  j = drop1 + 50;
-  uint16_t current_max  = 0;
-  uint16_t up1 = 0;
-  uint16_t max_index = 0;
-   while (!up1) {
-    
-    if (arr[j] > current_max) 
-    {
-      current_max = arr[j];
-      max_index = j;
-      stable_count = 0;  
-    } 
-    else 
-    {
-      stable_count++;
-    }
-    
-    j++;
-    if(j >= length)
-    {
-      up1 = 1;
-    }
-    
-    
-    if (stable_count >= 220)                        //----------------70 in def 
-    {
-      
-      stable_count = 0;  
-      
-      if(up1 == 0)
-      {
-        up1 = max_index; //далее - низходящий тренд
-      }
-    }
-      
-  }
-  
-  
-  
-  
-  
- j = up1 + 50;
- uint16_t trgr = UINT16_MAX;
- current_min = trgr;
- min_index = 0;
- stable_count = 0; 
-    
-    while (!drop2) {
-    
-    if (arr[j] < current_min) 
-    {
-      current_min = arr[j];
-      min_index = j;
-      stable_count = 0;  
-    } 
-    else 
-    {
-      stable_count++;
-    }
-    
-    j++;
-    if(j >= length)
-    {
-      drop2 = min_index;
-    }
-    
-    if (stable_count >= 220)                        //----------------70 in def 
-    {
-      //находим нижние точки синусоиды
-      stable_count = 0;
-      
-      if(drop2 == 0)
-      {
-        drop2 = min_index;  
-      }
-    }
-      
-  }
-      
+        // 3) Если два устойчивых пика не найдены, fallback: 
+        //    считаем RMS первых ADC_BUFFER_SIZE точек (или length, если length < ADC_BUFFER_SIZE).
+        float sum_sq = 0.0f;
+        uint32_t cnt = (length < ADC_BUFFER_SIZE) ? length : ADC_BUFFER_SIZE;
 
-  
-  if(drop1 && drop2)
-  {
-    //между 2 и 4 'дропами' находится полный период синусоиды
-    float sum = 0;
-    for (int i = drop1; i < drop2; i++)
-    {
-      sum += arr[i] * arr[i];  
+        for (uint32_t k = 0; k < cnt; k++) 
+        {
+            sum_sq += (float)arr[k] * (float)arr[k];
+        }
+        float rms_f = sqrtf(sum_sq / (float)cnt);
+        rms = (uint16_t)rms_f;
     }
-    rms = (uint16_t)sqrt((double)sum/ (drop2 - drop1));
-  }
-  else 
-  {
-    //на случай если в сигнале нельзя выделить точки падения
-    //расчитываем среднеквадратичное первых 1200 значений
-    float sum = 0;
-    for (int i = 0; i < 1000; i++)
-    {
-      sum += arr[i] * arr[i];  
-    }
-    rms = (uint16_t)sqrt((double)sum / 1000);
-  }
-  
-  return rms;
 
-*/
-  
-  
-  
-  
-  
-  
-  uint16_t rms = 0;
-  
-  
-  
-  float sum = 0;
-    for (int i = 5; i < 900; i++)
-    {
-      sum += arr[i] * arr[i];  
-    }
-    rms = (uint16_t)sqrt((double)sum / 895);
-  
-  
-  return rms;
-  
+    return rms;
 }
 
 
