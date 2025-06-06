@@ -128,15 +128,15 @@ char uartPARITY[10];
 uint8_t output[200] = {0};
 
 
-uint16_t ADC_BUFFER_SIZE = 900;  //2000
-extern uint16_t adcBuffer[900];  //2000
+uint16_t ADC_BUFFER_SIZE = 457;  //900
+extern uint16_t adcBuffer[457];  //900
 uint8_t adc_ready = 0;
 
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x06};
-uint16_t soft_ver_modbus = 106;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x08};
+uint16_t soft_ver_modbus = 108;
 
 extern struct httpd_state *hs;
 
@@ -1353,6 +1353,10 @@ void HighPriorityTask(void *argument)
           
           uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
           REGISTERS[1] = max_val;
+          
+          
+          
+          
           
           
           if(!mode)
@@ -2648,7 +2652,8 @@ void load_values_from_flash(void)
     if (temp != 0xFFFFFFFF) {
         memcpy(&C_phase_A, &temp, sizeof(float));
     } else {
-        C_phase_A = 0.3f;
+        //C_phase_A = 0.3f;
+      C_phase_A = 0.235f;
     }
 
     // Чтение и проверка R_leak_A
@@ -2664,7 +2669,8 @@ void load_values_from_flash(void)
     if (temp != 0xFFFFFFFF) {
         memcpy(&C_phase_B, &temp, sizeof(float));
     } else {
-        C_phase_B = 0.3f;
+        //C_phase_B = 0.3f;
+      C_phase_B = 0.235f;
     }
 
     // Чтение и проверка R_leak_B
@@ -2680,7 +2686,8 @@ void load_values_from_flash(void)
     if (temp != 0xFFFFFFFF) {
         memcpy(&C_phase_C, &temp, sizeof(float));
     } else {
-        C_phase_C = 0.3f;
+        //C_phase_C = 0.3f;
+        C_phase_C = 0.235f;
     }
 
     // Чтение и проверка R_leak_C
@@ -2811,7 +2818,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 
 
-
+/*
 #define WINDOW 20 
 
 
@@ -2819,38 +2826,54 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
 {
     int32_t peak1 = -1;
     int32_t peak2 = -1;
+    bool zero_window_found = false;  // Флаг для случая, когда в окне все нули
 
-    // 1) Ищем два “устойчивых” пика: 
-    //    arr[i] должен быть наибольшим в окне [i-WINDOW ... i+WINDOW].
-    for (int32_t i = WINDOW; i < (int32_t)length - WINDOW; i++) 
+    // 1) Ищем два “устойчивых” пика или обнаруживаем окно из нулей:
+    for (int32_t i = WINDOW; i < (int32_t)length - WINDOW; i++)
     {
         uint16_t center = arr[i];
-        bool is_peak = true;
 
-        // Проверяем всё окно (кроме самой точки i). Если найдём значение >= arr[i], 
-        // то i не является “утверждённым” пиком.
-        for (int32_t j = i - WINDOW; j <= i + WINDOW; j++) 
+        // 1.a) Проверяем, все ли значения в окне [i-WINDOW ... i+WINDOW] равны нулю.
+        bool all_zero = true;
+        for (int32_t j = i - WINDOW; j <= i + WINDOW; j++)
         {
-            if (j == i) 
+            if (arr[j] != 0)
+            {
+                all_zero = false;
+                break;
+            }
+        }
+        if (all_zero)
+        {
+            // Если всё окно нулей, ставим флаг и выходим из поиска пиков
+            zero_window_found = true;
+            break;
+        }
+
+        // 1.b) Обычная проверка локального максимума
+        bool is_peak = true;
+        for (int32_t j = i - WINDOW; j <= i + WINDOW; j++)
+        {
+            if (j == i)
                 continue;
-            if (arr[j] > center) 
+            if (arr[j] > center)
             {
                 is_peak = false;
                 break;
             }
         }
-
-        if (!is_peak) 
+        if (!is_peak)
             continue;
 
-        // Если здесь — всё окно “чистое” (ни одна точка не больше или равна arr[i]), 
+        // Если здесь — весь интервал вокруг i “чистый” (ни одна точка не больше arr[i]),
         // значит arr[i] устойчиво является локальным максимумом.
-        if (peak1 < 0) 
+        if (peak1 < 0)
         {
             peak1 = i;
-            i = (i+70);
+            // Пропустим ближайшие 70 отсчётов, чтобы не найти «пик» рядом с уже найденным
+            i = i + 70;
         }
-        else 
+        else
         {
             // второй пик нашли — выходим
             peak2 = i;
@@ -2860,28 +2883,92 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
 
     uint16_t rms = 0;
 
-    if (peak1 >= 0 && peak2 >= 0 && (peak2 - peak1) > 0) 
+    // 2) Обработка случая, когда найдено окно из нулей
+    if (zero_window_found)
     {
-        // 2) Вычисляем RMS по отрезку [peak1 ... peak2-1]
+        int32_t mid1 = -1;
+        int32_t mid2 = -1;
+
+        // 2.a) Ищем первый участок, где все значения нули
+        int32_t idx = 0;
+        while (idx < length)
+        {
+            if (arr[idx] == 0)
+            {
+                // Начало участка нулей
+                int32_t run_start = idx;
+                int32_t run_len = 0;
+                while (idx < length && arr[idx] == 0)
+                {
+                    run_len++;
+                    idx++;
+                }
+                // Точка, где половина отрезка
+                mid1 = run_start + run_len / 2;
+                break;
+            }
+            idx++;
+        }
+
+        // 2.b) Ищем второй участок, где все значения нули, начиная после первого
+        if (mid1 >= 0)
+        {
+            // Начнём искать с позиции после окончания первого нулевого участка
+            int32_t search_pos = mid1 + (length > mid1 + 1 ? 1 : 0);
+            int32_t idx2 = search_pos;
+            while (idx2 < length)
+            {
+                if (arr[idx2] == 0)
+                {
+                    int32_t run_start2 = idx2;
+                    int32_t run_len2 = 0;
+                    while (idx2 < length && arr[idx2] == 0)
+                    {
+                        run_len2++;
+                        idx2++;
+                    }
+                    // Точка, где половина второго отрезка
+                    mid2 = run_start2 + run_len2 / 2;
+                    break;
+                }
+                idx2++;
+            }
+        }
+
+        // 2.c) Если оба «серединных» индекса валидны и mid2 > mid1, вычисляем RMS по этому отрезку
+        if (mid1 >= 0 && mid2 > mid1)
+        {
+            float sum_sq = 0.0f;
+            uint32_t count = (uint32_t)(mid2 - mid1);
+            for (int32_t k = mid1; k < mid2; k++)
+            {
+                sum_sq += (float)arr[k] * (float)arr[k];
+            }
+            float rms_f = sqrtf(sum_sq / (float)count);
+            rms = (uint16_t)rms_f;
+            return rms;
+        }
+        // Если не удалось корректно определить два участка нулей, переходим к fallback ниже
+    }
+
+    // 3) Обычная ветка: если найдены два устойчивых пика
+    if (!zero_window_found && peak1 >= 0 && peak2 >= 0 && (peak2 - peak1) > 0)
+    {
         float sum_sq = 0.0f;
         uint32_t count = (uint32_t)(peak2 - peak1);
-
-        for (int32_t k = peak1; k < peak2; k++) 
+        for (int32_t k = peak1; k < peak2; k++)
         {
             sum_sq += (float)arr[k] * (float)arr[k];
         }
-
         float rms_f = sqrtf(sum_sq / (float)count);
         rms = (uint16_t)rms_f;
     }
-    else 
+    else
     {
-        // 3) Если два устойчивых пика не найдены, fallback: 
-        //    считаем RMS первых ADC_BUFFER_SIZE точек (или length, если length < ADC_BUFFER_SIZE).
+        // 4) Fallback: считаем RMS первых ADC_BUFFER_SIZE точек (или length, если length < ADC_BUFFER_SIZE).
         float sum_sq = 0.0f;
         uint32_t cnt = (length < ADC_BUFFER_SIZE) ? length : ADC_BUFFER_SIZE;
-
-        for (uint32_t k = 0; k < cnt; k++) 
+        for (uint32_t k = 0; k < cnt; k++)
         {
             sum_sq += (float)arr[k] * (float)arr[k];
         }
@@ -2891,6 +2978,57 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
 
     return rms;
 }
+
+*/
+
+#define ADC_BUFFER_SIZE 1024  // Пример размера буфера; замените на реальное значение
+#define MA_WINDOW_SIZE    5   // Размер окна для скользящего среднего
+
+
+
+uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
+{
+
+    uint16_t rms = 0;
+    float sum_sq = 0.0f;
+    uint32_t cnt = (length < ADC_BUFFER_SIZE) ? length : ADC_BUFFER_SIZE;
+  
+    
+    /*
+    // --- Блок фильтрации: скользящее среднее ---
+    // Временный буфер для хранения отфильтрованных значений
+    static uint16_t filt_buf[ADC_BUFFER_SIZE];
+    for (uint32_t i = 0; i < cnt; i++) {
+        uint32_t sum = 0;
+        // Суммируем MA_WINDOW_SIZE последних (или крайний) значений
+        for (uint32_t j = 0; j < MA_WINDOW_SIZE; j++) {
+            int32_t idx = (int32_t)i - (int32_t)j;
+            if (idx < 0) {
+                idx = 0;  // Если выходим за начало массива, берём самый первый элемент
+            }
+            sum += arr[idx];
+        }
+        filt_buf[i] = (uint16_t)(sum / MA_WINDOW_SIZE);
+    }
+    // --- Конец блока скользящего среднего ---
+    */
+  
+  
+  
+  
+
+    for (uint32_t k = 0; k < cnt; k++)
+    {
+        sum_sq += (float)arr[k] * (float)arr[k];
+    }
+    float rms_f = sqrtf(sum_sq / (float)cnt);
+    rms = (uint16_t)rms_f;
+
+
+    return rms;
+}
+
+
 
 
 

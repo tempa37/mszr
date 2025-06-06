@@ -47,7 +47,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-  uint16_t adcBuffer[900] = {0};
+  uint16_t adcBuffer[457] = {0};
 
 
   volatile uint16_t REGISTERS[9] = {0};
