@@ -135,8 +135,8 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x08};
-uint16_t soft_ver_modbus = 108;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x09};
+uint16_t soft_ver_modbus = 109;
 
 extern struct httpd_state *hs;
 
@@ -1352,7 +1352,7 @@ void HighPriorityTask(void *argument)
           uint16_t CC = (uint16_t)leak_phase_C_macros;
           
           uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
-          REGISTERS[1] = max_val;
+          REGISTERS[1] = (max_val*2);
           
           
           
@@ -3012,18 +3012,26 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
     }
     // --- Конец блока скользящего среднего ---
     */
+    
+    
+    const float OFFSET_COUNTS = 620.0f;
+      for (uint32_t k = 0; k < cnt; k++)
+    {
+        sum_sq += ((float)arr[k] - OFFSET_COUNTS) * ((float)arr[k] - OFFSET_COUNTS);
+    }
+    float rms_f = sqrtf(sum_sq / (float)cnt);
+    rms = (uint16_t)rms_f;
   
   
   
-  
-
+/*
     for (uint32_t k = 0; k < cnt; k++)
     {
         sum_sq += (float)arr[k] * (float)arr[k];
     }
     float rms_f = sqrtf(sum_sq / (float)cnt);
     rms = (uint16_t)rms_f;
-
+*/
 
     return rms;
 }
