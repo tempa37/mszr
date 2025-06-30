@@ -78,7 +78,7 @@ uint8_t SERIAL_ADDRESS[6] = {0};
 extern void MX_USART3_UART_Init(void);
 //----------------------------ADC---LOGIC---------------------------------------
 
-volatile uint8_t last_position = 0;
+volatile uint8_t last_position = 5;
 volatile uint8_t mode = 0;
 
 uint32_t g_tick;   //-------//------//-----
@@ -135,8 +135,8 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x00, 0x09};
-uint16_t soft_ver_modbus = 109;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x00};
+uint16_t soft_ver_modbus = 110;
 
 extern struct httpd_state *hs;
 
@@ -1147,20 +1147,20 @@ void StartTask04(void *argument)
       case 0:
         if(last_position != 0)
         {
-        HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
-        uint8_t temp[1] = {0x00};
-        write_to_log(0x05, &temp[0], 1);
-        last_position = 0;
+           HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+           uint8_t temp[1] = {0x00};
+           write_to_log(0x05, &temp[0], 1);
+           last_position = 0;
         }
         break;
         
       case 1:
         if(last_position != 1)
         {
-        HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-        last_position = 1;
-        uint8_t temp[1] = {0x01};
-        write_to_log(0x05, &temp[0], 1);
+           HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+           last_position = 1;
+           uint8_t temp[1] = {0x01};
+           write_to_log(0x05, &temp[0], 1);
         }
         break;  
       }
@@ -1331,7 +1331,7 @@ void StartTask06(void *argument)
 void HighPriorityTask(void *argument) 
 {
    uint32_t timetag = HAL_GetTick(); //-------//------//-----
-   static uint8_t last_state = 5;
+   //static uint8_t last_state = 5;
     for(;;) 
     {   
       
@@ -1352,7 +1352,7 @@ void HighPriorityTask(void *argument)
           uint16_t CC = (uint16_t)leak_phase_C_macros;
           
           uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
-          REGISTERS[1] = (max_val*2);
+          REGISTERS[1] = max_val;
           
           
           
@@ -1384,22 +1384,22 @@ void HighPriorityTask(void *argument)
                 theme = 2;
                 if(!start)
                 {
-                taskENTER_CRITICAL();
-                uint8_t temp_value = (uint8_t)REGISTERS[1];
-                write_to_log(0x33, &temp_value, 1);
-                uint8_t temp[1] = {0x00};
-                write_to_log(0x05, &temp[0], 1);
-                taskEXIT_CRITICAL();
+                   taskENTER_CRITICAL();
+                   uint8_t temp_value = (uint8_t)REGISTERS[1];
+                   write_to_log(0x33, &temp_value, 1);
+                   uint8_t temp[1] = {0x00};
+                   write_to_log(0x05, &temp[0], 1);
+                   taskEXIT_CRITICAL();
                 }
                 last_position = REGISTERS[2];
               }
               else if((REGISTERS[2] == 1) && (last_position != REGISTERS[2]))
               {
-                HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-                last_position = REGISTERS[2];
-                uint8_t temp[1] = {0x01};
-                write_to_log(0x05, &temp[0], 1);
-                theme = 1;
+                 HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+                 last_position = REGISTERS[2];
+                 uint8_t temp[1] = {0x01};
+                 write_to_log(0x05, &temp[0], 1);
+                 theme = 1;
               }
               
        
@@ -1437,14 +1437,14 @@ void setrelay(uint16_t i)
   
   if(last_i != i)
   {
-  last_i = i;
-  uint8_t data = (uint8_t) i;
-  taskENTER_CRITICAL();
-  write_to_log(0x05, &data, 1);
-  osMutexWait(RelayMutexHandle, osWaitForever);
-  REGISTERS[2] = i;
-  osMutexRelease(RelayMutexHandle);
-  taskEXIT_CRITICAL();
+     last_i = i;
+     uint8_t data = (uint8_t) i;
+     taskENTER_CRITICAL();
+     write_to_log(0x05, &data, 1);
+     osMutexWait(RelayMutexHandle, osWaitForever);
+     REGISTERS[2] = i;
+     osMutexRelease(RelayMutexHandle);
+     taskEXIT_CRITICAL();
   }
 }
 
@@ -2005,7 +2005,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
 
   
   
-  if (c_phase_a_flag != 0)
+    if (c_phase_a_flag != 0)
     {
       convert_str_to_float_bytes(c_phase_a_str, output); 
       taskENTER_CRITICAL();
@@ -2650,10 +2650,10 @@ void load_values_from_flash(void)
     // Чтение и проверка C_phase_A
     temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_A;
     if (temp != 0xFFFFFFFF) {
-        memcpy(&C_phase_A, &temp, sizeof(float));
+       memcpy(&C_phase_A, &temp, sizeof(float));
     } else {
         //C_phase_A = 0.3f;
-      C_phase_A = 0.235f;
+      C_phase_A = 0.5f;
     }
 
     // Чтение и проверка R_leak_A
@@ -2670,8 +2670,8 @@ void load_values_from_flash(void)
         memcpy(&C_phase_B, &temp, sizeof(float));
     } else {
         //C_phase_B = 0.3f;
-      C_phase_B = 0.235f;
-    }
+      C_phase_B = 0.5f;
+   }
 
     // Чтение и проверка R_leak_B
     temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_B;
@@ -2687,7 +2687,7 @@ void load_values_from_flash(void)
         memcpy(&C_phase_C, &temp, sizeof(float));
     } else {
         //C_phase_C = 0.3f;
-        C_phase_C = 0.235f;
+        C_phase_C = 0.5f;
     }
 
     // Чтение и проверка R_leak_C
@@ -3013,7 +3013,7 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
     // --- Конец блока скользящего среднего ---
     */
     
-    
+    /*
     const float OFFSET_COUNTS = 620.0f;
       for (uint32_t k = 0; k < cnt; k++)
     {
@@ -3021,17 +3021,17 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
     }
     float rms_f = sqrtf(sum_sq / (float)cnt);
     rms = (uint16_t)rms_f;
+  */
   
   
-  
-/*
+    
     for (uint32_t k = 0; k < cnt; k++)
     {
         sum_sq += (float)arr[k] * (float)arr[k];
     }
     float rms_f = sqrtf(sum_sq / (float)cnt);
     rms = (uint16_t)rms_f;
-*/
+      
 
     return rms;
 }
@@ -3691,7 +3691,7 @@ float calculate_rms_A_macros(uint16_t rms)
     float R_eq_phase_A = ((R_leak_A * 1e6f) * XC_phase_A) /
                          ((R_leak_A * 1e6f) + XC_phase_A);
 
-    float up_formula = I_s * COS30 * MULT_UP;
+    float up_formula = 2 * I_s * COS30 * MULT_UP;
 
     float down_formula = MULT_DOWN * R_eq_phase_A * SQ3;
 
@@ -3709,7 +3709,7 @@ float calculate_rms_B_macros(uint16_t rms)
     float R_eq_phase_B = ((R_leak_B * 1e6f) * XC_phase_B) /
                          ((R_leak_B * 1e6f) + XC_phase_B);
 
-    float up_formula = I_s * COS30 * MULT_UP;
+    float up_formula = 2 * I_s * COS30 * MULT_UP;
 
     float down_formula = MULT_DOWN * R_eq_phase_B * SQ3;
 
@@ -3728,7 +3728,7 @@ float calculate_rms_C_macros(uint16_t rms)
     float R_eq_phase_C = ((R_leak_C * 1e6f) * XC_phase_C) /
                          ((R_leak_C * 1e6f) + XC_phase_C);
 
-    float up_formula = I_s * COS30 * MULT_UP;
+    float up_formula = 2 * I_s * COS30 * MULT_UP;
 
     float down_formula = MULT_DOWN * R_eq_phase_C * SQ3;
 

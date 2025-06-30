@@ -404,6 +404,11 @@
             console.log("Validation passed.");
             return true;
         }
+		
+		function inRange05to10(v) {
+			const n = parseFloat((v + '').replace(',', '.'));
+			return !isNaN(n) && n >= 0.2 && n <= 1.0;
+		}
 
         function saveDataAdmin() {
             const cPhaseA = document.getElementById('c_phase_a').value;
@@ -434,6 +439,13 @@
                 alert('Нет измененных данных для сохранения.');
                 return;
             }
+
+			if (![cPhaseA, cPhaseB, cPhaseC].every(inRange05to10)) {
+				alert('Паразитная ёмкость кабеля должна быть от 0.2 до 1.0 µF');
+				return;
+			}
+
+
 
             if (!validatePhaseData(updatedData)) {
                 alert('Данные не валидны');
