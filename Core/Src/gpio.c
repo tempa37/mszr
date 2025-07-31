@@ -62,9 +62,13 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, RST_PHYLAN_Pin|GPIO_PIN_9|UART1_RE_DE_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, RELAY_CONTROL_Pin|Checking_for_leaks_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  //HAL_GPIO_WritePin(GPIOA, RELAY_CONTROL_Pin|Checking_for_leaks_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+
+  HAL_GPIO_WritePin(GPIOA, RELAY_CONTROL_Pin, GPIO_PIN_SET);
+  
   /*Configure GPIO pins : PAPin PAPin PAPin */
   GPIO_InitStruct.Pin = Fixing_the_leak_Pin|PA12_Pin|RS485_1_ON_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;

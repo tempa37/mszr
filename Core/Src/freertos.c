@@ -534,6 +534,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END Init */
   
   /* USER CODE BEGIN RTOS_MUTEX */
+
   xHighPrioritySemaphore = xSemaphoreCreateBinary();
   /* USER CODE END RTOS_MUTEX */
   
@@ -1353,7 +1354,6 @@ void HighPriorityTask(void *argument)
           
           uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
           REGISTERS[1] = max_val;
-          
           
           
           

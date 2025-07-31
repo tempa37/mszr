@@ -50,7 +50,7 @@
   uint16_t adcBuffer[457] = {0};
 
 
-  volatile uint16_t REGISTERS[9] = {0};
+  volatile uint16_t REGISTERS[9];
   uint8_t OLED = 1;
   uint8_t t = 0;
   uint8_t rxBuffer[8] = {0};
@@ -150,6 +150,7 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
+  REGISTERS[2] = 1;
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_SPI4_Init();
@@ -242,7 +243,7 @@ int main(void)
     uartStopBits[0] = 1;
   }
   
-  
+
   
   
   
