@@ -63,7 +63,8 @@ osMutexId_t flashMutexHandle;
 osMutexId_t RelayMutexHandle;
 SemaphoreHandle_t xHighPrioritySemaphore;
 
-static TimerHandle_t xRelayReleaseTimer = NULL;
+
+
 
 extern struct netif gnetif;
 extern UART_HandleTypeDef huart3;
@@ -80,8 +81,9 @@ extern void MX_USART3_UART_Init(void);
 //----------------------------ADC---LOGIC---------------------------------------
 
 volatile uint8_t last_position = 5;
+volatile uint8_t temp_count = 0;
 volatile uint8_t mode = 0;
-
+volatile uint8_t log_ready = 0;
 uint32_t g_tick;   //-------//------//-----
 uint32_t diff;     //-------//------//-----
 
@@ -123,7 +125,7 @@ uint8_t WARNING_VALUE_DEF = 20; //20
 
 
 volatile uint8_t button_ivent = 0;
-volatile uint8_t protection_pause = 0;
+
 //------------------------------------------------------------------------------
 
 uint8_t USART_3_SPEED[10];
@@ -1342,7 +1344,7 @@ void StartTask06(void *argument)
 void HighPriorityTask(void *argument) 
 {
   
-   xRelayReleaseTimer = xTimerCreate("RelayRelease", pdMS_TO_TICKS(300), pdFALSE, NULL, vRelayReleaseCallback);
+
    uint32_t timetag = HAL_GetTick(); //-------//------//-----
    //static uint8_t last_state = 5;
     for(;;) 
@@ -1371,19 +1373,13 @@ void HighPriorityTask(void *argument)
           
           
           
-          if((!mode) && (protection_pause == 0))
+          if(!mode)
           {
               if((REGISTERS[1] >= TARGET_VALUE) && reley_auto_protection)
               {
                 osMutexWait(RelayMutexHandle, osWaitForever);
                 REGISTERS[2] = 0;
                 osMutexRelease(RelayMutexHandle);
-                
-                protection_pause = 1;
-                HAL_ADC_Stop_DMA(&hadc1);
-                xTimerStart(xRelayReleaseTimer, 0);
-                //ждем 300мс, потом REGISTERS[2] = 1 и так проводим измерение
-                
               }
               else if ((REGISTERS[1] <= TARGET_VALUE) && reley_auto_protection)
               {
@@ -1425,20 +1421,18 @@ void HighPriorityTask(void *argument)
           }
           
           
-          if(!protection_pause)
-          {
-            HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
-            osDelay(10);
-          }
+
+          HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+
+
           
           
-          //osDelay(25); 
+          osDelay(1); 
           g_tick = HAL_GetTick();   //-------//------//-----
           diff = g_tick - timetag;  //-------//------//-----
           
           timetag = g_tick;         //-------//------//-----
           //osDelay(100);
-          
           
         }
     
@@ -3583,27 +3577,6 @@ void RTC_Init(void)
     }
 }
 
-static void vRelayReleaseCallback(TimerHandle_t xTimer)
-{
-
-
-    /* 1) синхронизируем программное состояние                           */
-    last_position  = 1;
-    REGISTERS[2]   = 1;          /* “реле включено”                       */
-
-    /* 2) снимаем паузу –  следующие решения можно принимать             */
-    protection_pause = 0;
-
-    /* 3) поднимаем реле                                                 */
-    HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-     for (volatile uint32_t i = 0; i < 100; ++i) {
-        __NOP();               
-    }
-   
-    
-    //4) явно запускаем ADC
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
-}
 
 
 
@@ -3744,7 +3717,8 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
   //0x19 - WARNING_VALUE (uint8_t пороговое значение тока)
   //0x20 - Аппаратная защита (0/1)
   
-  
+  if(log_ready)
+  {
 
   uint32_t startAddress = log_ptr;
   uint8_t final_data[12] = {0};
@@ -3784,7 +3758,7 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
      
      log_ptr += sizeof(LogEntry);
   }
-
+}
 
 static uint8_t flash_read_byte(uint32_t address)
 {
@@ -3828,6 +3802,7 @@ uint32_t find_next_free_log_address(void)
 
         if (flash_read_byte(addr) != 0xFF)
         {
+            temp_count = 9;
             // Нашли байт, который НЕ равен 0xFF – это и будет последний занятый байт.
             break;
         }
@@ -3840,6 +3815,8 @@ uint32_t find_next_free_log_address(void)
     //    Например, если addr = LOG_START_ADDR, то размер = 1.
     uint32_t used_size = (addr - LOG_START_ADDR) + 1; 
 
+    log_ready = 1;
+    
     // 3. Проверяем кратность размеру записи (12 байт).
     uint32_t remainder = used_size % LOG_ENTRY_SIZE;
     if (remainder == 0)
