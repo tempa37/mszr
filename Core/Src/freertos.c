@@ -1366,7 +1366,7 @@ void HighPriorityTask(void *argument)
           
           uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
           REGISTERS[1] = max_val;
-          
+          //REGISTERS[1] = 19;
           
           
           
@@ -1428,6 +1428,7 @@ void HighPriorityTask(void *argument)
           if(!protection_pause)
           {
             HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+            osDelay(10);
           }
           
           
@@ -3584,21 +3585,21 @@ void RTC_Init(void)
 
 static void vRelayReleaseCallback(TimerHandle_t xTimer)
 {
-    /* 1) поднимаем реле                                                 */
-    HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
 
-    /* 2) синхронизируем программное состояние                           */
+
+    /* 1) синхронизируем программное состояние                           */
     last_position  = 1;
     REGISTERS[2]   = 1;          /* “реле включено”                       */
 
-    /* 3) снимаем паузу –  следующие решения можно принимать             */
+    /* 2) снимаем паузу –  следующие решения можно принимать             */
     protection_pause = 0;
-    
-    
+
+    /* 3) поднимаем реле                                                 */
+    HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
      for (volatile uint32_t i = 0; i < 100; ++i) {
         __NOP();               
     }
-    
+   
     
     //4) явно запускаем ADC
     HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
