@@ -139,8 +139,8 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x00};
-uint16_t soft_ver_modbus = 110;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x01};
+uint16_t soft_ver_modbus = 111;
 
 extern struct httpd_state *hs;
 

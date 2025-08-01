@@ -137,6 +137,7 @@
                 <input type="text" id="field5" name="field5" maxlength="6" placeholder="Введите 6-значный PIN">
             </div>
             <button class="submit-button" onclick="saveChanges()">Изменить данные</button>
+			<button class="submit-button" id="modeButton" onclick="swich_mode())"></button>
         </div>	
 		
 		
