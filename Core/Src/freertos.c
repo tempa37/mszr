@@ -63,6 +63,7 @@ osMutexId_t flashMutexHandle;
 osMutexId_t RelayMutexHandle;
 SemaphoreHandle_t xHighPrioritySemaphore;
 
+static TimerHandle_t xRelayReleaseTimer = NULL;
 
 extern struct netif gnetif;
 extern UART_HandleTypeDef huart3;
@@ -119,7 +120,10 @@ uint8_t WARNING_VALUE_DEF = 20; //20
 #define MULT_UP     43824.0f        // 14608 * 3
 #define MULT_DOWN   2.057065f       // 11.365 * 0.181
 
+
+
 volatile uint8_t button_ivent = 0;
+volatile uint8_t protection_pause = 0;
 //------------------------------------------------------------------------------
 
 uint8_t USART_3_SPEED[10];
@@ -495,6 +499,8 @@ err_t httpd_post_begin(void *connection, const char *uri, const char *http_reque
 err_t httpd_post_receive_data(void *connection, struct pbuf *p);
 void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len);
 
+static void vRelayReleaseCallback(TimerHandle_t xTimer);
+
 float calculate_rms_B_macros(uint16_t rms);
 float calculate_rms_C_macros(uint16_t rms);
 float calculate_rms_A_macros(uint16_t rms);
@@ -603,6 +609,8 @@ void StartDefaultTask(void *argument)
     httpd_init();
     httpd_ssi_init();
   }
+  
+  
   
   __HAL_RCC_CRC_CLK_ENABLE();
   CRC_Config(); 
@@ -1194,6 +1202,8 @@ void StartTask04(void *argument)
     }
     osDelay(10);
 
+    
+    
   }
   /* USER CODE END StartTask04 */
   
@@ -1331,6 +1341,8 @@ void StartTask06(void *argument)
 
 void HighPriorityTask(void *argument) 
 {
+  
+   xRelayReleaseTimer = xTimerCreate("RelayRelease", pdMS_TO_TICKS(300), pdFALSE, NULL, vRelayReleaseCallback);
    uint32_t timetag = HAL_GetTick(); //-------//------//-----
    //static uint8_t last_state = 5;
     for(;;) 
@@ -1359,13 +1371,19 @@ void HighPriorityTask(void *argument)
           
           
           
-          if(!mode)
+          if((!mode) && (protection_pause == 0))
           {
               if((REGISTERS[1] >= TARGET_VALUE) && reley_auto_protection)
               {
                 osMutexWait(RelayMutexHandle, osWaitForever);
                 REGISTERS[2] = 0;
                 osMutexRelease(RelayMutexHandle);
+                
+                protection_pause = 1;
+                HAL_ADC_Stop_DMA(&hadc1);
+                xTimerStart(xRelayReleaseTimer, 0);
+                //ждем 300мс, потом REGISTERS[2] = 1 и так проводим измерение
+                
               }
               else if ((REGISTERS[1] <= TARGET_VALUE) && reley_auto_protection)
               {
@@ -1406,7 +1424,12 @@ void HighPriorityTask(void *argument)
               
           }
           
-          HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+          
+          if(!protection_pause)
+          {
+            HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+          }
+          
           
           //osDelay(25); 
           g_tick = HAL_GetTick();   //-------//------//-----
@@ -2816,172 +2839,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 
 
-
-
-/*
-#define WINDOW 20 
-
-
-uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
-{
-    int32_t peak1 = -1;
-    int32_t peak2 = -1;
-    bool zero_window_found = false;  // Флаг для случая, когда в окне все нули
-
-    // 1) Ищем два “устойчивых” пика или обнаруживаем окно из нулей:
-    for (int32_t i = WINDOW; i < (int32_t)length - WINDOW; i++)
-    {
-        uint16_t center = arr[i];
-
-        // 1.a) Проверяем, все ли значения в окне [i-WINDOW ... i+WINDOW] равны нулю.
-        bool all_zero = true;
-        for (int32_t j = i - WINDOW; j <= i + WINDOW; j++)
-        {
-            if (arr[j] != 0)
-            {
-                all_zero = false;
-                break;
-            }
-        }
-        if (all_zero)
-        {
-            // Если всё окно нулей, ставим флаг и выходим из поиска пиков
-            zero_window_found = true;
-            break;
-        }
-
-        // 1.b) Обычная проверка локального максимума
-        bool is_peak = true;
-        for (int32_t j = i - WINDOW; j <= i + WINDOW; j++)
-        {
-            if (j == i)
-                continue;
-            if (arr[j] > center)
-            {
-                is_peak = false;
-                break;
-            }
-        }
-        if (!is_peak)
-            continue;
-
-        // Если здесь — весь интервал вокруг i “чистый” (ни одна точка не больше arr[i]),
-        // значит arr[i] устойчиво является локальным максимумом.
-        if (peak1 < 0)
-        {
-            peak1 = i;
-            // Пропустим ближайшие 70 отсчётов, чтобы не найти «пик» рядом с уже найденным
-            i = i + 70;
-        }
-        else
-        {
-            // второй пик нашли — выходим
-            peak2 = i;
-            break;
-        }
-    }
-
-    uint16_t rms = 0;
-
-    // 2) Обработка случая, когда найдено окно из нулей
-    if (zero_window_found)
-    {
-        int32_t mid1 = -1;
-        int32_t mid2 = -1;
-
-        // 2.a) Ищем первый участок, где все значения нули
-        int32_t idx = 0;
-        while (idx < length)
-        {
-            if (arr[idx] == 0)
-            {
-                // Начало участка нулей
-                int32_t run_start = idx;
-                int32_t run_len = 0;
-                while (idx < length && arr[idx] == 0)
-                {
-                    run_len++;
-                    idx++;
-                }
-                // Точка, где половина отрезка
-                mid1 = run_start + run_len / 2;
-                break;
-            }
-            idx++;
-        }
-
-        // 2.b) Ищем второй участок, где все значения нули, начиная после первого
-        if (mid1 >= 0)
-        {
-            // Начнём искать с позиции после окончания первого нулевого участка
-            int32_t search_pos = mid1 + (length > mid1 + 1 ? 1 : 0);
-            int32_t idx2 = search_pos;
-            while (idx2 < length)
-            {
-                if (arr[idx2] == 0)
-                {
-                    int32_t run_start2 = idx2;
-                    int32_t run_len2 = 0;
-                    while (idx2 < length && arr[idx2] == 0)
-                    {
-                        run_len2++;
-                        idx2++;
-                    }
-                    // Точка, где половина второго отрезка
-                    mid2 = run_start2 + run_len2 / 2;
-                    break;
-                }
-                idx2++;
-            }
-        }
-
-        // 2.c) Если оба «серединных» индекса валидны и mid2 > mid1, вычисляем RMS по этому отрезку
-        if (mid1 >= 0 && mid2 > mid1)
-        {
-            float sum_sq = 0.0f;
-            uint32_t count = (uint32_t)(mid2 - mid1);
-            for (int32_t k = mid1; k < mid2; k++)
-            {
-                sum_sq += (float)arr[k] * (float)arr[k];
-            }
-            float rms_f = sqrtf(sum_sq / (float)count);
-            rms = (uint16_t)rms_f;
-            return rms;
-        }
-        // Если не удалось корректно определить два участка нулей, переходим к fallback ниже
-    }
-
-    // 3) Обычная ветка: если найдены два устойчивых пика
-    if (!zero_window_found && peak1 >= 0 && peak2 >= 0 && (peak2 - peak1) > 0)
-    {
-        float sum_sq = 0.0f;
-        uint32_t count = (uint32_t)(peak2 - peak1);
-        for (int32_t k = peak1; k < peak2; k++)
-        {
-            sum_sq += (float)arr[k] * (float)arr[k];
-        }
-        float rms_f = sqrtf(sum_sq / (float)count);
-        rms = (uint16_t)rms_f;
-    }
-    else
-    {
-        // 4) Fallback: считаем RMS первых ADC_BUFFER_SIZE точек (или length, если length < ADC_BUFFER_SIZE).
-        float sum_sq = 0.0f;
-        uint32_t cnt = (length < ADC_BUFFER_SIZE) ? length : ADC_BUFFER_SIZE;
-        for (uint32_t k = 0; k < cnt; k++)
-        {
-            sum_sq += (float)arr[k] * (float)arr[k];
-        }
-        float rms_f = sqrtf(sum_sq / (float)cnt);
-        rms = (uint16_t)rms_f;
-    }
-
-    return rms;
-}
-
-*/
-
-#define ADC_BUFFER_SIZE 1024  // Пример размера буфера; замените на реальное значение
+#define ADC_BUFFER_SIZE 457  // Пример размера буфера; 
 #define MA_WINDOW_SIZE    5   // Размер окна для скользящего среднего
 
 
@@ -2994,34 +2852,6 @@ uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
     uint32_t cnt = (length < ADC_BUFFER_SIZE) ? length : ADC_BUFFER_SIZE;
   
     
-    /*
-    // --- Блок фильтрации: скользящее среднее ---
-    // Временный буфер для хранения отфильтрованных значений
-    static uint16_t filt_buf[ADC_BUFFER_SIZE];
-    for (uint32_t i = 0; i < cnt; i++) {
-        uint32_t sum = 0;
-        // Суммируем MA_WINDOW_SIZE последних (или крайний) значений
-        for (uint32_t j = 0; j < MA_WINDOW_SIZE; j++) {
-            int32_t idx = (int32_t)i - (int32_t)j;
-            if (idx < 0) {
-                idx = 0;  // Если выходим за начало массива, берём самый первый элемент
-            }
-            sum += arr[idx];
-        }
-        filt_buf[i] = (uint16_t)(sum / MA_WINDOW_SIZE);
-    }
-    // --- Конец блока скользящего среднего ---
-    */
-    
-    /*
-    const float OFFSET_COUNTS = 620.0f;
-      for (uint32_t k = 0; k < cnt; k++)
-    {
-        sum_sq += ((float)arr[k] - OFFSET_COUNTS) * ((float)arr[k] - OFFSET_COUNTS);
-    }
-    float rms_f = sqrtf(sum_sq / (float)cnt);
-    rms = (uint16_t)rms_f;
-  */
   
   
     
@@ -3190,41 +3020,7 @@ void EXTI15_10_IRQHandler(void)
 }
 //HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
 
-/*
-//Прерывание с пина PA6 (fixing the leak)
-void EXTI6_Init(void)   
-{
-  
-  __HAL_RCC_SYSCFG_CLK_ENABLE();
-  
-  SYSCFG->EXTICR[1] &= ~(SYSCFG_EXTICR2_EXTI6);
-  SYSCFG->EXTICR[1] |= (SYSCFG_EXTICR2_EXTI6_PA);
-  
-  EXTI->IMR |= EXTI_IMR_MR6;
-  
-  EXTI->RTSR |= EXTI_RTSR_TR6;
-  
-  EXTI->FTSR &= ~EXTI_FTSR_TR6;
-  
-  NVIC_EnableIRQ(EXTI9_5_IRQn);
-  NVIC_SetPriority(EXTI9_5_IRQn, 1);
-}
-//---↑
-//---↑
-//---↑
-void EXTI9_5_IRQHandler(void)  
-{
-  if (EXTI->PR & EXTI_PR_PR6)
-  {
-    EXTI->PR |= EXTI_PR_PR6;
 
-      setrelay(0);
-
-  }
-  
-}
-
-*/
 
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf)
 {
@@ -3274,14 +3070,7 @@ void load_flags_from_flash(void)
       boot_os_ok = 0;
     }
     
-    //boot_flag_crc = *(volatile uint8_t *)BOOT_FLAG_CRC_ADDRESS;
-    /*
-    boot_flag_new = *(volatile uint8_t *)BOOT_FLAG_NEW_ADDRESS;
-    if(boot_flag_new == 0xFF)
-    {
-      boot_flag_new = 0;
-    }
-    */
+
     
     sector_enabled = *(volatile uint8_t *)SECTOR_ENABLED_ADDRESS;
     if((sector_enabled != 1) && (sector_enabled != 2))
@@ -3332,26 +3121,7 @@ void load_flags_from_flash(void)
     log_ptr = find_next_free_log_address();
 }
 
-/*
-void UpdateSector3()
-{
-    uint8_t sectorData[0x1000]; // Буфер для данных сектора (4 KB)
 
-    // Чтение всего 3-го сектора во флеш
-    for (uint32_t i = 0; i < 0x1000; i++) {
-        sectorData[i] = *(volatile uint8_t*)(0x0800C000 + i);
-    }
-
-    // Изменение значений в буфере
-    sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
-    sectorData[BOOT_FLAG__ADDRESS - 0x0800C000] = boot_flag_;
-    sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
-    sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
-
-    // Запись обратно в 3-й сектор
-    WriteToFlash(0x0800C000, sectorData, 0x1000);
-}
-*/
 
         
 HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
@@ -3360,39 +3130,6 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
   taskENTER_CRITICAL();
   HAL_FLASH_Unlock();
   HAL_StatusTypeDef status = HAL_OK;
-  /*
-    static uint8_t first = 1;
-    if(first)
-    {
-      first = 0;
-      startMyTimer_UPDATE(10000);
-    }
-    
-    taskENTER_CRITICAL();
-    // Разблокировка флеш памяти для записи
-    HAL_FLASH_Unlock();
-    __disable_irq();
-    
-   
-    
-
-    
-    
-    
-    
-    if(next_free_addr == 0)
-    {
-            address = SECTOR_2_ADDRESS;
-            len = 393216;
-            next_free_addr = SECTOR_2_ADDRESS;
-            FLASH_Erase_Sector(FLASH_SECTOR_8, VOLTAGE_RANGE_3);
-            FLASH_Erase_Sector(FLASH_SECTOR_9, VOLTAGE_RANGE_3);
-            FLASH_Erase_Sector(FLASH_SECTOR_10, VOLTAGE_RANGE_3);
-    }
-    
-    
-    __enable_irq();
-    */
   
     static uint8_t first = 1;
     if(first)
@@ -3435,11 +3172,7 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
     // Блокировка флеш памяти после записи
     iteration++;
     HAL_FLASH_Lock();
-    /*
-    uint32_t _stm = calculate_flash_(address, (next_free_addr));
-    uint32_t _stm_reverce = ~(calculate_flash_(address, (next_free_addr)));
-    uint32_t _stm_down = calculate_flash_(address, (next_free_addr-1));
-    */
+   
     taskEXIT_CRITICAL();
     //xSemaphoreGive(xPacketSaved);
     return status;
@@ -3847,6 +3580,28 @@ void RTC_Init(void)
     if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
         Error_Handler();
     }
+}
+
+static void vRelayReleaseCallback(TimerHandle_t xTimer)
+{
+    /* 1) поднимаем реле                                                 */
+    HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+
+    /* 2) синхронизируем программное состояние                           */
+    last_position  = 1;
+    REGISTERS[2]   = 1;          /* “реле включено”                       */
+
+    /* 3) снимаем паузу –  следующие решения можно принимать             */
+    protection_pause = 0;
+    
+    
+     for (volatile uint32_t i = 0; i < 100; ++i) {
+        __NOP();               
+    }
+    
+    
+    //4) явно запускаем ADC
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
 }
 
 
