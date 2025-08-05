@@ -141,8 +141,8 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x01};
-uint16_t soft_ver_modbus = 111;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x02};
+uint16_t soft_ver_modbus = 112;
 
 extern struct httpd_state *hs;
 
@@ -944,6 +944,7 @@ if(!start)
             WriteFlash(0, 0);
             startMyTimer_RESET(7000);
           }
+
           taskEXIT_CRITICAL();
         
     }
@@ -2913,6 +2914,11 @@ void startMyTimer_RESET(uint32_t timeout_ms)
 //---↑
 void vMyTimerCallback(TimerHandle_t xTimer) 
 {
+  __disable_irq();
+  SCB->VTOR = FLASH_BASE;  // обычно 0x08000000
+  __DSB();
+
+  __ISB();
   HAL_NVIC_SystemReset();
 }
 
@@ -3114,6 +3120,11 @@ void load_flags_from_flash(void)
     }
     
     log_ptr = find_next_free_log_address();
+    if (log_ptr == 0xFF)
+    {
+       Swipe_Log_Sector();
+    }
+    
 }
 
 
@@ -3138,8 +3149,10 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
   
   
     // Проверка на переполнение области
-    if ((next_free_addr + packet_size) == (address + len + 1))
+    if ((next_free_addr + packet_size) >= (address + len + 1))
     {
+        HAL_FLASH_Lock();
+        taskEXIT_CRITICAL();
         return HAL_ERROR; // Флеш память переполнена
     }
     
@@ -3158,6 +3171,7 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
         if (status != HAL_OK)
         {
             HAL_FLASH_Lock();
+            taskEXIT_CRITICAL();
             return status; // Ошибка при записи
         }
     }
@@ -3311,8 +3325,9 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
     {
         pbuf_free(p);
         error_flash = 1;
-        return ERR_BUF;
-        
+        boot_flag_new = 1;
+        WriteFlash(0, 0);
+        return ERR_BUF; 
     }
 
 
@@ -3829,7 +3844,7 @@ uint32_t find_next_free_log_address(void)
       }
       else
       {
-        return 0;
+        return 0xFF; //заполнено все
       }
     }
     else
@@ -3849,7 +3864,7 @@ uint32_t find_next_free_log_address(void)
         if (partial_end >= LOG_END_ADDR) 
         {
             // На всякий случай проверяем, чтобы не выйти за пределы.
-            return 0;
+            return 0xFF;
         }
 
         // Заполняем нужный диапазон 0xF0, превращая остаток в "невалидную запись".
@@ -3872,11 +3887,12 @@ void Swipe_Log_Sector()
   
   log_sector_active = (log_sector_active % 7) + 1;
   
-  WriteFlash(0,0);
+ 
   
   taskENTER_CRITICAL();
   HAL_FLASH_Unlock();
   switch (log_sector_active){
+        
       case 1:
         LOG_START_ADDR = 0x08120000; 
         log_ptr = 0x08120000;
@@ -3922,6 +3938,7 @@ void Swipe_Log_Sector()
     }
   HAL_FLASH_Lock();
   taskEXIT_CRITICAL();
+  WriteFlash(0,0);
 }
 
 
