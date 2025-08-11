@@ -529,7 +529,7 @@
  * (only needed if you use the sequential API, like api_lib.c)
  */
 #if !defined MEMP_NUM_NETCONN || defined __DOXYGEN__
-#define MEMP_NUM_NETCONN                4
+#define MEMP_NUM_NETCONN                10
 #endif
 
 /**
@@ -2105,7 +2105,7 @@
  * LWIP_STATS_DISPLAY==1: Compile in the statistics output functions.
  */
 #if !defined LWIP_STATS_DISPLAY || defined __DOXYGEN__
-#define LWIP_STATS_DISPLAY              0
+#define LWIP_STATS_DISPLAY              1
 #endif
 
 /**

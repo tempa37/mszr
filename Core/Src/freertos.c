@@ -1057,11 +1057,6 @@ void StartTask03(void *argument)
         res = netconn_accept(nc, &newconn);
         if (res == ERR_OK) 
         {
-          if(nc != NULL)
-          {
-            netconn_close(nc);
-            netconn_delete(nc);
-          }
           TickType_t last_activity_time = xTaskGetTickCount();
           netconn_set_recvtimeout(newconn, 5000);
           current_state = STATE_RECEIVE;
@@ -1106,12 +1101,13 @@ void StartTask03(void *argument)
         
         //------------------------------------------------------------------------------
       case STATE_CLOSE_CONNECTION:
-        if(newconn != NULL)
+        if (newconn != NULL)
         {
           netconn_close(newconn);
           netconn_delete(newconn);
+          newconn = NULL;
         }
-        current_state = STATE_CREATE_SOCKET; 
+        current_state = STATE_ACCEPT;  // Возврат к приёму новых клиентов
         break;
         //-----------------------------------------------------------------------------             
       case STATE_ERROR:
@@ -1119,6 +1115,8 @@ void StartTask03(void *argument)
         {
           netconn_close(nc);
           netconn_delete(nc);
+          nc = NULL;
+          newconn = NULL;
         }
         osDelay(1000);
         current_state = STATE_INIT;  
@@ -4000,7 +3998,7 @@ void save_time_unix()
     sTime.Hours         = hour;
     sTime.Minutes       = minute;
     sTime.Seconds       = sec;
-    sTime.TimeFormat    = RTC_HOURFORMAT12_AM;  // Если нужен 24-часовой формат, настройте соответствующим образом
+    sTime.TimeFormat    = RTC_HOURFORMAT24;
     sTime.DayLightSaving= RTC_DAYLIGHTSAVING_NONE;
     sTime.StoreOperation= RTC_STOREOPERATION_RESET;
 
