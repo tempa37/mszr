@@ -30,7 +30,7 @@
 
 	//---------------------------------END--REGISTERS------------------------------
 
-        extern void save_time_unix();
+        extern uint8_t save_time_unix(uint64_t timestamp);
 	void modbus(uint8_t *data, uint16_t len, uint8_t *data_out, uint16_t *len_out, Protocol protocol);
 	void readREG (Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out, uint16_t *len_out);
 	void writeREG(Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out, uint16_t *len_out);

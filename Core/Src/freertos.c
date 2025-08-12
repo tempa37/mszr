@@ -141,8 +141,8 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x02};
-uint16_t soft_ver_modbus = 112;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x05};
+uint16_t soft_ver_modbus = 115;
 
 extern struct httpd_state *hs;
 
@@ -258,6 +258,11 @@ uint8_t pinaccept = 0;
 #define BOOTLOADER_ADDRESS 0x08000000 //end in 0x0800C080  48kb in total
 #define SECTOR_ENABLED_ADDRESS 0x0800C088 //1 - нет новой ОС, 2 - есть новоя ОС
 #define LOG_SECTOR_ACTIVE 0x0800C204 //в каком секторе мы пишем лог сейчас
+
+
+
+#define TIME_FLAG_SET   (1U << 2)  // bit2: время установлено
+#define TIME_FLAG_APPLY (1U << 3)  // bit3: попросить применить время
 
 
 
@@ -527,6 +532,11 @@ void StartTask04(void *argument);
 void StartTask05(void *argument);
 void StartTask06(void *argument);
 void HighPriorityTask(void *argument);
+
+uint8_t save_time_unix(uint64_t timestamp);
+
+void apply_time_from_registers(void);
+
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -947,6 +957,14 @@ if(!start)
 
           taskEXIT_CRITICAL();
         
+    }
+    
+    
+    
+    if (REGISTERS[4] & TIME_FLAG_APPLY) 
+    {
+      // Бит TIME_FLAG_APPLY (3-й бит) установлен
+      apply_time_from_registers();
     }
     
 //----------------------------------------------------------------OS-UPDATE-END--
@@ -3291,8 +3309,39 @@ uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str) {
 
 
 
+void track_packet_order(uint16_t packetNow, uint16_t packetTotal)
+{
+    static uint16_t expected_packet = 0;
+    static uint32_t in_order_count = 0;
+    static uint32_t out_of_order_count = 0;
+
+    if (packetNow == expected_packet)
+    {
+        in_order_count++;
+        expected_packet++;
+        if (expected_packet >= packetTotal)
+        {
+            expected_packet = 0; // Сброс после последнего пакета
+        }
+    }
+    else
+    {
+        out_of_order_count++;
+        // Не меняем expected_packet, ждем нужный пакет
+    }
+    
+    // Для отладки можешь сделать выводы сюда (через printf или логгер)
+    // printf("In order: %lu, Out of order: %lu\n", in_order_count, out_of_order_count);
+}
+
+
+
+
+
 err_t httpd_post_receive_data(void *connection, struct pbuf *p) 
 {
+  
+  static uint16_t packet_cnt = 0;
 
     // Извлечение данных из pbuf
     uint16_t packet_size = p->tot_len; // Общий размер данных пакета
@@ -3304,6 +3353,11 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
     
     
     packetData = parser(packetData, packet_size, "stream");
+    
+    
+    track_packet_order(packetNow, packetTotal);
+    packet_cnt++;
+    
     
     if(packetNow == (packetTotal-1))
     {
@@ -3342,6 +3396,10 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
        
     return ERR_OK;
 }
+
+
+
+
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
                        u16_t http_request_len, int content_len, char *response_uri,
@@ -3940,88 +3998,108 @@ void Swipe_Log_Sector()
 }
 
 
-/*
-void save_time_unix()
-{
-  
-    uint16_t mask = (1 << 2);  
-    REGISTERS[4] &= ~mask;
-  
-  
-  
-  
-    // Считываем 64-битное Unix время из массива регистров.
-    // Предполагается, что каждый регистр (REGISTERS[5]...REGISTERS[8]) содержит по 16 бит.
-    uint64_t timestamp = ((uint64_t)REGISTERS[5] << 48) |
-                         ((uint64_t)REGISTERS[6] << 32) |
-                         ((uint64_t)REGISTERS[7] << 16) |
-                         ((uint64_t)REGISTERS[8]);
 
-    // Извлекаем компоненты времени (секунды, минуты, часы)
+uint8_t save_time_unix(uint64_t timestamp) 
+{
+
+
     uint32_t sec    = timestamp % 60;
     uint32_t minute = (timestamp / 60) % 60;
     uint32_t hour   = (timestamp / 3600) % 24;
-    // Количество дней, прошедших с 1 января 1970 (эпоха Unix)
-    uint32_t days = timestamp / 86400;
+    uint32_t days   = timestamp / 86400UL;
 
-    // Вычисляем год, месяц и день
     int year = 1970;
     while (1) {
-        // Определяем количество дней в текущем году с учётом високосного года
         int daysInYear = ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ? 366 : 365);
-        if (days >= daysInYear) {
+        if (days >= (uint32_t)daysInYear) {
             days -= daysInYear;
             year++;
-        } else {
-            break;
-        }
+        } else break;
     }
+
     int month = 1;
-    int daysInMonth[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    // Если год високосный, февраль имеет 29 дней
-    if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) {
-        daysInMonth[1] = 29;
-    }
-    while (days >= daysInMonth[month - 1]) {
+    int daysInMonth[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) daysInMonth[1] = 29;
+
+    while (days >= (uint32_t)daysInMonth[month - 1]) {
         days -= daysInMonth[month - 1];
         month++;
+        if (month > 12) { month = 12; break; } // safety
     }
     int day = days + 1;
 
-    // Вычисляем день недели.
-    // 1 января 1970 был четвергом. При условии, что в RTC дни недели нумеруются от 1 (понедельник) до 7 (воскресенье),
-    // можно использовать формулу: weekday = ((daysSinceEpoch + 3) % 7) + 1.
-    //uint32_t weekday = ((timestamp / 86400 + 3) % 7) + 1;
-
-    // Настройка времени RTC
+    // подготовка структуры HAL
     RTC_TimeTypeDef sTime = {0};
-    sTime.Hours         = hour;
-    sTime.Minutes       = minute;
-    sTime.Seconds       = sec;
-    sTime.TimeFormat    = RTC_HOURFORMAT24;
-    sTime.DayLightSaving= RTC_DAYLIGHTSAVING_NONE;
-    sTime.StoreOperation= RTC_STOREOPERATION_RESET;
+    sTime.Hours = hour;
+    sTime.Minutes = minute;
+    sTime.Seconds = sec;
+    sTime.TimeFormat = RTC_HOURFORMAT_24;
+    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
 
-    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
-    {
-        Error_Handler();
+    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
+        return -2;
     }
 
-    // Настройка даты RTC
     RTC_DateTypeDef sDate = {0};
-    sDate.Date    = day;
-    sDate.Month   = month;
-    sDate.Year    = year % 100;  // HAL принимает две последние цифры года
-    //sDate.WeekDay = weekday;
-
-    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
-    {
-        Error_Handler();
+    sDate.Date = day;
+    sDate.Month = month;
+    sDate.Year = year % 100;
+    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
+        return -3;
     }
+
+    return 0; // success
 }
 
-*/
 
+void apply_time_from_registers(void)
+{
+    uint16_t r5, r6, r7, r8;
+    uint16_t reg4_snapshot;
+    // критическая секция — вариант если baremetal:
+    __disable_irq();
+    reg4_snapshot = REGISTERS[4];
+    r5 = REGISTERS[5];
+    r6 = REGISTERS[6];
+    r7 = REGISTERS[7];
+    r8 = REGISTERS[8];
+    __enable_irq();
+
+    // собираем 64-бит (предполагаем: REGISTERS[5] = MSW)
+    uint64_t timestamp = ((uint64_t)r5 << 48) | ((uint64_t)r6 << 32) | ((uint64_t)r7 << 16) | (uint64_t)r8;
+
+    if (timestamp == 0) {
+        // некорректно — отбиваемся, очищаем APPLY и не ставим SET
+        // атомарно очистим флаг APPLY
+        __disable_irq();
+        REGISTERS[4] &= ~TIME_FLAG_APPLY;
+        __enable_irq();
+        return;
+    }
+
+    int res = save_time_unix(timestamp);
+    __disable_irq();
+    // очистим APPLY
+    REGISTERS[4] &= ~TIME_FLAG_APPLY;
+    if (res == 0) 
+    {     
+        REGISTERS[4] &= ~TIME_FLAG_SET;
+        REGISTERS[5] = 0;
+        REGISTERS[6] = 0;
+        REGISTERS[7] = 0;
+        REGISTERS[8] = 0;
+    } 
+    else 
+    {
+        REGISTERS[4] |= TIME_FLAG_SET;
+        REGISTERS[5] = 0;
+        REGISTERS[6] = 0;
+        REGISTERS[7] = 0;
+        REGISTERS[8] = 0;
+    }
+    __enable_irq();
+}
 
 /* USER CODE END Application */
 

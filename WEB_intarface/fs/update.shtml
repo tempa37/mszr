@@ -23,6 +23,31 @@
   </div>
 
   <script>
+  
+	const FETCH_TIMEOUT_MS = 30000; // таймаут на отправку одного чанка (мс)
+	const REDIRECT_ON_ERROR_MS = 10000; // через сколько мс редиректим на index.shtml при ошибке
+
+	function showErrorAndRedirect(message, color = 'orange', redirectMs = REDIRECT_ON_ERROR_MS) {
+	  // Попытаемся найти contentDiv, как в твоём коде; если нет — встаём в body
+	  const contentDiv = document.getElementById('content') || document.getElementById('main') || document.body;
+	  // Очистим область и покажем плашку
+	  contentDiv.innerHTML = `
+		<div class="timeout-error" style="text-align: center; color: ${color}; font-size: 24px; margin-top: 50px;">
+		  ${message}
+		</div>
+	  `;
+	  // Сбрасываем прогресс-бар визуально
+	  const progressBar = document.getElementById("progressBar");
+	  if (progressBar) progressBar.style.width = "0%";
+
+	  setTimeout(() => {
+		window.location.href = "index.shtml";
+	  }, redirectMs);
+	}
+  
+  
+  
+  
     let field5Value;
     const contentDiv = document.getElementById('content');
 
@@ -152,42 +177,62 @@
 		
 
 
-		 async function sendFileInChunks(uploadFile) {
-			  const chunkSize = 700; // Размер пакета в байтах
-			  const totalChunks = Math.ceil(uploadFile.size / chunkSize);
-			  let acknowledgedPackets = 0;
+async function sendFileInChunks(uploadFile) {
+  const chunkSize = 700;
+  const totalChunks = Math.ceil(uploadFile.size / chunkSize);
+  let acknowledgedPackets = 0;
 
-			  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-				const chunk = uploadFile.slice(chunkIndex * chunkSize, (chunkIndex + 1) * chunkSize);
-				const rawDataLength = chunk.size; // Длина данных в чанке
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+    const chunk = uploadFile.slice(chunkIndex * chunkSize, (chunkIndex + 1) * chunkSize);
+    const rawDataLength = chunk.size;
 
-				const formData = new FormData();
-				formData.append('chunk', chunk, `${uploadFile.name}.part${chunkIndex + 1}`);
-				formData.append('chunkIndex', chunkIndex);
-				formData.append('totalChunks', totalChunks);
-				formData.append('rawDataLength', rawDataLength); // Добавляем длину данных
+    const formData = new FormData();
+    formData.append('chunk', chunk, `${uploadFile.name}.part${chunkIndex + 1}`);
+    formData.append('chunkIndex', chunkIndex);
+    formData.append('totalChunks', totalChunks);
+    formData.append('rawDataLength', rawDataLength);
 
-				try {
-				  const response = await fetch('/api/upload', {
-					method: "POST",
-					body: formData,
-				  });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-				  if (!response.ok) {
-					throw new Error(`Ошибка при отправке пакета ${chunkIndex + 1}`);
-				  }
+    try {
+      const response = await fetch('/api/upload', {
+        method: "POST",
+        body: formData,
+        signal: controller.signal // <- вот это было отсутствовало
+      });
 
-				  acknowledgedPackets++;
-				  console.log(`Пакет ${acknowledgedPackets} из ${totalChunks} успешно отправлен`);
-				  updateProgress((acknowledgedPackets / totalChunks) * 100);
-				} catch (error) {
-				  console.error(`Ошибка при отправке пакета ${chunkIndex + 1}:`, error);
-				  return;
-				}
-			  }
+      clearTimeout(timeoutId);
 
-			  console.log('Все пакеты успешно отправлены');
-			}
+      if (!response.ok) {
+        // Можно читать тело ошибки, если нужно
+        const text = await response.text().catch(() => response.statusText);
+        throw new Error(`Server error ${response.status}: ${text}`);
+      }
+
+      acknowledgedPackets++;
+      console.log(`Пакет ${acknowledgedPackets} из ${totalChunks} успешно отправлен`);
+      updateProgress((acknowledgedPackets / totalChunks) * 100);
+
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      console.error(`Ошибка при отправке пакета ${chunkIndex + 1}:`, error);
+
+      // Разные браузеры/среды могут по-разному именовать AbortError, поэтому учитываем типы.
+      const isAbort = error.name === 'AbortError' || (controller.signal && controller.signal.aborted);
+
+      if (isAbort) {
+        showErrorAndRedirect('Превышено время ожидания. Попробуйте ещё раз.', 'orange');
+      } else {
+        showErrorAndRedirect(`Сетевая ошибка при отправке пакета ${chunkIndex + 1}.`, 'red');
+      }
+      return;
+    }
+  }
+
+  console.log('Все пакеты успешно отправлены');
+}
 
         function updateProgress(value) {
           const progressBar = document.getElementById("progressBar");
@@ -239,6 +284,9 @@
   </script>
 </body>
 </html>
+
+
+
 
 <style>
  .container_admin {
