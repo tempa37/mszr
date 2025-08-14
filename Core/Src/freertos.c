@@ -141,8 +141,8 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x05};
-uint16_t soft_ver_modbus = 115;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x03};
+uint16_t soft_ver_modbus = 113;
 
 extern struct httpd_state *hs;
 
@@ -3309,60 +3309,80 @@ uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str) {
 
 
 
-void track_packet_order(uint16_t packetNow, uint16_t packetTotal)
-{
-    static uint16_t expected_packet = 0;
-    static uint32_t in_order_count = 0;
-    static uint32_t out_of_order_count = 0;
-
-    if (packetNow == expected_packet)
-    {
-        in_order_count++;
-        expected_packet++;
-        if (expected_packet >= packetTotal)
-        {
-            expected_packet = 0; // Сброс после последнего пакета
-        }
-    }
-    else
-    {
-        out_of_order_count++;
-        // Не меняем expected_packet, ждем нужный пакет
-    }
-    
-    // Для отладки можешь сделать выводы сюда (через printf или логгер)
-    // printf("In order: %lu, Out of order: %lu\n", in_order_count, out_of_order_count);
-}
-
-
-
-
+uint8_t buf_for_bad_chank[1300] = 0;
 
 err_t httpd_post_receive_data(void *connection, struct pbuf *p) 
 {
-  
-  static uint16_t packet_cnt = 0;
-
+    static uint16_t packet_cnt = 0;
+    static uint16_t packet_cnt_dab = 0; // флаг: собираем ли недочанк
+    static uint16_t bad_chunk_pos = 0;  // куда дописывать в buf_for_bad_chank
+    
+    
     // Извлечение данных из pbuf
     uint16_t packet_size = p->tot_len; // Общий размер данных пакета
-    char *packetData = (char *)p->payload; // Указатель на полезные данные
-    
-    uint16_t packetNow = parser_num(packetData, packet_size, "chunkIndex");
-    uint16_t packetTotal = parser_num(packetData, packet_size, "totalChunks");
-    uint16_t BinDataLength = parser_num(packetData, packet_size, "rawDataLength");
+    uint8_t *payload = (uint8_t *)p->payload; // указатель на полезные данные
     
     
-    packetData = parser(packetData, packet_size, "stream");
+    uint16_t packetNow = parser_num((char *)payload, packet_size, "chunkIndex");
+    uint16_t packetTotal = parser_num((char *)payload, packet_size, "totalChunks");
     
+    // Если пришёл маленький фрагмент — собираем его
+    if ((packet_size < 1200) && (packetNow != (packetTotal-1)))
+    {
+        if (!packet_cnt_dab) 
+        {
+            // часть чанка: копируем в буфер и запоминаем позицию
+            if (packet_size > sizeof(buf_for_bad_chank)) {
+                // Слишком большой кусок для буфера — ошибка
+                pbuf_free(p);
+                return ERR_BUF;
+            }
+            memcpy(buf_for_bad_chank, payload, packet_size);
+            bad_chunk_pos = packet_size;
+            packet_cnt_dab = 1;
+
+            // Сообщаем стеку, что данные приняты и ждём следующий вызов
+            httpd_post_data_recved(connection, packet_size);
+            pbuf_free(p);
+            return ERR_OK;
+        } 
+        else 
+        {
+            // Второй фрагмент: доклеиваем чанк и дальше продолжаем обработку
+            if ((uint32_t)bad_chunk_pos + packet_size > sizeof(buf_for_bad_chank)) {
+                // Переполнение буфера — сбрасываем состояние и возвращаем ошибку
+                bad_chunk_pos = 0;
+                packet_cnt_dab = 0;
+                pbuf_free(p);
+                return ERR_BUF;
+            }
+
+            memcpy(buf_for_bad_chank + bad_chunk_pos, payload, packet_size);
+            // Теперь общий указатель на данные — наш буфер
+            payload = buf_for_bad_chank;
+            packet_size = bad_chunk_pos + packet_size;
+
+            // Сброс состояния сборки
+            bad_chunk_pos = 0;
+            packet_cnt_dab = 0;
+            // Не освобождаем p тут — освободим в конце как обычно
+        }
+    }
+
+    // дальше — обычная обработка целого чанка
+    packetNow = parser_num((char *)payload, packet_size, "chunkIndex");
+    packetTotal = parser_num((char *)payload, packet_size, "totalChunks");
+    uint16_t BinDataLength = parser_num((char *)payload, packet_size, "rawDataLength");
     
-    track_packet_order(packetNow, packetTotal);
+    // Получаем указатель на бинарные данные в пакете
+    uint8_t *packetData = (uint8_t *)parser((char *)payload, packet_size, "stream");
+    
     packet_cnt++;
     
-    
-    if(packetNow == (packetTotal-1))
+    if (packetNow == (packetTotal-1))
     {
       crc_os = 
-      ((uint32_t)packetData[BinDataLength-4] << 24) |  // Старший байт
+      ((uint32_t)packetData[BinDataLength-4] << 24) |  
       ((uint32_t)packetData[BinDataLength-3] << 16) |  
       ((uint32_t)packetData[BinDataLength-2] << 8)  |  
       ((uint32_t)packetData[BinDataLength-1]); 
@@ -3372,7 +3392,6 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
       packetData[BinDataLength-3] = 0xFF;
     }
     
-
     if (Flash_WritePacket(packetData, BinDataLength) != HAL_OK)
     {
         pbuf_free(p);
@@ -3382,7 +3401,6 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
         return ERR_BUF; 
     }
 
-
     httpd_post_data_recved(connection, packet_size);
     pbuf_free(p);
     
@@ -3391,12 +3409,9 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
       boot_flag_new = 1;
       WriteFlash(0, 0);
     }
-    
 
-       
     return ERR_OK;
 }
-
 
 
 
