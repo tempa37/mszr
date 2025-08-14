@@ -89,7 +89,7 @@ uint32_t diff;     //-------//------//-----
 
 
 //volatile uint8_t manual_mode = 0;
-
+static TimerHandle_t xRelayReleaseTimer = NULL;
 uint8_t reley_auto_protection = 1;
 
 float C_phase_A = 0;
@@ -208,7 +208,7 @@ uint8_t error_flash = 0;
 extern volatile uint8_t theme;
 
 
-
+volatile uint8_t protection_pause = 0;   // пауза после срабатывания
 
 
 //PA9_out
@@ -301,6 +301,10 @@ typedef struct {
                            //12 байт
 
 
+volatile uint32_t gRelayReleaseTimeoutMs = 300; 
+static inline void StartRelayReleaseTimer(uint32_t delayMs);
+ 
+ 
 volatile uint8_t time_acepted = 0;  //not used
 
 volatile uint32_t log_ptr = 0;
@@ -498,6 +502,12 @@ void addValue2Day(CircularBuffer2Day *buffer, uint16_t value);
 float getAverage10Min(CircularBuffer10Min *buffer);
 float getAverage1Hour(CircularBuffer1Hour *buffer);
 float getAverage2Day(CircularBuffer2Day *buffer);
+
+
+
+
+static void vRelayReleaseCallback(TimerHandle_t xTimer);
+
 
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
@@ -1179,6 +1189,7 @@ void StartTask04(void *argument)
            uint8_t temp[1] = {0x00};
            write_to_log(0x05, &temp[0], 1);
            last_position = 0;
+           
         }
         break;
         
@@ -1360,7 +1371,7 @@ void StartTask06(void *argument)
 
 void HighPriorityTask(void *argument) 
 {
-  
+   xRelayReleaseTimer = xTimerCreate("RelayRelease", pdMS_TO_TICKS(300), pdFALSE, NULL, vRelayReleaseCallback);
 
    uint32_t timetag = HAL_GetTick(); //-------//------//-----
    //static uint8_t last_state = 5;
@@ -1390,13 +1401,19 @@ void HighPriorityTask(void *argument)
           
           
           
-          if(!mode)
+           if((!mode) && (protection_pause == 0))
           {
               if((REGISTERS[1] >= TARGET_VALUE) && reley_auto_protection)
               {
                 osMutexWait(RelayMutexHandle, osWaitForever);
                 REGISTERS[2] = 0;
                 osMutexRelease(RelayMutexHandle);
+                
+                protection_pause = 1;
+                HAL_ADC_Stop_DMA(&hadc1);
+                StartRelayReleaseTimer(400);
+                //xTimerStart(xRelayReleaseTimer, 0);
+                //ждем 300мс, потом REGISTERS[2] = 1 и так проводим измерение
               }
               else if ((REGISTERS[1] <= TARGET_VALUE) && reley_auto_protection)
               {
@@ -3492,6 +3509,48 @@ void swichSector()
   }    
 }
 
+
+static inline void StartRelayReleaseTimer(uint32_t delayMs)
+{
+    /*  Сохраняем новое значение, чтобы его могли увидеть другие задачи  */
+    gRelayReleaseTimeoutMs = delayMs;
+
+    /*  Меняем период и сразу стартуем таймер.
+        Если вызываете из обычной задачи – используйте xTimerChangePeriod(),
+        из ISR – xTimerChangePeriodFromISR().                            */
+    xTimerChangePeriod(xRelayReleaseTimer,
+                       pdMS_TO_TICKS(gRelayReleaseTimeoutMs),
+                       0);                     // время ожидания в ticks
+    /* xTimerChangePeriod() сам переводит таймер в состояние Active,
+       так что отдельный xTimerStart() не нужен.                         */
+}
+
+
+static void vRelayReleaseCallback(TimerHandle_t xTimer)
+{
+
+
+    /* 1) синхронизируем программное состояние                           */
+    last_position  = 1;
+    REGISTERS[2]   = 1;          /* “реле включено”                       */
+
+    /* 2) снимаем паузу –  следующие решения можно принимать             */
+    protection_pause = 0;
+
+    /* 3) поднимаем реле                                                 */
+    HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+     for (volatile uint32_t i = 0; i < 100; ++i) {
+        __NOP();               
+    }
+   
+    
+    //4) явно запускаем ADC
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+}
+
+
+
+
 //---------------------------------------------------------------------------------
 
 //--------------------------RMS--BY--MACROS----------------------------------------
@@ -4115,6 +4174,7 @@ void apply_time_from_registers(void)
     }
     __enable_irq();
 }
+
 
 /* USER CODE END Application */
 
