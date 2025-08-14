@@ -334,15 +334,16 @@
             </div>
         </form>
 
-
-				<div class="toggle-container">
-					<span class="toggle-label">Аппаратная защита:</span>
-					<label class="toggle">
-						<input type="checkbox" id="hardwareProtectionToggle" data-ssi="<!--#HWPRT-->" disabled>
-               	<span class="slider"></span>
-					</label>
-				</div>
-			</div>
+        <form>
+            <!-- Поле для задания времени отключения реле -->
+            <label class="field-label" for="reley_time">Время отключения реле:</label>
+            <div class="serial-input">
+                <!-- Ввод значения от 0 до 3 секунд с шагом 0.01 -->
+                <input id="reley_time" type="number" min="0" max="3" step="0.01" value="<!--#RLTIME-->">
+                <span>сек</span>
+            </div>
+        </form>
+    </div>
 
 			<!-- Блок предупреждения, который будет разворачиваться -->
 <!--    	<div class="hardware-warning" id="hardwareWarning">
@@ -418,9 +419,8 @@
             const cPhaseC = document.getElementById('c_phase_c').value;
             const rLeakC = document.getElementById('r_leak_c').value;
             const targetValue = document.getElementById('target_value').value;
-			const warningValue = document.getElementById('warning_value').value
-			
-			//const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
+            const warningValue = document.getElementById('warning_value').value;
+            const releyTimeRaw = document.getElementById('reley_time').value; // значение времени отключения реле
 			
             const updatedData = {};
 				
@@ -431,9 +431,13 @@
             if (cPhaseC) updatedData.c_phase_c = cPhaseC;
             if (rLeakC)  updatedData.r_leak_c  = rLeakC;
             if (targetValue) updatedData.target_value = targetValue;
-			if (warningValue) updatedData.warning_value = warningValue;
-			
-			//updatedData.checked = hardwareProtectionToggle.checked ? 1 : 0;
+            if (warningValue) updatedData.warning_value = warningValue;
+
+            // Если задано время отключения реле, переводим его в сотые доли секунды и убираем точку
+            if (releyTimeRaw) {
+                const releyTime = Math.round(parseFloat(releyTimeRaw.replace(',', '.')) * 100);
+                updatedData.reley_time = releyTime; // добавляем параметр без точки
+            }
 			
             if (Object.keys(updatedData).length === 0) {
                 alert('Нет измененных данных для сохранения.');
@@ -490,33 +494,7 @@
 
 
         window.addEventListener('DOMContentLoaded', function () {
-
-
-            //const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
-            //const hardwareWarning = document.getElementById('hardwareWarning');
-			
-			
-			// При загрузке страницы найдём чекбокс и блок предупреждения
-			/*
-			const checkbox = document.querySelector("#hardwareProtectionToggle");
-			if (checkbox.dataset.ssi.includes("checked")) {
-			  checkbox.checked = true;
-			  hardwareWarning.style.display = 'block';
-			}
-
-			            // Отслеживаем изменение состояния чекбокса
-            hardwareProtectionToggle.addEventListener('change', function () {
-                if (this.checked) {
-                    // Если включили аппаратную защиту — показываем предупреждение
-                    hardwareWarning.style.display = 'block';
-                } else {
-                    // Если выключили — скрываем предупреждение
-                    hardwareWarning.style.display = 'none';
-               }
-            });
-			*/
-
-            // Автоматическое округление значений 
+            // Автоматически округляем значения во всех полях ввода
             var inputs = document.querySelectorAll('input');
             inputs.forEach(function (input) {
                 input.value = roundValue(input.value);
