@@ -58,54 +58,49 @@
             margin: 10px auto 0;
             gap: 80px; /* регулируйте для вашего дизайна */
         }
-        .toggle-container {
-            display: flex;
-            align-items: center;
-            margin-left: 0;
-        }
-        .toggle-label {
-            margin-right: 10px;
-            font-size: 14px;
-        }
-        .toggle {
-            position: relative;
-            display: inline-block;
-            width: 40px;
-            height: 20px;
-        }
-        .toggle input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #555;
-            transition: 0.4s;
-            border-radius: 20px;
-        }
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 14px;
-            width: 14px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: 0.4s;
-            border-radius: 50%;
-        }
-        input:checked + .slider {
-            background-color: #4caf50;
-        }
-        input:checked + .slider:before {
-            transform: translateX(20px);
-        }
+		
+		
+        /* Стили для спинбокса времени отключения реле */
+		
+		/* скрываем нативные стрелки */
+		#reley_time {
+		  appearance: textfield;
+		  -moz-appearance: textfield;
+		  padding-right: 44px;         /* место под наши кнопки */
+		  height: 36px;
+		  line-height: 36px;
+		}
+		#reley_time::-webkit-inner-spin-button,
+		#reley_time::-webkit-outer-spin-button {
+		  -webkit-appearance: none;
+		  margin: 0;
+		}
+
+		/* контейнер со своими стрелками */
+		.serial-input { position: relative; }
+		.spin {
+		  position: absolute;
+		  right: 8px;
+		  width: 28px;                 /* тут регулируешь размер стрелок */
+		  height: 18px;
+		  background: #555;
+		  border-radius: 3px;
+		  display: inline-flex;
+		  align-items: center;
+		  justify-content: center;
+		  cursor: pointer;
+		  user-select: none;
+		}
+		.spin.up   { top: 6px; }       /* верхняя кнопка */
+		.spin.down { bottom: 6px; }    /* нижняя кнопка */
+		.spin span {
+		  font-size: 14px;             /* размер символа стрелки */
+		  line-height: 1;
+		  filter: invert(1);
+		}
+		.spin:active { transform: translateY(1px); }
+
+		
         .right-section_admin h3 {
             margin-top: 0;
             font-size: 1.2em;
@@ -228,31 +223,8 @@
             background-color: #e53935;
         }
 
-        /* Блок предупреждения при включении аппаратной защиты */
-        .hardware-warning {
-			display: flex;
-            align-items: center;
-            justify-content: flex-start;
-            padding: 20px;
-            border: 1px solid #555;
-            background-color: #333;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-            width: calc(280px * 3 + 40px);
-            max-width: calc(100% - 40px);
-            margin: 10px auto 0;
-            gap: 300px; /* регулируйте для вашего дизайна */
-            display: none; /* изначально скрыт */
-        }
-        .hardware-warning p {
-            margin: 0;
-            color: #ff9800; /* оранжевый цвет текста */
-        }
-		
-		.toggle input:disabled + .slider {
-			background-color: #888; /* серый цвет */
-			cursor: not-allowed;
-		}
+
+
     </style>
 </head>
 <body>
@@ -334,20 +306,23 @@
             </div>
         </form>
 
-
-				<div class="toggle-container">
-					<span class="toggle-label">Аппаратная защита:</span>
-					<label class="toggle">
-						<input type="checkbox" id="hardwareProtectionToggle" data-ssi="<!--#HWPRT-->" disabled>
-               	<span class="slider"></span>
-					</label>
-				</div>
+		<form>
+            <!-- Спинбокс для выбора времени отключения реле -->
+			<div class="tooltip">
+                ⓘ
+                <span class="tooltiptext">Время, через которое при срабатывании реле, оно будет отключено.</span>
+            </div>
+			<label class="field-label" for="reley_time">Время отключения реле:</label>
+			<div class="serial-input">
+			  <input id="reley_time" type="number" min="0" max="3" step="0.01" value="<!--#RELTIM-->" readonly>
+			  <div class="spin up"   data-dir="up"><span>▲</span></div>
+			  <div class="spin down" data-dir="down"><span>▼</span></div>
+			  <span>с</span>
+			</div>
+		</form>
 			</div>
 
-			<!-- Блок предупреждения, который будет разворачиваться -->
-<!--    	<div class="hardware-warning" id="hardwareWarning">
-				<p>Внимание! Аппаратная защита использует свои встроенные параметры. Если ваши настройки не согласуются с ними, поведение системы будет неопределенным. При изменении настроек рекомендуется отключить аппаратную защиту!</p>
-			</div>
+
 -->
 
     <button class="submit-button" onclick="saveChangesAdmin()">Сохранить изменения</button>
@@ -418,12 +393,11 @@
             const cPhaseC = document.getElementById('c_phase_c').value;
             const rLeakC = document.getElementById('r_leak_c').value;
             const targetValue = document.getElementById('target_value').value;
-			const warningValue = document.getElementById('warning_value').value
-			
-			//const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
-			
+            const warningValue = document.getElementById('warning_value').value;
+            const releyTime = document.getElementById('reley_time').value; // время отключения реле
+
             const updatedData = {};
-				
+
             if (cPhaseA) updatedData.c_phase_a = cPhaseA;
             if (rLeakA)  updatedData.r_leak_a  = rLeakA;
             if (cPhaseB) updatedData.c_phase_b = cPhaseB;
@@ -431,9 +405,13 @@
             if (cPhaseC) updatedData.c_phase_c = cPhaseC;
             if (rLeakC)  updatedData.r_leak_c  = rLeakC;
             if (targetValue) updatedData.target_value = targetValue;
-			if (warningValue) updatedData.warning_value = warningValue;
-			
-			//updatedData.checked = hardwareProtectionToggle.checked ? 1 : 0;
+            if (warningValue) updatedData.warning_value = warningValue;
+
+            if (releyTime) {
+                const timeSec = releyTime.replace(',', '.'); // заменяем запятую на точку
+                const timeMs = Math.round(parseFloat(timeSec) * 1000); // перевод в миллисекунды
+                updatedData.reley_time = timeMs.toString(); // отправка без точки
+            }
 			
             if (Object.keys(updatedData).length === 0) {
                 alert('Нет измененных данных для сохранения.');
@@ -490,38 +468,73 @@
 
 
         window.addEventListener('DOMContentLoaded', function () {
-
-
-            //const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
-            //const hardwareWarning = document.getElementById('hardwareWarning');
-			
-			
-			// При загрузке страницы найдём чекбокс и блок предупреждения
-			/*
-			const checkbox = document.querySelector("#hardwareProtectionToggle");
-			if (checkbox.dataset.ssi.includes("checked")) {
-			  checkbox.checked = true;
-			  hardwareWarning.style.display = 'block';
-			}
-
-			            // Отслеживаем изменение состояния чекбокса
-            hardwareProtectionToggle.addEventListener('change', function () {
-                if (this.checked) {
-                    // Если включили аппаратную защиту — показываем предупреждение
-                    hardwareWarning.style.display = 'block';
-                } else {
-                    // Если выключили — скрываем предупреждение
-                    hardwareWarning.style.display = 'none';
-               }
-            });
-			*/
-
-            // Автоматическое округление значений 
+            // Автоматическое округление значений
             var inputs = document.querySelectorAll('input');
             inputs.forEach(function (input) {
                 input.value = roundValue(input.value);
             });
+
+            // Преобразуем значение времени реле из миллисекунд в секунды
+            var relayInput = document.getElementById('reley_time');
+            if (relayInput) {
+                var raw = extractValue(relayInput.value);
+                if (parseFloat(raw) > 3) {
+                    relayInput.value = (parseFloat(raw) / 1000).toFixed(2);
+                } else {
+                    relayInput.value = raw;
+                }
+            }
         });
+		
+		
+		(function () {
+		  const input = document.getElementById('reley_time');
+
+		  // блокируем колесо и клавиатуру (оставим Tab и стрелки для табинга)
+		  input.addEventListener('wheel', e => e.preventDefault(), { passive: false });
+		  input.addEventListener('keydown', e => {
+			if (e.key !== 'Tab') e.preventDefault();
+		  });
+
+		  const min  = Number(input.min || 0);
+		  const max  = Number(input.max || 3);
+		  const step = Number(input.step || 0.01);
+
+		  // масштаб в целые тики (для 0.01 это 100)
+		  const SCALE = Math.round(1 / step);
+
+		  const clamp = v => Math.min(max, Math.max(min, v));
+		  const toTicks = v => Math.round(v * SCALE);
+		  const fromTicks = t => t / SCALE;
+
+		  // читаем текущее значение как число (точка!)
+		  const read = () => {
+			const n = parseFloat(String(input.value).replace(',', '.'));
+			return isNaN(n) ? 0 : n;
+		  };
+
+		  // пишем аккуратное значение: фикс до 2 знаков, БЕЗ запятой
+		  const write = v => {
+			const n = Number(v.toFixed(2));       // убрали хвосты 0.060000000000000005
+			input.value = String(n);              // value остаётся валидным для type=number
+			// если хочешь всегда 2 знака — используй: input.value = n.toFixed(2);
+			input.dispatchEvent(new Event('input',  { bubbles: true }));
+			input.dispatchEvent(new Event('change', { bubbles: true }));
+		  };
+
+		  // собственные кнопки ▲ ▼
+		  document.querySelectorAll('.serial-input .spin').forEach(btn => {
+			btn.addEventListener('click', () => {
+			  const cur = clamp(read());
+			  let ticks = toTicks(cur);
+			  ticks += (btn.dataset.dir === 'up' ? 1 : -1); // один шаг
+			  const next = clamp(fromTicks(ticks));
+			  write(next);
+			});
+		  });
+		})();
+		
+		
 
     </script>
 </body>
