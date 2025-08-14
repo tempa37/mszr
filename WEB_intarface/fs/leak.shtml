@@ -58,53 +58,17 @@
             margin: 10px auto 0;
             gap: 80px; /* регулируйте для вашего дизайна */
         }
-        .toggle-container {
-            display: flex;
-            align-items: center;
-            margin-left: 0;
+        /* Стили для спинбокса времени отключения реле */
+        #reley_time {
+            -moz-appearance: textfield; /* убираем стандартный стиль Firefox */
         }
-        .toggle-label {
-            margin-right: 10px;
-            font-size: 14px;
-        }
-        .toggle {
-            position: relative;
-            display: inline-block;
-            width: 40px;
-            height: 20px;
-        }
-        .toggle input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        .slider {
-            position: absolute;
+        #reley_time::-webkit-inner-spin-button,
+        #reley_time::-webkit-outer-spin-button {
+            background: #555; /* фон стрелок в стиле страницы */
+            border: none;
+            opacity: 1; /* стрелки видны всегда */
             cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #555;
-            transition: 0.4s;
-            border-radius: 20px;
-        }
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 14px;
-            width: 14px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: 0.4s;
-            border-radius: 50%;
-        }
-        input:checked + .slider {
-            background-color: #4caf50;
-        }
-        input:checked + .slider:before {
-            transform: translateX(20px);
+            filter: invert(1); /* делаем стрелки белыми */
         }
         .right-section_admin h3 {
             margin-top: 0;
@@ -335,13 +299,12 @@
         </form>
 
 
-				<div class="toggle-container">
-					<span class="toggle-label">Аппаратная защита:</span>
-					<label class="toggle">
-						<input type="checkbox" id="hardwareProtectionToggle" data-ssi="<!--#HWPRT-->" disabled>
-               	<span class="slider"></span>
-					</label>
-				</div>
+            <!-- Спинбокс для выбора времени отключения реле -->
+            <label class="field-label" for="reley_time">Время отключения реле:</label>
+            <div class="serial-input">
+                <input id="reley_time" type="number" min="0" max="3" step="0.01" value="<!--#RELTIM-->">
+                <span>с</span>
+            </div>
 			</div>
 
 			<!-- Блок предупреждения, который будет разворачиваться -->
@@ -418,12 +381,11 @@
             const cPhaseC = document.getElementById('c_phase_c').value;
             const rLeakC = document.getElementById('r_leak_c').value;
             const targetValue = document.getElementById('target_value').value;
-			const warningValue = document.getElementById('warning_value').value
-			
-			//const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
-			
+            const warningValue = document.getElementById('warning_value').value;
+            const releyTime = document.getElementById('reley_time').value; // время отключения реле
+
             const updatedData = {};
-				
+
             if (cPhaseA) updatedData.c_phase_a = cPhaseA;
             if (rLeakA)  updatedData.r_leak_a  = rLeakA;
             if (cPhaseB) updatedData.c_phase_b = cPhaseB;
@@ -431,9 +393,13 @@
             if (cPhaseC) updatedData.c_phase_c = cPhaseC;
             if (rLeakC)  updatedData.r_leak_c  = rLeakC;
             if (targetValue) updatedData.target_value = targetValue;
-			if (warningValue) updatedData.warning_value = warningValue;
-			
-			//updatedData.checked = hardwareProtectionToggle.checked ? 1 : 0;
+            if (warningValue) updatedData.warning_value = warningValue;
+
+            if (releyTime) {
+                const timeSec = releyTime.replace(',', '.'); // заменяем запятую на точку
+                const timeMs = Math.round(parseFloat(timeSec) * 1000); // перевод в миллисекунды
+                updatedData.reley_time = timeMs.toString(); // отправка без точки
+            }
 			
             if (Object.keys(updatedData).length === 0) {
                 alert('Нет измененных данных для сохранения.');
@@ -490,37 +456,22 @@
 
 
         window.addEventListener('DOMContentLoaded', function () {
-
-
-            //const hardwareProtectionToggle = document.getElementById('hardwareProtectionToggle');
-            //const hardwareWarning = document.getElementById('hardwareWarning');
-			
-			
-			// При загрузке страницы найдём чекбокс и блок предупреждения
-			/*
-			const checkbox = document.querySelector("#hardwareProtectionToggle");
-			if (checkbox.dataset.ssi.includes("checked")) {
-			  checkbox.checked = true;
-			  hardwareWarning.style.display = 'block';
-			}
-
-			            // Отслеживаем изменение состояния чекбокса
-            hardwareProtectionToggle.addEventListener('change', function () {
-                if (this.checked) {
-                    // Если включили аппаратную защиту — показываем предупреждение
-                    hardwareWarning.style.display = 'block';
-                } else {
-                    // Если выключили — скрываем предупреждение
-                    hardwareWarning.style.display = 'none';
-               }
-            });
-			*/
-
-            // Автоматическое округление значений 
+            // Автоматическое округление значений
             var inputs = document.querySelectorAll('input');
             inputs.forEach(function (input) {
                 input.value = roundValue(input.value);
             });
+
+            // Преобразуем значение времени реле из миллисекунд в секунды
+            var relayInput = document.getElementById('reley_time');
+            if (relayInput) {
+                var raw = extractValue(relayInput.value);
+                if (parseFloat(raw) > 3) {
+                    relayInput.value = (parseFloat(raw) / 1000).toFixed(2);
+                } else {
+                    relayInput.value = raw;
+                }
+            }
         });
 
     </script>
