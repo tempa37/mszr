@@ -90,6 +90,7 @@ uint32_t diff;     //-------//------//-----
 
 //volatile uint8_t manual_mode = 0;
 static TimerHandle_t xRelayReleaseTimer = NULL;
+static TimerHandle_t xTestBlockTimer = NULL;
 uint8_t reley_auto_protection = 1;
 
 float C_phase_A = 0;
@@ -113,7 +114,7 @@ uint8_t WARNING_VALUE_DEF = 20; //20
 #define FLASH_ADDRESS_TARGET_VALUE 0x0800C100
 #define FLASH_ADDRESS_HW_PROTECTION 0x0800C110
 #define FLASH_ADDRESS_WARNING_VALUE 0x0800C120
-
+#define FLASH_ADDRESS_RELAY_TIME 0x0800C130
 
 
 #define SQ3         1.732050807f    // sqrt(3)
@@ -125,6 +126,7 @@ uint8_t WARNING_VALUE_DEF = 20; //20
 
 
 volatile uint8_t button_ivent = 0;
+volatile uint8_t button_ivent_block = 0;
 
 //------------------------------------------------------------------------------
 
@@ -157,7 +159,7 @@ struct netconn *newconn = NULL;
 
 const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
-"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "MODE" , "CRCACC", "JSON", "WVALUE", "ALERT", "LOG"};
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "MODE" , "CRCACC", "JSON", "WVALUE", "ALERT", "LOG", "RELTIM"};
 
 
 typedef enum 
@@ -178,7 +180,8 @@ typedef enum
   R_LEAK_C,
   TaRGET_VALUE,
   HW_PROTECTION,
-  Warning_VALUE
+  Warning_VALUE,
+  Relay_TIME
 } FlashDataType;
 
 typedef struct 
@@ -208,8 +211,8 @@ uint8_t error_flash = 0;
 extern volatile uint8_t theme;
 
 
-volatile uint8_t protection_pause = 0;   // пауза после срабатывания
-
+volatile uint8_t protection_pause = 0;   // дефолштная пауза
+volatile uint16_t relay_timeout = 0;  // пауза после срабатывания
 
 //PA9_out
 #define RELAY_CONTROL_PIN          GPIO_PIN_9
@@ -301,7 +304,7 @@ typedef struct {
                            //12 байт
 
 
-volatile uint32_t gRelayReleaseTimeoutMs = 300; 
+volatile uint32_t gRelayReleaseTimeoutMs = 250; 
 static inline void StartRelayReleaseTimer(uint32_t delayMs);
  
  
@@ -476,8 +479,6 @@ uint32_t find_next_free_log_address(void);
 void convert_str_to_float_bytes(const char* input, uint8_t* output);
 void load_values_from_flash(void);
 
-void erise_update_sector(void);
-
 
 void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
@@ -507,7 +508,7 @@ float getAverage2Day(CircularBuffer2Day *buffer);
 
 
 static void vRelayReleaseCallback(TimerHandle_t xTimer);
-
+static void vTestBlockReleaseCb(TimerHandle_t xTimer);
 
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
@@ -672,25 +673,7 @@ void StartDefaultTask(void *argument)
     uxHighWaterMark1 = uxTaskGetStackHighWaterMark(NULL);
     
     
-    static uint8_t first = 1;
-    if(first)
-    {
-      
-      uint8_t *flash_ptr = (uint8_t *)0x08080000;
-      uint8_t all_ff = 1;
-      for (int i = 0; i < 20; i++) {
-          if (flash_ptr[i] != 0xFF) {
-              all_ff = 0;
-              break;
-          }
-      }
-
-      if(!all_ff)
-      {
-          erise_update_sector();
-          first = 0;
-      }
-    }
+    
     
     if (REGISTERS[4] & (1 << 4)) 
     {
@@ -1168,7 +1151,13 @@ void StartTask03(void *argument)
 void StartTask04(void *argument)
 {
   /* USER CODE BEGIN StartTask04 */
-  
+  /* Создаём однократный таймер на 1 с */
+    xTestBlockTimer = xTimerCreate("TestBlock",
+                                   pdMS_TO_TICKS(1000),   // 1 секунда
+                                   pdFALSE,               // однократный
+                                   NULL,
+                                   vTestBlockReleaseCb);
+    configASSERT(xTestBlockTimer);
   /* Infinite loop */
   for(;;)
   {
@@ -1217,7 +1206,7 @@ void StartTask04(void *argument)
       fff = 0;
     }
 
-    if(button_ivent)
+    if((button_ivent) && (!button_ivent_block))
     {
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
       //HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
@@ -1229,6 +1218,9 @@ void StartTask04(void *argument)
       taskENTER_CRITICAL();
       write_to_log(0x31, 0x00, 1);
       taskEXIT_CRITICAL();
+      
+      button_ivent_block = 1;
+      xTimerStart(xTestBlockTimer, 0);
     }
     osDelay(10);
 
@@ -1409,9 +1401,13 @@ void HighPriorityTask(void *argument)
                 REGISTERS[2] = 0;
                 osMutexRelease(RelayMutexHandle);
                 
-                protection_pause = 1;
+                
                 HAL_ADC_Stop_DMA(&hadc1);
-                StartRelayReleaseTimer(400);
+                if(relay_timeout != 0)
+                {
+                protection_pause = 1;
+                StartRelayReleaseTimer(relay_timeout);
+                }
                 //xTimerStart(xRelayReleaseTimer, 0);
                 //ждем 300мс, потом REGISTERS[2] = 1 и так проводим измерение
               }
@@ -1673,6 +1669,10 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
      memcpy(pcInsert, (void const *)log_for_wed, 1025);
      return 1025;
   }
+  else if(iIndex == 30)
+  {
+    snprintf((char*)buffer, bufferSize, "%d", relay_timeout);
+  }
 
   
   snprintf(pcInsert, iInsertLen, "%s", buffer);
@@ -1682,7 +1682,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 
 void httpd_ssi_init(void) 
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 30);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 31);
 }
 
 void log_for_web_init()
@@ -1839,7 +1839,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char rs485speed[18] = {0};
   char rs485paritiy[18] = {0};
   char rs485stopbit[18] = {0};
-  
+  char reley_time[16]   = {0};
   
   
   char c_phase_a_str[18]  = {0};
@@ -1863,6 +1863,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   uint8_t hw_protection_flag = 0;
   uint8_t warning_value_flag = 0;
   uint8_t date_flag          = 0;
+  uint8_t reley_time_flag    = 0;
   
   uint8_t ip_flag = 0;
   uint8_t mask_flag = 0;
@@ -2017,6 +2018,12 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
          mode = 1;
        }
     }
+    else if (strcmp(pcParam[i], "reley_time") == 0) 
+    {
+       strncpy(reley_time, pcValue[i], sizeof(reley_time) - 1);
+       reley_time_flag = 1; 
+    }
+    
     
 
   
@@ -2159,6 +2166,23 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       write_to_log(0x19, &WARNING_VALUE, 1);
       taskEXIT_CRITICAL();
     }
+    
+      if(reley_time_flag != 0)
+      {
+        taskENTER_CRITICAL();
+        
+        uint16_t value = (uint16_t)atoi(reley_time);   // value = 300
+        memcpy(output, &value, sizeof(value));
+        
+        WriteFlash(Relay_TIME, output);
+        memset(output, 0, sizeof(output));
+        reley_time_flag = 0;
+        relay_timeout = *((uint16_t *)FLASH_ADDRESS_RELAY_TIME);
+        
+        write_to_log(0x18, (uint8_t *)&relay_timeout, 1);
+        taskEXIT_CRITICAL();   
+      }
+    
   
     /*
     if (hw_protection_flag != 0)
@@ -2471,6 +2495,9 @@ void ReadFlash(FlashDataType type, uint8_t* buffer)
     address = FLASH_ADDRESS_RS485_STOPBIT;
     dataSize = 10;
     break;
+  case Relay_TIME:
+    address = FLASH_ADDRESS_RELAY_TIME;
+    dataSize = 4;
   default:
     return;  
   }
@@ -2678,6 +2705,10 @@ void WriteFlash(FlashDataType type, uint8_t* data)
         address = (uint32_t *)FLASH_ADDRESS_WARNING_VALUE;
         dataSize = 1;
         break;
+      case Relay_TIME:
+        address = (uint32_t *)FLASH_ADDRESS_RELAY_TIME;
+        dataSize = 4;
+        break;
       default:
         return; 
       }
@@ -2769,7 +2800,11 @@ void load_values_from_flash(void)
     }
     
     
-    
+    relay_timeout = *(volatile uint16_t *)FLASH_ADDRESS_RELAY_TIME;
+    if (relay_timeout == 0xFFFF) 
+    {
+        relay_timeout = 250;
+    }
 
     
     
@@ -3220,36 +3255,7 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
     return status;
 }
 
-void erise_update_sector(void)
-{
-  
-    taskENTER_CRITICAL();
-    // Разблокировка флеш памяти для записи
-    HAL_FLASH_Unlock();
-    __disable_irq();
-    
-    HAL_StatusTypeDef status = HAL_OK;
-    
 
-    
-    
-    
-    
-    if(next_free_addr == 0)
-    {
-            address = SECTOR_2_ADDRESS;
-            len = 393216;
-            next_free_addr = SECTOR_2_ADDRESS;
-            FLASH_Erase_Sector(FLASH_SECTOR_8, VOLTAGE_RANGE_3);
-            FLASH_Erase_Sector(FLASH_SECTOR_9, VOLTAGE_RANGE_3);
-            FLASH_Erase_Sector(FLASH_SECTOR_10, VOLTAGE_RANGE_3);
-    }
-    
-    
-    __enable_irq();
-    HAL_FLASH_Lock();
-    taskEXIT_CRITICAL();
-}
 
 //---------------------------------------------------------------------------------OS-UDATE-FUNCTIONS---
 
@@ -3335,6 +3341,8 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
     static uint16_t bad_chunk_pos = 0;  // куда дописывать в buf_for_bad_chank
     
     
+    
+    
     // Извлечение данных из pbuf
     uint16_t packet_size = p->tot_len; // Общий размер данных пакета
     uint8_t *payload = (uint8_t *)p->payload; // указатель на полезные данные
@@ -3390,6 +3398,8 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
     packetNow = parser_num((char *)payload, packet_size, "chunkIndex");
     packetTotal = parser_num((char *)payload, packet_size, "totalChunks");
     uint16_t BinDataLength = parser_num((char *)payload, packet_size, "rawDataLength");
+    
+    
     
     // Получаем указатель на бинарные данные в пакете
     uint8_t *packetData = (uint8_t *)parser((char *)payload, packet_size, "stream");
@@ -3548,6 +3558,12 @@ static void vRelayReleaseCallback(TimerHandle_t xTimer)
     HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
 }
 
+
+
+static void vTestBlockReleaseCb(TimerHandle_t xTimer)
+{
+    button_ivent_block = 0;    // снова разрешаем генерацию TEST-события
+}
 
 
 
@@ -3905,6 +3921,7 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
   }
 }
 
+
 static uint8_t flash_read_byte(uint32_t address)
 {
     return *((volatile uint8_t*)address);
@@ -3941,6 +3958,7 @@ uint32_t find_next_free_log_address(void)
         // Если ушли за начало лога, значит вся область пуста.
         if (addr < LOG_START_ADDR)
         {
+            log_ready = 1;
             // Нет записанных данных
             return LOG_START_ADDR; 
         }

@@ -66,16 +66,16 @@
 		#reley_time {
 		  appearance: textfield;
 		  -moz-appearance: textfield;
-		  padding-right: 44px;         /* место под наши кнопки */
 		  height: 36px;
 		  line-height: 36px;
+		  padding-right: 72px; /* 28px (кнопка) + 8px (отступ) + ~20px ("с") + запас */
 		}
 		#reley_time::-webkit-inner-spin-button,
-		#reley_time::-webkit-outer-spin-button {
-		  -webkit-appearance: none;
-		  margin: 0;
-		}
-
+		#reley_time::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+		
+		
+		.serial-input { position: relative; }
+		
 		/* контейнер со своими стрелками */
 		.serial-input { position: relative; }
 		.spin {
@@ -91,10 +91,23 @@
 		  cursor: pointer;
 		  user-select: none;
 		}
-		.spin.up   { top: 6px; }       /* верхняя кнопка */
-		.spin.down { bottom: 6px; }    /* нижняя кнопка */
+			.serial-input .unit {
+			  position: absolute;
+			  right: 100px;                /* 28px ширина кнопки + 8px отступ + 4px зазор */
+			  top: 50%;
+			  transform: translateY(-50%);
+			  pointer-events: none;       /* чтобы клики проходили мимо */
+			  color: #fff;
+			  font-size: 0.9em;
+			}
+
+			/* кнопки */
+			.spin { position: absolute; right: 5px; width: 28px; height: 18px; /* ... */ }
+			.spin.up   { top: 10px; }
+			.spin.down { bottom: 10px; }
+			
 		.spin span {
-		  font-size: 14px;             /* размер символа стрелки */
+		  font-size: 16px;             /* размер символа стрелки */
 		  line-height: 1;
 		  filter: invert(1);
 		}
@@ -307,23 +320,20 @@
         </form>
 
 		<form>
-            <!-- Спинбокс для выбора времени отключения реле -->
 			<div class="tooltip">
                 ⓘ
                 <span class="tooltiptext">Время, через которое при срабатывании реле, оно будет отключено.</span>
             </div>
 			<label class="field-label" for="reley_time">Время отключения реле:</label>
 			<div class="serial-input">
-			  <input id="reley_time" type="number" min="0" max="3" step="0.01" value="<!--#RELTIM-->" readonly>
+			  <input id="reley_time" type="number" min="0" max="3" step="0.01" value="" readonly>
+			  <span class="unit">с</span>         
 			  <div class="spin up"   data-dir="up"><span>▲</span></div>
 			  <div class="spin down" data-dir="down"><span>▼</span></div>
-			  <span>с</span>
 			</div>
 		</form>
 			</div>
 
-
--->
 
     <button class="submit-button" onclick="saveChangesAdmin()">Сохранить изменения</button>
 
@@ -334,6 +344,13 @@
             <button class="cancel-button" onclick="closeCustomModal()">Отмена</button>
         </div>
     </div>
+
+
+      <div class="serial-input" style="display:none;" >
+            <input id="reley_time_tag" style="display:none;" type="text" value="<!--#RELTIM-->">
+      </div>
+
+
 
     <script>
         function saveChangesAdmin() {
@@ -474,16 +491,16 @@
                 input.value = roundValue(input.value);
             });
 
-            // Преобразуем значение времени реле из миллисекунд в секунды
-            var relayInput = document.getElementById('reley_time');
-            if (relayInput) {
-                var raw = extractValue(relayInput.value);
-                if (parseFloat(raw) > 3) {
-                    relayInput.value = (parseFloat(raw) / 1000).toFixed(2);
-                } else {
-                    relayInput.value = raw;
-                }
-            }
+            const relayInput = document.getElementById('reley_time');      // сам спинбокс
+			const relayTag   = document.getElementById('reley_time_tag');  // скрытый input
+
+			if (relayInput && relayTag) {
+				let raw = extractValue(relayTag.value); // вырезаем <!-- ... -->
+				if (parseFloat(raw) > 3) {             // если это миллисекунды
+					raw = (parseFloat(raw) / 1000).toFixed(2); // → секунды с 2 знаками
+				}
+				relayInput.value = raw;                // инициализируем спинбокс
+			}
         });
 		
 		
