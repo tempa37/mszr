@@ -143,8 +143,8 @@ uint8_t adc_ready = 0;
 
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x03};
-uint16_t soft_ver_modbus = 113;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x04};
+uint16_t soft_ver_modbus = 114;
 
 extern struct httpd_state *hs;
 
@@ -359,6 +359,8 @@ uint8_t ch = 0;
 volatile uint32_t er = 0;
 uint8_t response_data[50] = {0};
 
+volatile uint8_t flash_block = 0;
+
 //-------------------------------------------------------------------------------------------------------------------
 typedef struct {
     uint16_t arr[MINUTE_10_SIZE];
@@ -547,7 +549,6 @@ void HighPriorityTask(void *argument);
 uint8_t save_time_unix(uint64_t timestamp);
 
 void apply_time_from_registers(void);
-
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -934,6 +935,8 @@ if(!start)
             crc_accepted = 1;
             sector_enabled = 2;
             WriteFlash(0, 0);
+            flash_block = 1;
+            log_ready = 0;
             startMyTimer_RESET(7000);
             next_free_addr = 0;
           }
@@ -943,8 +946,10 @@ if(!start)
             write_to_log(0x07, &data, 1);
             crc_accepted = 0;
             sector_enabled = 2;
-            next_free_addr = 0;
             WriteFlash(0, 0);
+            flash_block = 1;
+            log_ready = 0;
+            next_free_addr = 0;
             startMyTimer_RESET(7000);
           }
 
@@ -1376,8 +1381,38 @@ void HighPriorityTask(void *argument)
           uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
           
           uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
-          //rms = 300; //for test
-          //osDelay(50);
+          
+          /*
+          #define A3_Q20   ( 10)         //  0.00001 * 2^20
+          #define A2_Q20   (-2307)       // -0.00220 * 2^20
+          #define A1_Q20   (488209)      //  0.46580 * 2^20
+          #define A0_Q20   (4687953)     //  4.47160 * 2^20
+          #define Q        20            // количество дробных бит
+
+          int32_t x = (int32_t)rms - 199;    
+          if (x < 0) x = 0;
+
+          int64_t acc = A3_Q20;             
+          acc = acc * x;                     
+          acc += A2_Q20;                    
+          acc = acc * x;                  
+          acc += A1_Q20;                    
+          acc = acc * x;                     
+          acc += A0_Q20;                     
+
+ 
+          uint32_t y = (uint32_t)(acc >> Q);   
+
+          if (y > 65535U) y = 65535U;
+          uint16_t result = (uint16_t)y;
+          REGISTERS[1]   = result;
+          */
+          
+
+
+
+
+          
           float leak_phase_A_macros = calculate_rms_A_macros(rms);
           float leak_phase_B_macros = calculate_rms_B_macros(rms);
           float leak_phase_C_macros = calculate_rms_C_macros(rms);
@@ -1388,7 +1423,7 @@ void HighPriorityTask(void *argument)
           
           uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
           REGISTERS[1] = max_val;
-          //REGISTERS[1] = 19;
+          
           
           
           
@@ -1444,12 +1479,10 @@ void HighPriorityTask(void *argument)
                  uint8_t temp[1] = {0x01};
                  write_to_log(0x05, &temp[0], 1);
                  theme = 1;
-              }
-              
-       
-              
+              }    
           }
           
+
           
 
           HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
@@ -2458,7 +2491,7 @@ const char * LOG_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *
 
 void ReadFlash(FlashDataType type, uint8_t* buffer) 
 {
-  uint32_t address = 0;
+  uint32_t address = FLASH_ADDRESS_MAC;
   uint32_t dataSize = 0;
   
   switch (type) 
@@ -2579,9 +2612,14 @@ void convert_str_to_uint8_array_serial(const char* input, uint8_t* output)
   }
 }
 
+
+__attribute__((section(".ramfunc")))
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
 {
-
+    if(!flash_block)
+    {
+    __disable_irq();
+  
     HAL_FLASH_Unlock();
     
     if((startAddress >= 0x0800C000) && (startAddress <= 0x0800FFFF))
@@ -2601,6 +2639,8 @@ void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
     }
 
     HAL_FLASH_Lock();
+    __enable_irq();
+    }
 }
 
 
@@ -3336,6 +3376,8 @@ uint8_t buf_for_bad_chank[1300] = 0;
 
 err_t httpd_post_receive_data(void *connection, struct pbuf *p) 
 {
+  
+    log_ready = 0;
     static uint16_t packet_cnt = 0;
     static uint16_t packet_cnt_dab = 0; // флаг: собираем ли недочанк
     static uint16_t bad_chunk_pos = 0;  // куда дописывать в buf_for_bad_chank
@@ -3894,6 +3936,9 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
        startAddress = log_ptr;
     }
 
+    
+    if(startAddress < 0x08120000)
+      return;
   
     get_current_timestamp(frame.timestamp); 
     
@@ -4029,12 +4074,13 @@ uint32_t find_next_free_log_address(void)
 
 
 
-
+__attribute__((section(".ramfunc")))
 void Swipe_Log_Sector()
 {
-  
+  if(!flash_block)
+  {
   log_sector_active = (log_sector_active % 7) + 1;
-  
+  __disable_irq();
  
   
   taskENTER_CRITICAL();
@@ -4086,7 +4132,9 @@ void Swipe_Log_Sector()
     }
   HAL_FLASH_Lock();
   taskEXIT_CRITICAL();
+  __enable_irq();
   WriteFlash(0,0);
+  }
 }
 
 
@@ -4192,6 +4240,8 @@ void apply_time_from_registers(void)
     }
     __enable_irq();
 }
+
+
 
 
 /* USER CODE END Application */

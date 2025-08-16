@@ -107,6 +107,7 @@ void SystemClock_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 void vTimerCallback(TimerHandle_t xTimer);
+static void ProtectBootSectorsOnce(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -157,6 +158,8 @@ int main(void)
   MX_SPI4_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
+  
+  ProtectBootSectorsOnce();
   
   uint8_t TEST[10] = {0};
   uint8_t test = 0;
@@ -364,6 +367,36 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+
+static void ProtectBootSectorsOnce(void)
+{
+    FLASH_OBProgramInitTypeDef ob = {0};
+
+    HAL_FLASH_OB_Unlock();
+    HAL_FLASHEx_OBGetConfig(&ob);
+
+    uint32_t want = OB_WRP_SECTOR_0 | OB_WRP_SECTOR_1 | OB_WRP_SECTOR_2;
+    if ((ob.WRPSector & want) == want)    
+    {
+        HAL_FLASH_OB_Lock();
+        return;                            
+    }
+
+   
+    ob.OptionType = OPTIONBYTE_WRP;
+    ob.WRPState   = OB_WRPSTATE_ENABLE;
+    ob.WRPSector |= want;                 
+
+    HAL_FLASH_Unlock();                    
+    if (HAL_FLASHEx_OBProgram(&ob) != HAL_OK)
+        Error_Handler();
+
+    HAL_FLASH_OB_Launch();                 
+}
+
+
+
 void vTimerCallback(TimerHandle_t xTimer)
 {
       time_raw.seconds++;
