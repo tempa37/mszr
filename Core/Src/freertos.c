@@ -45,6 +45,7 @@
 #include "stm32f4xx_hal_rtc.h"
 #include "stm32f4xx.h"
 #include <stdbool.h>
+#include "dp83848.h"
 
 
 /* USER CODE END Includes */
@@ -77,6 +78,11 @@ extern uint32_t usart_speed;
 uint8_t SERIAL_ADDRESS[6] = {0};
 
 
+
+extern dp83848_Object_t DP83848;
+extern struct netif gnetif;
+
+
 extern void MX_USART3_UART_Init(void);
 //----------------------------ADC---LOGIC---------------------------------------
 
@@ -91,6 +97,11 @@ uint32_t diff;     //-------//------//-----
 //volatile uint8_t manual_mode = 0;
 static TimerHandle_t xRelayReleaseTimer = NULL;
 static TimerHandle_t xTestBlockTimer = NULL;
+static TimerHandle_t xTestEthernetTimer = NULL;
+
+
+
+
 uint8_t reley_auto_protection = 1;
 
 float C_phase_A = 0;
@@ -140,7 +151,7 @@ uint16_t ADC_BUFFER_SIZE = 457;  //900
 extern uint16_t adcBuffer[457];  //900
 uint8_t adc_ready = 0;
 
-
+volatile uint16_t neead_write_flash = 0;
 
 //-------------------------------------------------------------------
 uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x04};
@@ -427,7 +438,7 @@ osThreadId_t LWGL_controlHandle;
 const osThreadAttr_t LWGL_control_attributes = {
   .name = "LWGL_control",
   .stack_size = 1280 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityNormal, //osPriorityNormal
 };
 /* Definitions for WDI */
 osThreadId_t WDIHandle;
@@ -456,6 +467,7 @@ void convert_str_to_uint8_array_serial(const char* input, uint8_t* output);
 void EXTI12_Init(void);
 void EXTI15_10_IRQHandler(void);
 
+void StartTask09(void *argument);
 
 void log_for_web_init();
 
@@ -511,7 +523,7 @@ float getAverage2Day(CircularBuffer2Day *buffer);
 
 static void vRelayReleaseCallback(TimerHandle_t xTimer);
 static void vTestBlockReleaseCb(TimerHandle_t xTimer);
-
+static void vTestEthernet(TimerHandle_t xTimer);
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
                        u16_t http_request_len, int content_len, char *response_uri,
@@ -582,7 +594,7 @@ void MX_FREERTOS_Init(void) {
   
   /* Create the thread(s) */
   /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  //defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
   
   /* creation of Relay_task */
   Relay_taskHandle = osThreadNew(StartTask02, NULL, &Relay_task_attributes); //не помогает
@@ -598,12 +610,31 @@ void MX_FREERTOS_Init(void) {
   
   /* creation of WDI */
   WDIHandle = osThreadNew(StartTask06, NULL, &WDI_attributes); //помогает
+
+  //osThreadNew(StartTask09, NULL, &WDI_attributes); //помогает
   
   /* USER CODE BEGIN RTOS_THREADS */
   HighPriorityTaskHandle = osThreadNew(HighPriorityTask, NULL, &HighPriorityTask_attributes); //не помогает
   /* USER CODE END RTOS_THREADS */
   
   /* USER CODE BEGIN RTOS_EVENTS */
+  
+  xTestEthernetTimer = xTimerCreate("TestEthernet",
+                                   pdMS_TO_TICKS(30000),   // 30 секунд
+                                   pdFALSE,               // однократный
+                                   NULL,
+                                   vTestEthernet);
+  configASSERT(xTestEthernetTimer);
+  
+  
+
+  
+  
+  
+  
+
+  
+  xTimerStart( xTestEthernetTimer, 0 );
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
   
@@ -623,6 +654,7 @@ void StartDefaultTask(void *argument)
   osDelay(19);
   HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_SET);  // - PHY init
   osDelay(19);
+  
   
   EXTI12_Init();
   MX_LWIP_Init();
@@ -653,8 +685,8 @@ void StartDefaultTask(void *argument)
   /*
   if(hw_protection)
   {
-    EXTI6_Init();
-  }
+  EXTI6_Init();
+}
   */
   
   REGISTERS[4] = (REGISTERS[4] |= 0x04);
@@ -664,9 +696,9 @@ void StartDefaultTask(void *argument)
   osDelay(100);
   RTC_Init();
   xSemaphoreGive(xPacketSaved);
-
+  
   /* Infinite loop */
-
+  
   
   
   for(;;)     //------------------------------------------------------modbus_RTU------------------------------
@@ -674,21 +706,21 @@ void StartDefaultTask(void *argument)
     uxHighWaterMark1 = uxTaskGetStackHighWaterMark(NULL);
     
     
-    
+ 
     
     if (REGISTERS[4] & (1 << 4)) 
     {
-    // 4-й бит установлен (1)
-    mode = 1;
+      // 4-й бит установлен (1)
+      mode = 1;
     } 
     else 
     {
-    // 4-й бит сброшен (0)
-    mode = 0;
+      // 4-й бит сброшен (0)
+      mode = 0;
     }
     
     
-     if (xSemaphoreTake(xPacketSemaphore, pdMS_TO_TICKS(1500)) == pdTRUE)
+    if (xSemaphoreTake(xPacketSemaphore, pdMS_TO_TICKS(1500)) == pdTRUE)
     {
       
       packetReceived = 0;
@@ -704,39 +736,39 @@ void StartDefaultTask(void *argument)
       send_uart(response_data, len_ext);   
       
     }
-
+    
     
     if (
         __HAL_UART_GET_FLAG(&huart3, UART_FLAG_FE)  ||  // Frame Error
-        __HAL_UART_GET_FLAG(&huart3, UART_FLAG_NE)  ||  // Noise Error
-        __HAL_UART_GET_FLAG(&huart3, UART_FLAG_PE)  ||  // Parity Error
-        __HAL_UART_GET_FLAG(&huart3, UART_FLAG_ORE)     // Overrun Error
-        ) 
+          __HAL_UART_GET_FLAG(&huart3, UART_FLAG_NE)  ||  // Noise Error
+            __HAL_UART_GET_FLAG(&huart3, UART_FLAG_PE)  ||  // Parity Error
+              __HAL_UART_GET_FLAG(&huart3, UART_FLAG_ORE)     // Overrun Error
+                ) 
     {
       
-
-    volatile uint32_t dummy = huart3.Instance->DR;
-    (void)dummy;  
-
-    memset(rxBuffer, 0, sizeof(rxBuffer));
-    
-    HAL_UART_DMAStop(&huart3);
-    
-    
-    
-    __HAL_UART_CLEAR_FEFLAG(&huart3);
-    __HAL_UART_CLEAR_NEFLAG(&huart3);
-    __HAL_UART_CLEAR_OREFLAG(&huart3);
-    __HAL_UART_CLEAR_PEFLAG(&huart3);
-    __HAL_UART_CLEAR_IDLEFLAG(&huart3);
-        
-    HAL_UART_DeInit(&huart3);
-        
-    
-    MX_USART3_UART_Init();
-    
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
-    
+      
+      volatile uint32_t dummy = huart3.Instance->DR;
+      (void)dummy;  
+      
+      memset(rxBuffer, 0, sizeof(rxBuffer));
+      
+      HAL_UART_DMAStop(&huart3);
+      
+      
+      
+      __HAL_UART_CLEAR_FEFLAG(&huart3);
+      __HAL_UART_CLEAR_NEFLAG(&huart3);
+      __HAL_UART_CLEAR_OREFLAG(&huart3);
+      __HAL_UART_CLEAR_PEFLAG(&huart3);
+      __HAL_UART_CLEAR_IDLEFLAG(&huart3);
+      
+      HAL_UART_DeInit(&huart3);
+      
+      
+      MX_USART3_UART_Init();
+      
+      HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
+      
     }
     osDelay(80);
   }
@@ -957,7 +989,12 @@ if(!start)
         
     }
     
-    
+    if(neead_write_flash)
+    {
+      osDelay(100);
+      WriteFlash(0,0);
+      neead_write_flash = 0;
+    }
     
     if (REGISTERS[4] & TIME_FLAG_APPLY) 
     {
@@ -1043,6 +1080,11 @@ void StartTask03(void *argument)
       case STATE_CREATE_SOCKET:
         local_ip = gnetif.ip_addr;
         
+        if (nc != NULL) 
+        {
+          current_state = STATE_CREATE_SOCKET;
+        } 
+        
         nc->pcb.tcp->so_options |= SOF_REUSEADDR;
         
         bind_result = netconn_bind(nc, &local_ip, 502);
@@ -1064,12 +1106,20 @@ void StartTask03(void *argument)
         
         //------------------------------------------------------------------------------
       case STATE_LISTEN:
+        if (nc != NULL) 
+        {
+          current_state = STATE_CREATE_SOCKET;
+        } 
         netconn_listen(nc);
         current_state = STATE_ACCEPT;
         break;
         
         //------------------------------------------------------------------------------
       case STATE_ACCEPT:
+        if (nc != NULL) 
+        {
+          current_state = STATE_CREATE_SOCKET;
+        } 
         res = netconn_accept(nc, &newconn);
         if (res == ERR_OK) 
         {
@@ -1085,6 +1135,10 @@ void StartTask03(void *argument)
         
         //------------------------------------------------------------------------------
       case STATE_RECEIVE:
+        if (newconn != NULL) 
+        {
+          current_state = STATE_CREATE_SOCKET;
+        } 
         res = netconn_recv(newconn, &buf);
         if (res == ERR_OK) 
         {
@@ -1110,6 +1164,10 @@ void StartTask03(void *argument)
         
         //------------------------------------------------------------------------------
       case STATE_SEND:
+        if (newconn != NULL) 
+        {
+          current_state = STATE_CREATE_SOCKET;
+        } 
         send_ethernet(response_data, len_ext, newconn);
         netbuf_delete(buf);
         current_state = STATE_RECEIVE;  
@@ -1264,6 +1322,14 @@ void StartTask05(void *argument)
   }
 }
 
+void StartTask09(void *argument)
+{
+  for(;;)
+  {
+
+  }
+}
+
 /* USER CODE BEGIN Header_StartTask06 */
 /**
 * @brief Function implementing the WDI thread.
@@ -1283,21 +1349,22 @@ void StartTask06(void *argument)
     HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
     osDelay(300);
     
+    //HAL_GPIO_TogglePin(WDI_GPIO_Port, WDI_Pin);
+    //osDelay(1000);
     
-
     uxHighWaterMark6 = uxTaskGetStackHighWaterMark(NULL);
-
-
+    
+    
     /*
     size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
     if(HAL_GPIO_ReadPin(RS485_1_ON_GPIO_Port, RS485_1_ON_Pin) == GPIO_PIN_SET)
     {
-      RS485 = 0;
-    }
+    RS485 = 0;
+  }
     else
     {
-      RS485 = 1;
-    }
+    RS485 = 1;
+  }
     */
     
     
@@ -1309,55 +1376,55 @@ void StartTask06(void *argument)
       {   
         if(period != time.hours)
         {
-        period = time.hours;
-        uint16_t delta = (avg2d - avg1h);
-        if(delta >= 5)
-        {
-          REGISTERS[4] = (REGISTERS[4] |= 0x01);
-          uint8_t data = 0x02;
-          taskENTER_CRITICAL();
-          write_to_log(0x32, &data, 1);
-          taskEXIT_CRITICAL();
-        }
+          period = time.hours;
+          uint16_t delta = (avg2d - avg1h);
+          if(delta >= 5)
+          {
+            REGISTERS[4] = (REGISTERS[4] |= 0x01);
+            uint8_t data = 0x02;
+            taskENTER_CRITICAL();
+            write_to_log(0x32, &data, 1);
+            taskEXIT_CRITICAL();
+          }
         }
       }
     }
-   
     
-          if(ch == 1)
-          {
-            HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
-            reley_auto_protection = 0;
-            setrelay(0);
-            
-            
-            osDelay(1000);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-            osDelay(100);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-            osDelay(1000);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-            osDelay(100);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-            osDelay(1000);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-            osDelay(100);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-            osDelay(1000);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-            osDelay(100);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-            osDelay(1000);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-            osDelay(100);
-            HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-
-            
-            HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
-            setrelay(1);
-            reley_auto_protection = 1;
-            ch = 0;
-          }
+    
+    if(ch == 1)
+    {
+      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
+      reley_auto_protection = 0;
+      setrelay(0);
+      
+      
+      osDelay(1000);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+      osDelay(100);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+      osDelay(1000);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+      osDelay(100);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+      osDelay(1000);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+      osDelay(100);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+      osDelay(1000);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+      osDelay(100);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+      osDelay(1000);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+      osDelay(100);
+      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+      
+      
+      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+      setrelay(1);
+      reley_auto_protection = 1;
+      ch = 0;
+    }
     
   }
   /* USER CODE END StartTask06 */
@@ -1382,7 +1449,7 @@ void HighPriorityTask(void *argument)
           
           uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
           
-          /*
+          
           #define A3_Q20   ( 10)         //  0.00001 * 2^20
           #define A2_Q20   (-2307)       // -0.00220 * 2^20
           #define A1_Q20   (488209)      //  0.46580 * 2^20
@@ -1406,12 +1473,25 @@ void HighPriorityTask(void *argument)
           if (y > 65535U) y = 65535U;
           uint16_t result = (uint16_t)y;
           REGISTERS[1]   = result;
-          */
+          
+          
+/*
+          volatile uint32_t boot_word = *(volatile uint32_t *)BOOTLOADER_ADDRESS;
+
+
+          if (boot_word == 0xFFFFFFFFu)
+          {
+
+              while (1)
+              {
+                  __NOP();       
+              }
+          }
+          
+*/          
           
 
-
-
-
+          /*
           
           float leak_phase_A_macros = calculate_rms_A_macros(rms);
           float leak_phase_B_macros = calculate_rms_B_macros(rms);
@@ -1424,7 +1504,7 @@ void HighPriorityTask(void *argument)
           uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
           REGISTERS[1] = max_val;
           
-          
+          */
           
           
           
@@ -3023,7 +3103,7 @@ void startMyTimer_RESET(uint32_t timeout_ms)
 void vMyTimerCallback(TimerHandle_t xTimer) 
 {
   __disable_irq();
-  SCB->VTOR = FLASH_BASE;  // обычно 0x08000000
+  SCB->VTOR = FLASH_BASE;  
   __DSB();
 
   __ISB();
@@ -3607,6 +3687,12 @@ static void vTestBlockReleaseCb(TimerHandle_t xTimer)
     button_ivent_block = 0;    // снова разрешаем генерацию TEST-события
 }
 
+static void vTestEthernet(TimerHandle_t xTimer)
+{
+     
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+}
 
 
 //---------------------------------------------------------------------------------
@@ -4079,61 +4165,75 @@ void Swipe_Log_Sector()
 {
   if(!flash_block)
   {
+  log_ready = 0;
   log_sector_active = (log_sector_active % 7) + 1;
   __disable_irq();
  
+  __HAL_FLASH_DATA_CACHE_DISABLE();
+  __HAL_FLASH_DATA_CACHE_RESET();
+  
+  static uint8_t count = 0;
   
   taskENTER_CRITICAL();
   HAL_FLASH_Unlock();
+  count++;
+    
   switch (log_sector_active){
         
       case 1:
         LOG_START_ADDR = 0x08120000; 
         log_ptr = 0x08120000;
         LOG_END_ADDR = 0x0813FFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_17, VOLTAGE_RANGE_3);
+        FLASH_Erase_Sector(FLASH_SECTOR_17, FLASH_VOLTAGE_RANGE_3);
         break;
       case 2: 
         LOG_START_ADDR = 0x08140000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x0815FFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_18, VOLTAGE_RANGE_3);
+        FLASH_Erase_Sector(FLASH_SECTOR_18, FLASH_VOLTAGE_RANGE_3);
         break;
       case 3:
         LOG_START_ADDR = 0x08160000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x0817FFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_19, VOLTAGE_RANGE_3);
+        FLASH_Erase_Sector(FLASH_SECTOR_19, FLASH_VOLTAGE_RANGE_3);
         break;
       case 4:
         LOG_START_ADDR = 0x08180000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x0819FFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_20, VOLTAGE_RANGE_3);
+        FLASH_Erase_Sector(FLASH_SECTOR_20, FLASH_VOLTAGE_RANGE_3);
         break;
       case 5:
         LOG_START_ADDR = 0x081A0000;
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x081BFFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_21, VOLTAGE_RANGE_3);
+        FLASH_Erase_Sector(FLASH_SECTOR_21, FLASH_VOLTAGE_RANGE_3);
         break;
       case 6:
         LOG_START_ADDR = 0x081C0000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x081DFFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_22, VOLTAGE_RANGE_3);
+        FLASH_Erase_Sector(FLASH_SECTOR_22, FLASH_VOLTAGE_RANGE_3);
         break;
       case 7:
         LOG_START_ADDR = 0x081E0000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x081FFFF8;
-        FLASH_Erase_Sector(FLASH_SECTOR_23, VOLTAGE_RANGE_3);
+        FLASH_Erase_Sector(FLASH_SECTOR_23, FLASH_VOLTAGE_RANGE_3);
         break;      
     }
   HAL_FLASH_Lock();
   taskEXIT_CRITICAL();
+  
+  __HAL_FLASH_DATA_CACHE_ENABLE();
   __enable_irq();
-  WriteFlash(0,0);
+  
+  
+  neead_write_flash = 1;
+  
+  //WriteFlash(0,0);
+  log_ready = 1;
   }
 }
 
