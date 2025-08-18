@@ -82,6 +82,8 @@ uint8_t SERIAL_ADDRESS[6] = {0};
 extern dp83848_Object_t DP83848;
 extern struct netif gnetif;
 
+volatile uint8_t start_phase_flag = 0;
+
 extern void MX_USART3_UART_Init(void);
 //----------------------------ADC---LOGIC---------------------------------------
 
@@ -96,6 +98,7 @@ uint32_t diff;     //-------//------//-----
 //volatile uint8_t manual_mode = 0;
 static TimerHandle_t xRelayReleaseTimer = NULL;
 static TimerHandle_t xTestBlockTimer = NULL;
+static TimerHandle_t xTestEthernetTimer = NULL;
 
 
 
@@ -126,7 +129,8 @@ uint8_t WARNING_VALUE_DEF = 20; //20
 #define FLASH_ADDRESS_RELAY_TIME 0x0800C130
 
 
-
+#define FLASH_ADDRESS_START_PHASE 0x0800C140
+uint8_t start_phase = 0;
 
 
 #define SQ3         1.732050807f    // sqrt(3)
@@ -525,7 +529,7 @@ float getAverage2Day(CircularBuffer2Day *buffer);
 
 static void vRelayReleaseCallback(TimerHandle_t xTimer);
 static void vTestBlockReleaseCb(TimerHandle_t xTimer);
-
+static void vTestEthernet(TimerHandle_t xTimer);
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
                        u16_t http_request_len, int content_len, char *response_uri,
@@ -620,7 +624,23 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_THREADS */
   
   /* USER CODE BEGIN RTOS_EVENTS */
+  
+  xTestEthernetTimer = xTimerCreate("TestEthernet",
+                                   pdMS_TO_TICKS(5000),   // 30 секунд
+                                   pdFALSE,               // однократный
+                                   NULL,
+                                   vTestEthernet);
+  configASSERT(xTestEthernetTimer);
+  
+  
 
+  
+  
+  
+  
+
+  
+  xTimerStart( xTestEthernetTimer, 0 );
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
   
@@ -636,13 +656,10 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* init code for LWIP */
-  
   HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_RESET);
-  osDelay(50);
+  osDelay(100);
   HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_SET);  // - PHY init
-  osDelay(50);
-  
-  
+  osDelay(100);
   
   
   EXTI12_Init();
@@ -921,7 +938,46 @@ if(!start)
       }
     }
  }
+    
+     
+      
+    /*  
+    if(hw_protection)
+    {
+      if (HAL_GPIO_ReadPin(Fixing_the_leak_GPIO_Port, Fixing_the_leak_Pin) == GPIO_PIN_SET)
+      {
+        setrelay(0);
+      } 
+    }
+    */
+    
+    
+    if(start_phase_flag)
+    {
+       uint8_t raw = *(const uint8_t *)FLASH_ADDRESS_START_PHASE;
+        if(raw == 0xFF)
+        {
+              
+            start_phase = 0;     
+            WriteFlash(StartPhase, &start_phase);
+            __disable_irq();
+            SCB->VTOR = FLASH_BASE;  
+            __DSB();
 
+            __ISB();
+            HAL_NVIC_SystemReset(); 
+        }
+        else
+        {
+            start_phase = 0xFF;
+            WriteFlash(StartPhase, &start_phase);
+        }
+        start_phase_flag = 0;
+        defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+    }
+ 
+ 
+ 
     
     if(restart == 1)
     {
@@ -1426,7 +1482,8 @@ void HighPriorityTask(void *argument)
           uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
           
           
-          /*  
+          /*
+          
           #define A3_Q20   ( 10)         //  0.00001 * 2^20
           #define A2_Q20   (-2307)       // -0.00220 * 2^20
           #define A1_Q20   (488209)      //  0.46580 * 2^20
@@ -2807,6 +2864,10 @@ void WriteFlash(FlashDataType type, uint8_t* data)
         address = (uint32_t *)FLASH_ADDRESS_RELAY_TIME;
         dataSize = 4;
         break;
+      case StartPhase:
+        address = (uint32_t *)FLASH_ADDRESS_START_PHASE;
+        dataSize = 1;
+        break;
       default:
         return; 
       }
@@ -3665,7 +3726,10 @@ static void vTestBlockReleaseCb(TimerHandle_t xTimer)
     button_ivent_block = 0;    // снова разрешаем генерацию TEST-события
 }
 
-
+static void vTestEthernet(TimerHandle_t xTimer)
+{    
+  start_phase_flag = 1;
+}
 
 
 //---------------------------------------------------------------------------------

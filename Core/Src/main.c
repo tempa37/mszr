@@ -127,6 +127,7 @@ static void ProtectBootSectorsOnce(void);
  
        
 
+
 int main(void)
 {
 
@@ -161,8 +162,8 @@ int main(void)
   __HAL_RCC_DMA1_RELEASE_RESET(); 
   
 
-  //MX_DMA_Init();
-  //MX_SPI4_Init();
+  MX_DMA_Init();
+  MX_SPI4_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
   
@@ -267,8 +268,9 @@ int main(void)
   //__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
   /* USER CODE END 2 */
   /* Init scheduler */
-  MX_DMA_Init();
-  MX_SPI4_Init();
+  
+
+  
   osKernelInitialize();
 
   /* Call init function for freertos objects (in cmsis_os2.c) */
