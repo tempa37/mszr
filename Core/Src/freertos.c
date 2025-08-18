@@ -128,6 +128,10 @@ uint8_t WARNING_VALUE_DEF = 20; //20
 #define FLASH_ADDRESS_RELAY_TIME 0x0800C130
 
 
+#define FLASH_ADDRESS_START_PHASE 0x0800C140
+uint8_t start_phase = 0;
+
+
 #define SQ3         1.732050807f    // sqrt(3)
 #define COS30       0.866025403f    // cos(30°)
 #define OMEGA       314.1592653f    // 2 * M_PI * 50 ≈ 6.283185307 * 50
@@ -192,7 +196,8 @@ typedef enum
   TaRGET_VALUE,
   HW_PROTECTION,
   Warning_VALUE,
-  Relay_TIME
+  Relay_TIME,
+  StartPhase
 } FlashDataType;
 
 typedef struct 
@@ -620,7 +625,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_EVENTS */
   
   xTestEthernetTimer = xTimerCreate("TestEthernet",
-                                   pdMS_TO_TICKS(30000),   // 30 секунд
+                                   pdMS_TO_TICKS(40000),   // 30 секунд
                                    pdFALSE,               // однократный
                                    NULL,
                                    vTestEthernet);
@@ -1450,6 +1455,8 @@ void HighPriorityTask(void *argument)
           uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
           
           
+          /*
+          
           #define A3_Q20   ( 10)         //  0.00001 * 2^20
           #define A2_Q20   (-2307)       // -0.00220 * 2^20
           #define A1_Q20   (488209)      //  0.46580 * 2^20
@@ -1473,7 +1480,7 @@ void HighPriorityTask(void *argument)
           if (y > 65535U) y = 65535U;
           uint16_t result = (uint16_t)y;
           REGISTERS[1]   = result;
-          
+          */
           
 /*
           volatile uint32_t boot_word = *(volatile uint32_t *)BOOTLOADER_ADDRESS;
@@ -1491,7 +1498,7 @@ void HighPriorityTask(void *argument)
 */          
           
 
-          /*
+          
           
           float leak_phase_A_macros = calculate_rms_A_macros(rms);
           float leak_phase_B_macros = calculate_rms_B_macros(rms);
@@ -1504,7 +1511,7 @@ void HighPriorityTask(void *argument)
           uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
           REGISTERS[1] = max_val;
           
-          */
+          
           
           
           
@@ -2725,6 +2732,7 @@ void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
 
 
 // Функция для работы с переменными в памяти
+__attribute__((section(".ramfunc")))
 void WriteFlash(FlashDataType type, uint8_t* data)
 {
     size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
@@ -2828,6 +2836,10 @@ void WriteFlash(FlashDataType type, uint8_t* data)
       case Relay_TIME:
         address = (uint32_t *)FLASH_ADDRESS_RELAY_TIME;
         dataSize = 4;
+        break;
+      case StartPhase:
+        address = (uint32_t *)FLASH_ADDRESS_START_PHASE;
+        dataSize = 1;
         break;
       default:
         return; 
@@ -3691,6 +3703,31 @@ static void vTestEthernet(TimerHandle_t xTimer)
 {
      
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  /*
+  uint8_t raw = *(const uint8_t *)FLASH_ADDRESS_START_PHASE;
+  if(raw == 0xFF)
+  {
+      start_phase = 0;
+      
+      start_phase_flag = 1;
+      
+      osDelay(1000);
+      __disable_irq();
+      SCB->VTOR = FLASH_BASE;  
+      __DSB();
+
+      __ISB();
+      HAL_NVIC_SystemReset(); 
+  }
+  else
+  {
+    
+      start_phase_flag = 1;
+      start_phase = 0xFF;
+  }
+  
+  
+  */
 
 }
 
