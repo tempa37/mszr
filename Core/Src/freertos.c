@@ -516,9 +516,9 @@ void init_circular_buffers(CircularBuffer10Min *buffer, CircularBuffer1Hour *buf
 void addValue10Min(CircularBuffer10Min *buffer, uint16_t value);
 void addValue1Hour(CircularBuffer1Hour *buffer, uint16_t value);
 void addValue2Day(CircularBuffer2Day *buffer, uint16_t value);
-float getAverage10Min(CircularBuffer10Min *buffer);
-float getAverage1Hour(CircularBuffer1Hour *buffer);
-float getAverage2Day(CircularBuffer2Day *buffer);
+uint16_t getAverage10Min(CircularBuffer10Min *buffer);
+uint16_t getAverage1Hour(CircularBuffer1Hour *buffer);
+uint16_t getAverage2Day(CircularBuffer2Day *buffer);
 
 
 
@@ -612,8 +612,6 @@ void MX_FREERTOS_Init(void) {
   
   /* creation of WDI */
   WDIHandle = osThreadNew(StartTask06, NULL, &WDI_attributes); //помогает
-
-  //osThreadNew(StartTask09, NULL, &WDI_attributes); //помогает
   
   /* USER CODE BEGIN RTOS_THREADS */
   HighPriorityTaskHandle = osThreadNew(HighPriorityTask, NULL, &HighPriorityTask_attributes); //не помогает
@@ -670,13 +668,7 @@ void StartDefaultTask(void *argument)
   xPacketSaved = xSemaphoreCreateBinary();
   
   load_values_from_flash();
-  
-  /*
-  if(hw_protection)
-  {
-  EXTI6_Init();
-}
-  */
+
   
   REGISTERS[4] = (REGISTERS[4] |= 0x04);
   REGISTERS[0] = soft_ver_modbus;
@@ -779,11 +771,7 @@ void StartTask02(void *argument)
   /* USER CODE BEGIN StartTask02 */
   /* Infinite loop */
   
-  
-  /*
-  uint16_t mask = (1 << 2);  
-  REGISTERS[4] = (REGISTERS[4] | mask); 
-  */
+
   
   HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_RESET);
   ReadFlash(SERIAL, SERIAL_ADDRESS);
@@ -807,34 +795,11 @@ void StartTask02(void *argument)
 
     if(adc_ready == 1)
     {
-      
-
-        /*
-        uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
-        REGISTERS[1] = (uint16_t)(rms * 0.019922);  // REGISTERS[1] = ((((rms / 4096) * 3.3) * 3) / (121.1775) * 1000);
-        */
-        /*
-        uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
-        //rms = 300; //for test
-        //osDelay(50);
-        float leak_phase_A_macros = calculate_rms_A_macros(rms);
-        float leak_phase_B_macros = calculate_rms_B_macros(rms);
-        float leak_phase_C_macros = calculate_rms_C_macros(rms);
-        
-        uint16_t AA = (uint16_t)leak_phase_A_macros;
-        uint16_t BB = (uint16_t)leak_phase_B_macros;
-        uint16_t CC = (uint16_t)leak_phase_C_macros;
-        
-        uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
-        REGISTERS[1] = max_val;
-        */
-      
-        
+     
 //----------------------------------------------------------------------------------WARNING-LOGIC-------------
         static uint8_t lasttime = 0;
         static uint8_t lasttime_hour = 0;
-       
-        static uint8_t count = 0;
+
         
         if(lasttime != time.minutes)
         {
@@ -860,25 +825,7 @@ void StartTask02(void *argument)
         }
 //----------------------------------------------------------------------------------WARNING-LOGIC-END----------
     }
-    
-    
-    /*
-    if(REGISTERS[1] >= TARGET_VALUE)
-    {
-      setrelay(0);
-      theme = 2;
-      taskENTER_CRITICAL();
-      uint8_t temp_value = (uint8_t)REGISTERS[1];
-      write_to_log(0x33, &temp_value, 1);
-      taskEXIT_CRITICAL();
-    }
-    else if(REGISTERS[1] < TARGET_VALUE)
-    {
-      theme = 1;
-    }
-    */
-    
-    
+   
 if(!start)
 {
     static uint8_t value_was_changed = 1;
@@ -962,7 +909,6 @@ if(!start)
           }
 
           taskEXIT_CRITICAL();
-        
     }
     
     if(neead_write_flash)
@@ -972,15 +918,38 @@ if(!start)
       neead_write_flash = 0;
     }
     
+    
+    if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2))
+    {     
+      static uint8_t period = 0;
+      if(avg1h > avg2d)
+      {   
+        if(period != time.hours)
+        {
+          period = time.hours;
+          uint16_t delta = (avg2d - avg1h);
+          if(delta >= 5)
+          {
+            REGISTERS[4] = (REGISTERS[4] |= 0x01);
+            uint8_t data = 0x02;
+            taskENTER_CRITICAL();
+            write_to_log(0x32, &data, 1);
+            taskEXIT_CRITICAL();
+          }
+        }
+      }
+    }
+
+    
+    
     if (REGISTERS[4] & TIME_FLAG_APPLY) 
     {
       // Бит TIME_FLAG_APPLY (3-й бит) установлен
       apply_time_from_registers();
     }
     
-//----------------------------------------------------------------OS-UPDATE-END--
+     //----------------------------------------------------------------OS-UPDATE-END--
      osDelay(25);
-     //taskYIELD();
     
     //--------------------------------------------------------------------
     
@@ -1298,13 +1267,7 @@ void StartTask05(void *argument)
   }
 }
 
-void StartTask09(void *argument)
-{
-  for(;;)
-  {
 
-  }
-}
 
 /* USER CODE BEGIN Header_StartTask06 */
 /**
@@ -1320,87 +1283,15 @@ void StartTask06(void *argument)
   /* Infinite loop */
   for(;;)
   {  
-    HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-    osDelay(100);
-    HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+    //HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
+    //osDelay(100);
+    //HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
+    //osDelay(300);
+    
+    HAL_GPIO_TogglePin(WDI_GPIO_Port, WDI_Pin);
     osDelay(300);
     
-    //HAL_GPIO_TogglePin(WDI_GPIO_Port, WDI_Pin);
-    //osDelay(1000);
-    
     uxHighWaterMark6 = uxTaskGetStackHighWaterMark(NULL);
-    
-    
-    /*
-    size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
-    if(HAL_GPIO_ReadPin(RS485_1_ON_GPIO_Port, RS485_1_ON_Pin) == GPIO_PIN_SET)
-    {
-    RS485 = 0;
-  }
-    else
-    {
-    RS485 = 1;
-  }
-    */
-    
-    
-    //warning 1
-    if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2))
-    {     
-      static uint8_t period = 0;
-      if(avg1h > avg2d)
-      {   
-        if(period != time.hours)
-        {
-          period = time.hours;
-          uint16_t delta = (avg2d - avg1h);
-          if(delta >= 5)
-          {
-            REGISTERS[4] = (REGISTERS[4] |= 0x01);
-            uint8_t data = 0x02;
-            taskENTER_CRITICAL();
-            write_to_log(0x32, &data, 1);
-            taskEXIT_CRITICAL();
-          }
-        }
-      }
-    }
-    
-    
-    if(ch == 1)
-    {
-      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
-      reley_auto_protection = 0;
-      setrelay(0);
-      
-      
-      osDelay(1000);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-      osDelay(100);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-      osDelay(1000);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-      osDelay(100);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-      osDelay(1000);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-      osDelay(100);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-      osDelay(1000);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-      osDelay(100);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-      osDelay(1000);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-      osDelay(100);
-      HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-      
-      
-      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
-      setrelay(1);
-      reley_auto_protection = 1;
-      ch = 0;
-    }
     
   }
   /* USER CODE END StartTask06 */
@@ -1473,12 +1364,9 @@ void HighPriorityTask(void *argument)
           float leak_phase_A_macros = calculate_rms_A_macros(rms);
           float leak_phase_B_macros = calculate_rms_B_macros(rms);
           float leak_phase_C_macros = calculate_rms_C_macros(rms);
+
           
-          uint16_t AA = (uint16_t)leak_phase_A_macros;
-          uint16_t BB = (uint16_t)leak_phase_B_macros;
-          uint16_t CC = (uint16_t)leak_phase_C_macros;
-          
-          uint16_t max_val = (uint16_t) fmax(fmax(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
+          uint16_t max_val = (uint16_t) fmaxf(fmaxf(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
           REGISTERS[1] = max_val;
           
           
@@ -1700,27 +1588,27 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
   else if(iIndex == 17)
   {
-    snprintf((char*)buffer, bufferSize, "%.9f", C_phase_A);
+    snprintf((char*)buffer, bufferSize, "%.9f", (double)C_phase_A);
   }
   else if(iIndex == 18)
   {
-    snprintf((char*)buffer, bufferSize, "%.9f", R_leak_A);
+    snprintf((char*)buffer, bufferSize, "%.9f", (double)R_leak_A);
   }
   else if(iIndex == 19)
   {
-    snprintf((char*)buffer, bufferSize, "%.9f", C_phase_B);
+    snprintf((char*)buffer, bufferSize, "%.9f", (double)C_phase_B);
   }
     else if(iIndex == 20)
   {
-    snprintf((char*)buffer, bufferSize, "%.9f", R_leak_B);
+    snprintf((char*)buffer, bufferSize, "%.9f", (double)R_leak_B);
   }
     else if(iIndex == 21)
   {
-    snprintf((char*)buffer, bufferSize, "%.9f", C_phase_C);
+    snprintf((char*)buffer, bufferSize, "%.9f", (double)C_phase_C);
   }
     else if(iIndex == 22)
   {
-    snprintf((char*)buffer, bufferSize, "%.9f", R_leak_C);
+    snprintf((char*)buffer, bufferSize, "%.9f", (double)R_leak_C);
   }
     else if(iIndex == 23)
   {
@@ -3842,16 +3730,16 @@ void RTC_Init(void)
 
 
 
-float getAverage10Min(CircularBuffer10Min *buffer) {
-    return (float)buffer->sum / MINUTE_10_SIZE;
+uint16_t getAverage10Min(CircularBuffer10Min *buffer) {
+    return (uint16_t)buffer->sum / MINUTE_10_SIZE;
 }
 
-float getAverage1Hour(CircularBuffer1Hour *buffer) {
-    return (float)buffer->sum / HOUR_1_SIZE;
+uint16_t getAverage1Hour(CircularBuffer1Hour *buffer) {
+    return (uint16_t)buffer->sum / HOUR_1_SIZE;
 }
 
-float getAverage2Day(CircularBuffer2Day *buffer) {
-    return (float)buffer->sum / DAY_2_SIZE;
+uint16_t getAverage2Day(CircularBuffer2Day *buffer) {
+    return (uint16_t)buffer->sum / DAY_2_SIZE;
 }
 //----------------------------------------------RTC-SECTION--------------------
 void save_time_to_rtc(uint8_t *arr)
