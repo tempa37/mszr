@@ -44,13 +44,11 @@
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_hal_rtc.h"
 #include "stm32f4xx.h"
-#include <stdbool.h>
 #include "dp83848.h"
 
-
 /* USER CODE END Includes */
-#include "test.h"
 #include "lwip/tcp.h"
+#include "test.h"
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
@@ -58,18 +56,16 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-uint8_t packetReceived = 0;
 
-osMutexId_t flashMutexHandle;
-osMutexId_t RelayMutexHandle;
-SemaphoreHandle_t xHighPrioritySemaphore;
+osMutexId_t RelayMutexHandle;  //защита общего регистра REGISTERS[2] (состояние реле)
+SemaphoreHandle_t xHighPrioritySemaphore; //будить HighPriorityTask по готовности ADC
 
 
 
 
 extern struct netif gnetif;
 extern UART_HandleTypeDef huart3;
-extern  uint8_t rxBuffer[50];
+extern  uint8_t rxBuffer[50]; //буфер приёма для HAL_UARTEx_ReceiveToIdle_DMA
 extern uint8_t IP_ADDRESS[4];
 extern uint8_t NETMASK_ADDRESS[4];
 extern uint8_t GATEWAY_ADDRESS[4];
@@ -79,28 +75,23 @@ uint8_t SERIAL_ADDRESS[6] = {0};
 
 
 
-extern dp83848_Object_t DP83848;
-extern struct netif gnetif;
-
 extern void MX_USART3_UART_Init(void);
 //----------------------------ADC---LOGIC---------------------------------------
 
-volatile uint8_t last_position = 5;
-volatile uint8_t temp_count = 0;
-volatile uint8_t mode = 0;
-volatile uint8_t log_ready = 0;
-uint32_t g_tick;   //-------//------//-----
-uint32_t diff;     //-------//------//-----
+volatile uint8_t last_position = 5; //кеш последнего реально установленного 
+                                    //состояния реле (0 — выкл, 1 — вкл)
 
+volatile uint8_t mode = 0;          // Ручное или автоматическое управление реле
+uint8_t reley_auto_protection = 1;  // Ручное или автоматическое управление реле
 
-//volatile uint8_t manual_mode = 0;
-static TimerHandle_t xRelayReleaseTimer = NULL;
-static TimerHandle_t xTestBlockTimer = NULL;
+volatile uint8_t log_ready = 0;     //можно ли сейчас писать лог в флеш
 
+static TimerHandle_t xRelayReleaseTimer = NULL; //Таймер отключения реле после сработки
+static TimerHandle_t xTestBlockTimer = NULL;    //Не дает бесконечно зажимать тест
+                                                //      (перегрев)
 
-
-
-uint8_t reley_auto_protection = 1;
+volatile uint8_t button_ivent = 0;       //событие кнопки ТЕСТ получено
+volatile uint8_t button_ivent_block = 0; // блок повторных срабатываний
 
 float C_phase_A = 0;
 float R_leak_A = 0;
@@ -126,23 +117,15 @@ uint8_t WARNING_VALUE_DEF = 20; //20
 #define FLASH_ADDRESS_RELAY_TIME 0x0800C130
 
 
-
-
-
 #define SQ3         1.732050807f    // sqrt(3)
 #define COS30       0.866025403f    // cos(30°)
 #define OMEGA       314.1592653f    // 2 * M_PI * 50 ≈ 6.283185307 * 50
 #define MULT_UP     43824.0f        // 14608 * 3
 #define MULT_DOWN   2.057065f       // 11.365 * 0.181
 
-
-
-volatile uint8_t button_ivent = 0;
-volatile uint8_t button_ivent_block = 0;
-
 //------------------------------------------------------------------------------
 
-uint8_t USART_3_SPEED[10];
+uint8_t USART_3_SPEED[10];   
 uint8_t uartStopBits[10];
 char uartPARITY[10];  
 uint8_t output[200] = {0};
@@ -150,9 +133,9 @@ uint8_t output[200] = {0};
 
 uint16_t ADC_BUFFER_SIZE = 457;  //900
 extern uint16_t adcBuffer[457];  //900
-uint8_t adc_ready = 0;
+uint8_t adc_ready = 0;     //Говорит о том, что данные с ADC готовы
 
-volatile uint16_t neead_write_flash = 0;
+volatile uint16_t neead_write_flash = 0; //Отложенная запись WriteFlash(0,0)
 
 //-------------------------------------------------------------------
 uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x04};
@@ -215,11 +198,9 @@ uint8_t brightness = 0xFF;  // 0x00-0xFF
 uint32_t TIME_RESET_OLED = 18000; // in miliseconds
 
 //---------------------------------------FLASH-OS----------------------------------------------------
-static uint16_t iteration = 0;
 static uint32_t address = 0;
 static uint32_t len = 0;
 static uint32_t next_free_addr = 0;
-uint8_t error_flash = 0;
 //---------------------------------------------------------------------------------------------------
 extern volatile uint8_t theme;
 
@@ -263,7 +244,6 @@ uint8_t pinaccept = 0;
 #define FLASH_ADDRESS_RS485_PARITIY 0x0800C060
 #define FLASH_ADDRESS_RS485_STOPBIT 0x0800C070
 #define TIMEOUT_MS 8000
-#define M_PI 3.14159265
 
 
 #define BOOT_OS_OK_ADDRESS 0x0800C080
@@ -275,6 +255,10 @@ uint8_t pinaccept = 0;
 #define SECTOR_ENABLED_ADDRESS 0x0800C088 //1 - нет новой ОС, 2 - есть новоя ОС
 #define LOG_SECTOR_ACTIVE 0x0800C204 //в каком секторе мы пишем лог сейчас
 
+#define LOG_START_ADDR_BLOCK 0x08120000  //17-23 sectors (128х7)
+#define LOG_END_ADDR_BLOCK 0x081FFFF8 
+#define LOG_ENTRY_SIZE  (12U)
+#define LOG_BUFF_SIZE 1026
 
 
 #define TIME_FLAG_SET   (1U << 2)  // bit2: время установлено
@@ -319,23 +303,17 @@ typedef struct {
 
 volatile uint32_t gRelayReleaseTimeoutMs = 250; 
 static inline void StartRelayReleaseTimer(uint32_t delayMs);
- 
- 
-volatile uint8_t time_acepted = 0;  //not used
 
-volatile uint32_t log_ptr = 0;
+
+volatile uint32_t log_ptr = 0;  //Указатель на ячейку лога для записи
+                                //Если он равен 0, то лог пишется в память загрузчика
+
 RTC_HandleTypeDef hrtc;
 
 volatile uint32_t LOG_START_ADDR = 0;
 volatile uint32_t LOG_END_ADDR = 0;
 
 volatile uint8_t log_sector_active = 0;
-
-
-#define LOG_START_ADDR_BLOCK 0x08120000  //17-23 sectors (128х7)
-#define LOG_END_ADDR_BLOCK 0x081FFFF8 
-#define LOG_ENTRY_SIZE  (12U)
-#define LOG_BUFF_SIZE 1026
 
 volatile uint8_t log_for_wed[LOG_BUFF_SIZE] = {0}; //1kb
 
@@ -352,25 +330,17 @@ volatile uint32_t crc_os = 0;
 volatile uint8_t crc_accepted = 5;
 //------------------------------------------------------------------------------
 
-uint8_t os_accepted = 0;
-uint32_t adc_value = 0;
-uint32_t adc_value_2 = 0;
-uint8_t tim = 0;
-uint8_t restart = 0;
-uint8_t connectionFLAG = 0;
+uint8_t restart = 0; //нужно перезагрузиться после изменения настроек
 SemaphoreHandle_t xPacketSemaphore;
 SemaphoreHandle_t xxMutex;
 SemaphoreHandle_t xPacketSaved;
 CRC_HandleTypeDef hcrc;
-uint16_t start = 1;
+uint16_t start = 1;  //флаг того, что у нас фаза запуска
 uint8_t OLED_RESET = 1;
 volatile uint8_t RS485 = 0;
-uint8_t RX_Flag = 0;
-uint8_t i9 = 0;
 uint8_t fff = 1;
-uint8_t ch = 0;
 volatile uint32_t er = 0;
-uint8_t response_data[50] = {0};
+uint8_t response_data[50] = {0}; //Общий буфер для ответов Modbus
 
 volatile uint8_t flash_block = 0;
 
@@ -446,7 +416,7 @@ const osThreadAttr_t LWGL_control_attributes = {
 osThreadId_t WDIHandle;
 const osThreadAttr_t WDI_attributes = {
   .name = "WDI",
-  .stack_size = 528 * 4,
+  .stack_size = 528,
   .priority = (osPriority_t) osPriorityNormal,
 };
 
@@ -461,58 +431,34 @@ void setrelay(uint16_t i);
 void send_uart(const uint8_t *response, uint16_t len);
 void DrawCenteredSemiCircle2(UWORD percent);
 void DrawCenteredSemiCircle();
-void startMyTimer_UPDATE(uint32_t timeout_ms);
-void vMyTimer2Callback(TimerHandle_t xTimer);
 void startMyTimer_RESET(uint32_t timeout_ms);
 void vMyTimerCallback(TimerHandle_t xTimer);
 void convert_str_to_uint8_array_serial(const char* input, uint8_t* output);
 void EXTI12_Init(void);
 void EXTI15_10_IRQHandler(void);
-
-void StartTask09(void *argument);
-
 void log_for_web_init();
-
-
 void Swipe_Log_Sector();
-void parse_http_time_request(uint8_t *http_request, uint8_t temp_arr[6]);
-
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
-void UpdateSector3();
 void load_flags_from_flash(void);
 HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size);
-uint16_t get_body_length(uint8_t *packet, uint16_t packet_size);
 char* extract_body(uint8_t *packet);
-const char *handle_file_upload(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
-void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length);
-//=======
-//void EXTI6_Init(void);
-void EXTI9_5_IRQHandler(void);
 void RTC_Init(void);
-
 uint32_t find_next_free_log_address(void);
-
 void convert_str_to_float_bytes(const char* input, uint8_t* output);
 void load_values_from_flash(void);
-
-
 void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
 void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len);
 void save_time_to_rtc(uint8_t* arr);
-void swichSector();
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
 void CRC_Config(void);
 uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str);
 char *parser(uint8_t *buf, uint16_t len, const char *str);
-
-
 void get_current_timestamp(uint8_t *timestamp);
 void initBuffer10Min(CircularBuffer10Min *buffer);
 void initBuffer1Hour(CircularBuffer1Hour *buffer);
 void initBuffer2Day(CircularBuffer2Day *buffer);
-void init_circular_buffers(CircularBuffer10Min *buffer, CircularBuffer1Hour *buffer2, CircularBuffer2Day *buffer3);
 void addValue10Min(CircularBuffer10Min *buffer, uint16_t value);
 void addValue1Hour(CircularBuffer1Hour *buffer, uint16_t value);
 void addValue2Day(CircularBuffer2Day *buffer, uint16_t value);
@@ -520,12 +466,8 @@ uint16_t getAverage10Min(CircularBuffer10Min *buffer);
 uint16_t getAverage1Hour(CircularBuffer1Hour *buffer);
 uint16_t getAverage2Day(CircularBuffer2Day *buffer);
 
-
-
-
 static void vRelayReleaseCallback(TimerHandle_t xTimer);
 static void vTestBlockReleaseCb(TimerHandle_t xTimer);
-
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
                        u16_t http_request_len, int content_len, char *response_uri,
@@ -533,13 +475,11 @@ err_t httpd_post_begin(void *connection, const char *uri, const char *http_reque
 err_t httpd_post_receive_data(void *connection, struct pbuf *p);
 void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len);
 
-static void vRelayReleaseCallback(TimerHandle_t xTimer);
-
 float calculate_rms_B_macros(uint16_t rms);
 float calculate_rms_C_macros(uint16_t rms);
 float calculate_rms_A_macros(uint16_t rms);
 extern void OLED_1in5_rgb_run();
-void EXTI6_DeInit(void);
+
 
 const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
 const char * JSON_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
@@ -561,11 +501,9 @@ void StartTask06(void *argument);
 void HighPriorityTask(void *argument);
 
 uint8_t save_time_unix(uint64_t timestamp);
-
 void apply_time_from_registers(void);
-
 extern void MX_LWIP_Init(void);
-void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
+void MX_FREERTOS_Init(void); 
 
 /**
 * @brief  FreeRTOS initialization
@@ -645,13 +583,10 @@ void StartDefaultTask(void *argument)
   
   EXTI12_Init();
   MX_LWIP_Init();
-  i9 =1;
+
+  httpd_init();
+  httpd_ssi_init();
   
-  if(i9)
-  {
-    httpd_init();
-    httpd_ssi_init();
-  }
   
   
   
@@ -670,7 +605,7 @@ void StartDefaultTask(void *argument)
   load_values_from_flash();
 
   
-  REGISTERS[4] = (REGISTERS[4] |= 0x04);
+  REGISTERS[4] |= 0x04; 
   REGISTERS[0] = soft_ver_modbus;
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
   load_flags_from_flash();
@@ -703,8 +638,7 @@ void StartDefaultTask(void *argument)
     
     if (xSemaphoreTake(xPacketSemaphore, pdMS_TO_TICKS(1500)) == pdTRUE)
     {
-      
-      packetReceived = 0;
+
       uint8_t data[20] = {0};
       uint16_t len_ext = 0;
       
@@ -803,15 +737,12 @@ void StartTask02(void *argument)
         
         if(lasttime != time.minutes)
         {
-          static uint8_t count = 0;
           lasttime = time.minutes;
-          count++;
-          addValue10Min(&buffer10, REGISTERS[1]);
-          
+          addValue10Min(&buffer10, REGISTERS[1]); 
           if((time.minutes % 10) == 0)
           {
             uint16_t Average10min = (uint16_t)getAverage10Min(&buffer10);
-            count = 0;
+
             addValue1Hour(&buffer1Hour, Average10min);
             if(lasttime_hour != time.hours)
             {
@@ -834,7 +765,7 @@ if(!start)
     {
       if(value_was_changed == 1)
       {
-      REGISTERS[4] = (REGISTERS[4] |= 0x02);
+      REGISTERS[4] |= 0x02;
       uint8_t data = REGISTERS[1];
       taskENTER_CRITICAL();
       write_to_log(0x32, &data, 1);
@@ -930,7 +861,7 @@ if(!start)
           uint16_t delta = (avg2d - avg1h);
           if(delta >= 5)
           {
-            REGISTERS[4] = (REGISTERS[4] |= 0x01);
+            REGISTERS[4] |= 0x01;
             uint8_t data = 0x02;
             taskENTER_CRITICAL();
             write_to_log(0x32, &data, 1);
@@ -1436,10 +1367,6 @@ void HighPriorityTask(void *argument)
           
           
           osDelay(1); 
-          g_tick = HAL_GetTick();   //-------//------//-----
-          diff = g_tick - timetag;  //-------//------//-----
-          
-          timetag = g_tick;         //-------//------//-----
           //osDelay(100);
           
         }
@@ -1827,7 +1754,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char c_phase_c_str[18]  = {0};
   char r_leak_c_str[18]   = {0};
   char target_value_str[18] = {0};
-  char hw_protection_arr[18] = {0};
   char warning_value_str[18] = {0};
   char date_arr[50] = {0};
 
@@ -1838,7 +1764,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   uint8_t c_phase_c_flag     = 0;
   uint8_t r_leak_c_flag      = 0;
   uint8_t target_value_flag  = 0;
-  uint8_t hw_protection_flag = 0;
   uint8_t warning_value_flag = 0;
   uint8_t date_flag          = 0;
   uint8_t reley_time_flag    = 0;
@@ -1963,11 +1888,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     {
       strncpy(warning_value_str, pcValue[i], sizeof(warning_value_str) - 1);
       warning_value_flag = 1;
-    }
-    else if (strcmp(pcParam[i], "checked") == 0) //   WH_PROTECTION
-    {
-      strncpy(hw_protection_arr, pcValue[i], sizeof(target_value_str) - 1);
-      hw_protection_flag = 1;
     }
     else if(strcmp(pcParam[i], "test") == 0)
     {
@@ -2160,42 +2080,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
         write_to_log(0x18, (uint8_t *)&relay_timeout, 1);
         taskEXIT_CRITICAL();   
       }
-    
-  
-    /*
-    if (hw_protection_flag != 0)
-    {
-      output[0] = (uint8_t)atoi(hw_protection_arr);
-      WriteFlash(HW_PROTECTION, output);
-      memset(output, 0, sizeof(output));
-      hw_protection_flag = 0;
-      hw_protection = *((uint8_t *)FLASH_ADDRESS_HW_PROTECTION);
-      
-      write_to_log(0x20, &hw_protection, 1);
-    }
-    */
-    
-    
 
-
-
-
-   
-    
-
-    //отключить аппаратное срабатывание защиты, т.к. настройки фаз изменились
-    /*
-    if(hw_protection == 0)
-    {
-      EXTI6_DeInit();  
-    }
-    else if(hw_protection == 1)
-    {
-      EXTI6_Init();
-    }
-    */
  
-  
   
   if(pinaccept)
   {
@@ -2242,7 +2128,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     }
     if(paritiy_flag != 0)
     {
-      //convert_str_to_uint8_array(rs485paritiy, output, 2);
       WriteFlash(RS485PARITIY, (uint8_t*)rs485paritiy);
       memset(output, 0, sizeof(output));
       paritiy_flag = 0;   
@@ -2289,142 +2174,6 @@ uint8_t loghhh = 0;
 const char * LOG_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
 {       
   
-  
-  /*
-    // Порог пустых записей (0xFF)
-    uint8_t FF_THRESHOLD = 5;
-    
-    // Статические переменные для отслеживания состояния между вызовами
-    // current_addr – текущая позиция чтения (идём в обратном направлении)
-    // initial_addr – адрес, с которого начался текущий цикл передачи (для определения полного круга)
-    // first_call – флаг первого вызова в рамках одной последовательной передачи логов
-    static uint32_t current_addr = 0;
-    static uint32_t initial_addr = 0;
-
-    memset((void *)log_for_wed, 0, LOG_BUFF_SIZE);
-    
-    int buf_index = 0;
-    int max_buf_size = sizeof(log_for_wed);  // Размер выходного буфера (например, 1 КБ)
-    int max_entries = max_buf_size / LOG_ENTRY_SIZE; // Количество записей, умещающихся в буфере
-    int consecutive_ff = 0; // Счётчик подряд идущих пустых (0xFF) записей
-
-    // При первом вызове начинаем с самой новой записи
-    if (first_call)
-    {
-        if (log_ptr == LOG_START_ADDR_BLOCK)
-            // Если указатель равен началу, начинаем с последней валидной записи
-            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
-        else
-            current_addr = log_ptr - LOG_ENTRY_SIZE;
-        // Запоминаем стартовую позицию для определения полного круга
-        initial_addr = current_addr;
-        first_call = 0;
-    }
-
-    // Чтение логов в обратном порядке (от самой новой записи)
-    for (int i = 0; i < max_entries; i++)
-    {
-        // Если уже прошли полный круг, прекращаем чтение
-        if (i > 0 && current_addr == initial_addr)
-            break;
-
-        // Проверка корректности указателя; если он вне диапазона,
-        // устанавливаем его на последнюю валидную запись
-        if (current_addr < LOG_START_ADDR_BLOCK || current_addr > (LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE)) {
-            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
-        }
-        
-        uint8_t entry[LOG_ENTRY_SIZE];
-        // Считываем одну запись по текущему адресу
-        
-        
-        
-        //Логика для пропуска лишних 8-ми байт в конце каждого сектора (иначе сбивается кратность 12-ти)
-        if ((current_addr & 0xDFFFF) == 0xDFFF4) 
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0xBFFFF) == 0xBFFF4)
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0x9FFFF) == 0x9FFF4)
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0x7FFFF) == 0x7FFF4)
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0x5FFFF) == 0x5FFF4)
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0x3FFFF) == 0x3FFF4)
-        {
-          current_addr -= 8;
-        }
-          
-          
-          
-          
-        memcpy(entry, (const void *)current_addr, LOG_ENTRY_SIZE);
-
-        // Проверяем, является ли запись "пустой" (все байты равны 0xFF)
-        int is_ff = 1;
-        for (int j = 0; j < LOG_ENTRY_SIZE; j++)
-        {
-            if (entry[j] != 0xFF)
-            {
-                is_ff = 0;
-                break;
-            }
-        }
-
-        // Подсчёт подряд идущих пустых записей
-        if (is_ff)
-            consecutive_ff++;
-        else
-            consecutive_ff = 0;
-
-        // Если встречено достаточное число пустых записей, считаем, что валидных логов больше нет
-        if (consecutive_ff >= FF_THRESHOLD)
-            break;
-
-        // Копируем запись в выходной буфер
-        memcpy((void *)&log_for_wed[buf_index], entry, LOG_ENTRY_SIZE);
-        buf_index += LOG_ENTRY_SIZE;
-
-
-        // Обновляем указатель. Если вычитание размера записи привело бы к значению ниже начала сектора,
-        // переносим указатель на последнюю валидную запись
-        if (current_addr - LOG_ENTRY_SIZE < LOG_START_ADDR_BLOCK)
-            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
-        else
-            current_addr -= LOG_ENTRY_SIZE;
-    }
-
-    // Если достигнут конец логов (либо по порогу пустых записей, либо полный круг пройден),
-    // добавляем сигнальную последовательность в конец выходного буфера
-    if (consecutive_ff >= FF_THRESHOLD || ((!first_call) && current_addr == initial_addr) || current_addr == (initial_addr - 1) ||current_addr == (initial_addr - 2) ||current_addr == (initial_addr + 2) ||current_addr == (initial_addr + 1) ||current_addr == (initial_addr + 3) ||current_addr == (initial_addr -3)) 
-    {
-        const char marker[] = "\r\n-\r\n";
-        int marker_len = sizeof(marker) - 1; // Без завершающего '\0'
-        if (buf_index + marker_len < max_buf_size)
-        {
-            memcpy((void *)&log_for_wed[buf_index], marker, marker_len);
-            buf_index += marker_len;
-        }
-        // Сброс состояния для следующей передачи – в следующий раз начинаем с самой свежей записи
-        first_call = 1;
-    }
-    else if(first_call)
-    {
-      first_call = 0;
-    }
-    // Функция используется для SSI (<!--LOG-->),
-    // поэтому возвращаем 0 
-*/
     return 0;
 }
 //---------------------------------------------------------------------------------HTTPD-SERVER-LOGICS-END---
@@ -2713,7 +2462,6 @@ void WriteFlash(FlashDataType type, uint8_t* data)
 
 void load_values_from_flash(void)
 {
-    uint8_t i = 0;
     uint32_t temp; 
     
     // Чтение и проверка C_phase_A
@@ -2889,7 +2637,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 
 
-#define ADC_BUFFER_SIZE 457  // Пример размера буфера; 
+#define ADC_BUFFER_SIZE 512  // Пример размера буфера; 
 #define MA_WINDOW_SIZE    5   // Размер окна для скользящего среднего
 
 
@@ -2978,45 +2726,6 @@ void vMyTimerCallback(TimerHandle_t xTimer)
 
 
 
-void startMyTimer_UPDATE(uint32_t timeout_ms) 
-{
-  TimerHandle_t myTimer2 = xTimerCreate
-    (
-     "OneShotTimer",                       
-     pdMS_TO_TICKS(timeout_ms),            
-     pdFALSE,                              
-     (void *) 0,                           
-     vMyTimer2Callback                      
-       );
-  
-  if (myTimer2 != NULL) 
-  {
-    HAL_NVIC_DisableIRQ(ADC_IRQn);
-    osThreadSuspend(HighPriorityTaskHandle);
-    osThreadSuspend(defaultTaskHandle);
-    osThreadSuspend(Relay_taskHandle);
-    osThreadSuspend(mobdusHandle);
-    osThreadSuspend(Relay_controlHandle);
-    osThreadSuspend(LWGL_controlHandle);
-    xTimerStart(myTimer2, 0);  
-  } 
-  else 
-  {
-    while(1);
-  }
-}
-//---↑
-//---↑
-void vMyTimer2Callback(TimerHandle_t xTimer) 
-{
-  HAL_NVIC_EnableIRQ(ADC_IRQn);
-  osThreadResume(HighPriorityTaskHandle);
-  osThreadResume(defaultTaskHandle);
-  osThreadResume(Relay_taskHandle);
-  osThreadResume(mobdusHandle);
-  osThreadResume(Relay_controlHandle);
-  osThreadResume(LWGL_controlHandle);
-}
 
 
 
@@ -3098,23 +2807,7 @@ void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf
     } 
 }
 
-void EXTI6_DeInit(void)
-{
-    // Отключить маску прерывания для EXTI6
-    EXTI->IMR &= ~EXTI_IMR_MR6;
-    
-    // Отключить триггер на восходящий фронт
-    EXTI->RTSR &= ~EXTI_RTSR_TR6;
-    
-    // Отключить триггер на нисходящий фронт (если он был настроен)
-    EXTI->FTSR &= ~EXTI_FTSR_TR6;
-    
-    // Отключить прерывание EXTI9_5 в NVIC
-    NVIC_DisableIRQ(EXTI9_5_IRQn);
-    
-    // Опционально: сбросить конфигурацию SYSCFG для EXTI6
-    SYSCFG->EXTICR[1] &= ~(SYSCFG_EXTICR2_EXTI6);
-}
+
 //---------------------------------------------------------------------------------ANOTHER-CODE-END---
 
 void load_flags_from_flash(void)
@@ -3233,7 +2926,6 @@ HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
     // Сохраняем указатель на свободную ячейку для следующего пакета
     next_free_addr += packet_size;  // ---invalid
     // Блокировка флеш памяти после записи
-    iteration++;
     HAL_FLASH_Lock();
    
     taskEXIT_CRITICAL();
@@ -3260,7 +2952,6 @@ char *parser(uint8_t *buf, uint16_t len, const char *str) {
             }
         }
     }
-    error_flash = 1;
     return NULL;
 }
 
@@ -3276,7 +2967,6 @@ uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str) {
             if (i + str_len + sizeof(flags) >= buf_len) {
                 // Данные выходят за пределы буфера
                 return 0;
-                error_flash = 1;
             }
 
             if (memcmp(&buf[i + str_len], flags, sizeof(flags)) == 0) {
@@ -3292,14 +2982,12 @@ uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str) {
                 if (num_end + 1 >= buf_len) {
                     // Конец строки не найден
                     return 0;
-                    error_flash = 1;
                 }
 
                 // Извлекаем строку числа
                 size_t num_len = num_end - num_start;
                 if (num_len == 0 || num_len > 5) { // Число не может быть больше 65535
                     return 0;
-                    error_flash = 1;
                 }
 
                 char num_str[6] = {0}; // Максимум 5 символов + \0
@@ -3312,13 +3000,12 @@ uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str) {
             }
         }
     }
-    error_flash = 1;
     return 0; // Если строка не найдена
 }
 
 
 
-uint8_t buf_for_bad_chank[1300] = 0;
+uint8_t buf_for_bad_chank[1300] = {0};
 
 err_t httpd_post_receive_data(void *connection, struct pbuf *p) 
 {
@@ -3336,8 +3023,8 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
     uint8_t *payload = (uint8_t *)p->payload; // указатель на полезные данные
     
     
-    uint16_t packetNow = parser_num((char *)payload, packet_size, "chunkIndex");
-    uint16_t packetTotal = parser_num((char *)payload, packet_size, "totalChunks");
+    uint16_t packetNow = parser_num((uint8_t*)payload, packet_size, "chunkIndex");
+    uint16_t packetTotal = parser_num((uint8_t*)payload, packet_size, "totalChunks");
     
     // Если пришёл маленький фрагмент — собираем его
     if ((packet_size < 1200) && (packetNow != (packetTotal-1)))
@@ -3383,14 +3070,14 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
     }
 
     // дальше — обычная обработка целого чанка
-    packetNow = parser_num((char *)payload, packet_size, "chunkIndex");
-    packetTotal = parser_num((char *)payload, packet_size, "totalChunks");
-    uint16_t BinDataLength = parser_num((char *)payload, packet_size, "rawDataLength");
+    packetNow = parser_num((uint8_t*)payload, packet_size, "chunkIndex");
+    packetTotal = parser_num((uint8_t*)payload, packet_size, "totalChunks");
+    uint16_t BinDataLength = parser_num((uint8_t*)payload, packet_size, "rawDataLength");
     
     
     
     // Получаем указатель на бинарные данные в пакете
-    uint8_t *packetData = (uint8_t *)parser((char *)payload, packet_size, "stream");
+    uint8_t *packetData = (uint8_t *)parser((uint8_t*)payload, packet_size, "stream");
     
     packet_cnt++;
     
@@ -3410,7 +3097,6 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p)
     if (Flash_WritePacket(packetData, BinDataLength) != HAL_OK)
     {
         pbuf_free(p);
-        error_flash = 1;
         boot_flag_new = 1;
         WriteFlash(0, 0);
         return ERR_BUF; 
@@ -3493,19 +3179,7 @@ uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address)
     return reversed_answer;
 }
 
-void swichSector()
-{
-  switch (sector_enabled){
-    
-  case 1: 
-    sector_enabled = 2;
-    break;
-  case 2: 
-    sector_enabled = 1;
-    break;
 
-  }    
-}
 
 
 static inline void StartRelayReleaseTimer(uint32_t delayMs)
@@ -3633,12 +3307,7 @@ void initBuffer2Day(CircularBuffer2Day *buffer) {
     buffer->sum = 0;
 }
 //-----------------------------------------
-void init_circular_buffers(CircularBuffer10Min *buffer, CircularBuffer1Hour *buffer2, CircularBuffer2Day *buffer3)
-{
-  initBuffer10Min(buffer);
-  initBuffer1Hour(buffer2);
-  initBuffer2Day(buffer3);
-}
+
 //---------------------------------------------
 
 void addValue10Min(CircularBuffer10Min *buffer, uint16_t value) {
@@ -3804,25 +3473,6 @@ void get_current_timestamp(uint8_t *timestamp)
 }
 
 
-void parse_http_time_request(uint8_t *http_request, uint8_t temp_arr[6]) {
-    int index = 0;
-    char *token = strtok(http_request, "-");
-    while (token != NULL && index < 6) {
-        int val = atoi(token);
-
-        // Если значение меньше 2000, сохраняем как есть
-        if(val < 2000) {
-            temp_arr[index++] = (uint8_t)val;
-        }
-        // Иначе сохраняем разницу (год относительно 2000)
-        else {
-            uint8_t year = (uint8_t)(val - 2000);
-            temp_arr[index++] = year;
-        }
-
-        token = strtok(NULL, "-");
-    }
-}
 
 //------------------------------------------------LOG-SECTION-------------------
 void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
@@ -3957,7 +3607,6 @@ uint32_t find_next_free_log_address(void)
 
         if (flash_read_byte(addr) != 0xFF)
         {
-            temp_count = 9;
             // Нашли байт, который НЕ равен 0xFF – это и будет последний занятый байт.
             break;
         }
@@ -3991,9 +3640,6 @@ uint32_t find_next_free_log_address(void)
     {
         // 3.2. Иначе — нужно «дозаписать» остаток до ближайших 12 байт символами 0xF0,
         //      чтобы при следующем чтении было понятно, что эта запись недействительна.
-
-        // Сколько байт не хватает до кратного размера
-        uint32_t need_fill = LOG_ENTRY_SIZE - remainder;
 
         // Адрес начала «обрывка». 
         // Текущее «начало» последней записи по границе 12 байт:
@@ -4033,11 +3679,9 @@ void Swipe_Log_Sector()
   __HAL_FLASH_DATA_CACHE_DISABLE();
   __HAL_FLASH_DATA_CACHE_RESET();
   
-  static uint8_t count = 0;
   
   taskENTER_CRITICAL();
   HAL_FLASH_Unlock();
-  count++;
     
   switch (log_sector_active){
         
@@ -4139,7 +3783,7 @@ uint8_t save_time_unix(uint64_t timestamp)
     sTime.StoreOperation = RTC_STOREOPERATION_RESET;
 
     if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
-        return -2;
+        return 1;
     }
 
     RTC_DateTypeDef sDate = {0};
@@ -4147,7 +3791,7 @@ uint8_t save_time_unix(uint64_t timestamp)
     sDate.Month = month;
     sDate.Year = year % 100;
     if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
-        return -3;
+        return 1;
     }
 
     return 0; // success
@@ -4157,10 +3801,8 @@ uint8_t save_time_unix(uint64_t timestamp)
 void apply_time_from_registers(void)
 {
     uint16_t r5, r6, r7, r8;
-    uint16_t reg4_snapshot;
     // критическая секция — вариант если baremetal:
     __disable_irq();
-    reg4_snapshot = REGISTERS[4];
     r5 = REGISTERS[5];
     r6 = REGISTERS[6];
     r7 = REGISTERS[7];
@@ -4179,7 +3821,7 @@ void apply_time_from_registers(void)
         return;
     }
 
-    int res = save_time_unix(timestamp);
+    uint8_t res = save_time_unix(timestamp);
     __disable_irq();
     // очистим APPLY
     REGISTERS[4] &= ~TIME_FLAG_APPLY;
