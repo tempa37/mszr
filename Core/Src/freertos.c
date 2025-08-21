@@ -138,8 +138,8 @@ uint8_t adc_ready = 0;     //Говорит о том, что данные с AD
 volatile uint16_t neead_write_flash = 0; //Отложенная запись WriteFlash(0,0)
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x04};
-uint16_t soft_ver_modbus = 114;
+uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x05};
+uint16_t soft_ver_modbus = 115;
 
 extern struct httpd_state *hs;
 
@@ -303,7 +303,7 @@ typedef struct {
 
 volatile uint32_t gRelayReleaseTimeoutMs = 250; 
 static inline void StartRelayReleaseTimer(uint32_t delayMs);
-
+volatile uint8_t adc_lock = 0;  //Замер ADC запрещен
 
 volatile uint32_t log_ptr = 0;  //Указатель на ячейку лога для записи
                                 //Если он равен 0, то лог пишется в память загрузчика
@@ -573,6 +573,10 @@ void StartDefaultTask(void *argument)
 {
   /* init code for LWIP */
   
+  
+  /**Блок начальной иициализации**/
+  
+  
   HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_RESET);
   osDelay(50);
   HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_SET);  // - PHY init
@@ -612,6 +616,8 @@ void StartDefaultTask(void *argument)
   osDelay(100);
   RTC_Init();
   xSemaphoreGive(xPacketSaved);
+  
+  /**Блок начальной иициализации**/
   
   /* Infinite loop */
   
@@ -757,55 +763,70 @@ void StartTask02(void *argument)
 //----------------------------------------------------------------------------------WARNING-LOGIC-END----------
     }
    
-if(!start)
-{
-    static uint8_t value_was_changed = 1;
-    //warning 2
-    if(REGISTERS[1] >= WARNING_VALUE) 
+    if(!start)
     {
-      if(value_was_changed == 1)
+      static uint8_t value_was_changed = 1;
+      //warning 2
+      if(REGISTERS[1] >= WARNING_VALUE) 
       {
-      REGISTERS[4] |= 0x02;
-      uint8_t data = REGISTERS[1];
-      taskENTER_CRITICAL();
-      write_to_log(0x32, &data, 1);
-      taskEXIT_CRITICAL();
-      value_was_changed = 0;
-      }
-    }
-    else if(REGISTERS[1] < WARNING_VALUE)
-    {
-      value_was_changed = 1;
-    }
-    
-    
-    static uint8_t flag_1 = 0; // или bool flag_1 = false;
-
-    if(avg1h)
-    {
-      // Если мгновенный ток на 10% выше часового среднего и флаг не выставлен – записываем лог
-      if((REGISTERS[1] > (avg1h * 1.1)) && (flag_1 == 0))
-      {
+        if(value_was_changed == 1)
+        {
+        REGISTERS[4] |= 0x02;
         uint8_t data = REGISTERS[1];
         taskENTER_CRITICAL();
-        write_to_log(0x30, &data, 1);
-        flag_1 = 1;
+        write_to_log(0x32, &data, 1);
         taskEXIT_CRITICAL();
+        value_was_changed = 0;
+        }
       }
-      // Сброс флага, когда ток снижается ниже среднего
-      else if ((REGISTERS[1] <= (avg1h)) && (flag_1 == 1))
+      else if(REGISTERS[1] < WARNING_VALUE)
       {
-        flag_1 = 0;
+        value_was_changed = 1;
+      }
+      
+      
+      static uint8_t flag_1 = 0; // или bool flag_1 = false;
+
+      if(avg1h)
+      {
+        // Если мгновенный ток на 10% выше часового среднего и флаг не выставлен – записываем лог
+        if((REGISTERS[1] > (avg1h * 1.1)) && (flag_1 == 0))
+        {
+          uint8_t data = REGISTERS[1];
+          taskENTER_CRITICAL();
+          write_to_log(0x30, &data, 1);
+          flag_1 = 1;
+          taskEXIT_CRITICAL();
+        }
+        // Сброс флага, когда ток снижается ниже среднего
+        else if ((REGISTERS[1] <= (avg1h)) && (flag_1 == 1))
+        {
+          flag_1 = 0;
+        }
       }
     }
- }
 
     
-    if(restart == 1)
-    {
-      startMyTimer_RESET(25000);
-      restart = 0;
-    } 
+        if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2))
+    {     
+      static uint8_t period = 0;
+      if(avg1h > avg2d)
+      {   
+        if(period != time.hours)
+        {
+          period = time.hours;
+          uint16_t delta = (avg2d - avg1h);
+          if(delta >= 5)
+          {
+            REGISTERS[4] |= 0x01;
+            uint8_t data = 0x02;
+            taskENTER_CRITICAL();
+            write_to_log(0x32, &data, 1);
+            taskEXIT_CRITICAL();
+          }
+        }
+      }
+    }
 
 //--------------------------------------------------------------OS-UPDATE--------
     
@@ -849,27 +870,12 @@ if(!start)
       neead_write_flash = 0;
     }
     
-    
-    if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2))
-    {     
-      static uint8_t period = 0;
-      if(avg1h > avg2d)
-      {   
-        if(period != time.hours)
-        {
-          period = time.hours;
-          uint16_t delta = (avg2d - avg1h);
-          if(delta >= 5)
-          {
-            REGISTERS[4] |= 0x01;
-            uint8_t data = 0x02;
-            taskENTER_CRITICAL();
-            write_to_log(0x32, &data, 1);
-            taskEXIT_CRITICAL();
-          }
-        }
-      }
-    }
+        
+    if(restart == 1)
+    {
+      startMyTimer_RESET(25000);
+      restart = 0;
+    } 
 
     
     
@@ -1147,17 +1153,30 @@ void StartTask04(void *argument)
 
     if((button_ivent) && (!button_ivent_block))
     {
+       /* 1. Запрещаем новые измерения и останавливаем ADC */
+      adc_lock = 1;
+      HAL_ADC_Stop_DMA(&hadc1);
+      
+      /* 2. Сам тест */
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
-      //HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
       osDelay(3000);
-      //HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
-      osDelay(500);  
-      button_ivent = 0;
+      
+      
+      osDelay(300);  
+      
+      
+       /* 3. Логирование события TEST */
       taskENTER_CRITICAL();
       write_to_log(0x31, 0x00, 1);
       taskEXIT_CRITICAL();
       
+      /* 4. Снимаем запрет АЦП и запускаем первое измерение*/
+      adc_lock = 0;
+      HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+      
+      /* 5. Блокируем повторное нажатие */
+      button_ivent = 0;
       button_ivent_block = 1;
       xTimerStart(xTestBlockTimer, 0);
     }
@@ -1247,8 +1266,8 @@ void HighPriorityTask(void *argument)
           
           uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
           
-          
-          /*  
+          /*
+            
           #define A3_Q20   ( 10)         //  0.00001 * 2^20
           #define A2_Q20   (-2307)       // -0.00220 * 2^20
           #define A1_Q20   (488209)      //  0.46580 * 2^20
@@ -1272,7 +1291,7 @@ void HighPriorityTask(void *argument)
           if (y > 65535U) y = 65535U;
           uint16_t result = (uint16_t)y;
           REGISTERS[1]   = result;
-          */
+       */   
           
 /*
           volatile uint32_t boot_word = *(volatile uint32_t *)BOOTLOADER_ADDRESS;
@@ -1289,9 +1308,6 @@ void HighPriorityTask(void *argument)
           
 */          
           
-
-          
-          
           float leak_phase_A_macros = calculate_rms_A_macros(rms);
           float leak_phase_B_macros = calculate_rms_B_macros(rms);
           float leak_phase_C_macros = calculate_rms_C_macros(rms);
@@ -1299,9 +1315,7 @@ void HighPriorityTask(void *argument)
           
           uint16_t max_val = (uint16_t) fmaxf(fmaxf(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
           REGISTERS[1] = max_val;
-          
-          
-          
+
           
           
            if((!mode) && (protection_pause == 0))
@@ -1311,16 +1325,14 @@ void HighPriorityTask(void *argument)
                 osMutexWait(RelayMutexHandle, osWaitForever);
                 REGISTERS[2] = 0;
                 osMutexRelease(RelayMutexHandle);
-                
+                adc_lock = 1;  //запрет на измерение ADC
                 
                 HAL_ADC_Stop_DMA(&hadc1);
                 if(relay_timeout != 0)
                 {
                 protection_pause = 1;
-                StartRelayReleaseTimer(relay_timeout);
+                StartRelayReleaseTimer(relay_timeout);  //тут снимаем запрет на измерения + в button_ivent
                 }
-                //xTimerStart(xRelayReleaseTimer, 0);
-                //ждем 300мс, потом REGISTERS[2] = 1 и так проводим измерение
               }
               else if ((REGISTERS[1] <= TARGET_VALUE) && reley_auto_protection)
               {
@@ -1357,13 +1369,14 @@ void HighPriorityTask(void *argument)
                  theme = 1;
               }    
           }
-          
 
           
-
+          
+          
+          if (!adc_lock)
+          {
           HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
-
-
+          }
           
           
           osDelay(1); 
@@ -1373,11 +1386,6 @@ void HighPriorityTask(void *argument)
     
 }
 }
-
-
-
-
-
 
 
 
@@ -3208,7 +3216,10 @@ static void vRelayReleaseCallback(TimerHandle_t xTimer)
 
     /* 2) снимаем паузу –  следующие решения можно принимать             */
     protection_pause = 0;
-
+    adc_lock = 0;  //Разрешаем замеры
+    
+    
+    
     /* 3) поднимаем реле                                                 */
     HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
      for (volatile uint32_t i = 0; i < 100; ++i) {
