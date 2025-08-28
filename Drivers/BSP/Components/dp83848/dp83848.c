@@ -75,6 +75,16 @@ int32_t  DP83848_RegisterBusIO(dp83848_Object_t *pObj, dp83848_IOCtx_t *ioctx)
   return DP83848_STATUS_OK;
 }
 
+// Special Modes Register
+#define LAN8710_SMR          ((uint16_t)0x0012U)
+
+
+#define LAN8710_SMR_MIIMODE    ((uint16_t)0x4000)
+// Transceiver mode of operation   
+#define LAN8710_SMR_MODE       ((uint16_t)0x00E0U)
+// PHY address
+#define LAN8710_SMR_PHY_ADDR   ((uint16_t)0x001FU)
+
 /**
   * @brief  Initialize the DP83848 and configure the needed hardware resources
   * @param  pObj: device object DP83848_Object_t.
@@ -84,98 +94,107 @@ int32_t  DP83848_RegisterBusIO(dp83848_Object_t *pObj, dp83848_IOCtx_t *ioctx)
   *         DP83848_STATUS_WRITE_ERROR if connot write to register
   *         DP83848_STATUS_RESET_TIMEOUT if cannot perform a software reset
   */
- int32_t DP83848_Init(dp83848_Object_t *pObj)
- {
+ int32_t DP83848_Init(dp83848_Object_t *pObj) {
    uint32_t tickstart = 0, regvalue = 0, addr = 0;
    int32_t status = DP83848_STATUS_OK;
 
-   if(pObj->Is_Initialized == 0)
-   {
-     if(pObj->IO.Init != 0)
-     {
-       /* GPIO and Clocks initialization */
+   if (pObj->Is_Initialized == 0) {
+     if (pObj->IO.Init != 0) {
+       // GPIO and Clocks initialization
        pObj->IO.Init();
      }
 
-     /* for later check */
+     // for later check
      pObj->DevAddr = DP83848_MAX_DEV_ADDR + 1;
 
-     /* Get the device address from special mode register */
-     for(addr = 0; addr <= DP83848_MAX_DEV_ADDR; addr ++)
-     {
-       if(pObj->IO.ReadReg(addr, DP83848_SMR, &regvalue) < 0)
-       {
+     // Get the device address from special mode register
+     for (addr = 0; addr <= DP83848_MAX_DEV_ADDR; addr ++) {
+       if (pObj->IO.ReadReg(addr, LAN8710_SMR, &regvalue) < 0) {
          status = DP83848_STATUS_READ_ERROR;
-         /* Can't read from this device address
-            continue with next address */
+         // Can't read from this device address continue with next address
          continue;
        }
 
-       if((regvalue & DP83848_SMR_PHY_ADDR) == addr)
-       {
+       if ((regvalue & DP83848_SMR_PHY_ADDR) == addr) {
          pObj->DevAddr = addr;
          status = DP83848_STATUS_OK;
          break;
        }
      }
 
-     if(pObj->DevAddr > DP83848_MAX_DEV_ADDR)
-     {
+     if (pObj->DevAddr > DP83848_MAX_DEV_ADDR) {
        status = DP83848_STATUS_ADDRESS_ERROR;
      }
 
-     /* if device address is matched */
-     if(status == DP83848_STATUS_OK)
-     {
-       /* set a software reset  */
-       if(pObj->IO.WriteReg(pObj->DevAddr, DP83848_BCR, DP83848_BCR_SOFT_RESET) >= 0)
-       {
-         /* get software reset status */
-         if(pObj->IO.ReadReg(pObj->DevAddr, DP83848_BCR, &regvalue) >= 0)
-         {
+     // if device address is matched
+     if (status == DP83848_STATUS_OK) {       
+       pObj->IO.ReadReg(pObj->DevAddr, DP83848_BCR, &regvalue);       
+       regvalue |= DP83848_BCR_SOFT_RESET|DP83848_BCR_AUTONEGO_EN;
+       
+       // set a software reset
+       if (pObj->IO.WriteReg(pObj->DevAddr, DP83848_BCR_SOFT_RESET, regvalue) >= 0) {
+         // get software reset status
+         if (pObj->IO.ReadReg(pObj->DevAddr, DP83848_BCR, &regvalue) >= 0) {
            tickstart = pObj->IO.GetTick();
 
-           /* wait until software reset is done or timeout occured  */
-           while(regvalue & DP83848_BCR_SOFT_RESET)
-           {
-             if((pObj->IO.GetTick() - tickstart) <= DP83848_SW_RESET_TO)
-             {
-               if(pObj->IO.ReadReg(pObj->DevAddr, DP83848_BCR, &regvalue) < 0)
-               {
+           // wait until software reset is done or timeout occured
+           while (regvalue & DP83848_BCR_SOFT_RESET) {
+             if ((pObj->IO.GetTick() - tickstart) <= DP83848_SW_RESET_TO) {
+               if (pObj->IO.ReadReg(pObj->DevAddr, DP83848_BCR, &regvalue) < 0) {
                  status = DP83848_STATUS_READ_ERROR;
                  break;
                }
-             }
-             else
-             {
+             } else {
                status = DP83848_STATUS_RESET_TIMEOUT;
                break;
              }
            }
-         }
-         else
-         {
+         } else {
            status = DP83848_STATUS_READ_ERROR;
          }
-       }
-       else
-       {
+       } else {
          status = DP83848_STATUS_WRITE_ERROR;
        }
      }
    }
+   
+   if (pObj->IO.ReadReg(pObj->DevAddr, LAN8710_SMR, &regvalue) >= 0) {
+     if ((regvalue & LAN8710_SMR_MIIMODE) == LAN8710_SMR_MIIMODE) {
+       regvalue &= ~LAN8710_SMR_MIIMODE;
+       // Apply configuration
+       if (pObj->IO.WriteReg(pObj->DevAddr, LAN8710_SMR, regvalue) < 0) {
+         status =  DP83848_STATUS_WRITE_ERROR;
+       }
+     }
+   }
+/*
+   if (pObj->IO.ReadReg(pObj->DevAddr, DP83848_BCR, &regvalue) >= 0) {
+     if ((regvalue & DP83848_BCR_AUTONEGO_EN) == DP83848_BCR_AUTONEGO_EN) {
+       regvalue |= DP83848_BCR_AUTONEGO_EN;
+       // Apply configuration
+       if (pObj->IO.WriteReg(pObj->DevAddr, DP83848_BCR, regvalue) < 0) {
+         status =  DP83848_STATUS_WRITE_ERROR;
+       }
+     }
+   }
+*/
+   //pObj->IO.ReadReg(pObj->DevAddr, DP83848_BCR, &regvalue);
+   
+   //regvalue |= DP83848_BCR_SPEED_SELECT;
+   //regvalue |= DP83848_BCR_DUPLEX_MODE;
+   
+   // Apply configuration
+   //if (pObj->IO.WriteReg(pObj->DevAddr, DP83848_BCR, regvalue) < 0) {
+   //  status =  DP83848_STATUS_WRITE_ERROR;
+   //}
 
-   if(status == DP83848_STATUS_OK)
-   {
+   if (status == DP83848_STATUS_OK) {
      tickstart =  pObj->IO.GetTick();
 
-     /* Wait for 2s to perform initialization */
-     while((pObj->IO.GetTick() - tickstart) <= DP83848_INIT_TO)
-     {
-     }
+     // Wait for 2s to perform initialization
+     while ((pObj->IO.GetTick() - tickstart) <= DP83848_INIT_TO) { }
      pObj->Is_Initialized = 1;
    }
-
    return status;
  }
 
@@ -292,6 +311,15 @@ int32_t DP83848_StartAutoNego(dp83848_Object_t *pObj)
   return status;
 }
 
+// PHY Special Ctrl/Status Register   
+#define LAN8710_PHYSCSR               ((uint16_t)0x001FU)
+#define LAN8710_PHYSCSR_AUTONEGO_DONE ((uint16_t)0x1000U)
+#define LAN8710_PHYSCSR_HCDSPEEDMASK  ((uint16_t)0x001CU)
+#define LAN8710_PHYSCSR_10BT_HD       ((uint16_t)0x0004U)
+#define LAN8710_PHYSCSR_10BT_FD       ((uint16_t)0x0014U)
+#define LAN8710_PHYSCSR_100BTX_HD     ((uint16_t)0x0008U)
+#define LAN8710_PHYSCSR_100BTX_FD     ((uint16_t)0x0018U)
+
 /**
   * @brief  Get the link state of DP83848 device.
   * @param  pObj: Pointer to device object.
@@ -305,17 +333,18 @@ int32_t DP83848_StartAutoNego(dp83848_Object_t *pObj)
   *         DP83848_STATUS_READ_ERROR if connot read register
   *         DP83848_STATUS_WRITE_ERROR if connot write to register
   */
+
 int32_t DP83848_GetLinkState(dp83848_Object_t *pObj)
 {
   uint32_t readval = 0;
 
-  /* Read Status register  */
+  // Read Status register
   if(pObj->IO.ReadReg(pObj->DevAddr, DP83848_BSR, &readval) < 0)
   {
     return DP83848_STATUS_READ_ERROR;
   }
 
-  /* Read Status register again */
+  // Read Status register again
   if(pObj->IO.ReadReg(pObj->DevAddr, DP83848_BSR, &readval) < 0)
   {
     return DP83848_STATUS_READ_ERROR;
@@ -323,11 +352,11 @@ int32_t DP83848_GetLinkState(dp83848_Object_t *pObj)
 
   if((readval & DP83848_BSR_LINK_STATUS) == 0)
   {
-    /* Return Link Down status */
+    // Return Link Down status
     return DP83848_STATUS_LINK_DOWN;
   }
 
-  /* Check Auto negotiaition */
+  // Check Auto negotiaition
   if(pObj->IO.ReadReg(pObj->DevAddr, DP83848_BCR, &readval) < 0)
   {
     return DP83848_STATUS_READ_ERROR;
@@ -352,14 +381,94 @@ int32_t DP83848_GetLinkState(dp83848_Object_t *pObj)
       return DP83848_STATUS_10MBITS_HALFDUPLEX;
     }
   }
-  else /* Auto Nego enabled */
+  else // Auto Nego enabled
+  {
+    if(pObj->IO.ReadReg(pObj->DevAddr, LAN8710_PHYSCSR, &readval) < 0)
+    {
+      return DP83848_STATUS_READ_ERROR;
+    }
+
+    // Check if auto nego not done 
+    if((readval & LAN8710_PHYSCSR_AUTONEGO_DONE) == 0)
+    {
+      return DP83848_STATUS_AUTONEGO_NOTDONE;
+    }
+
+    if((readval & LAN8710_PHYSCSR_HCDSPEEDMASK) == LAN8710_PHYSCSR_100BTX_FD)
+    {
+      return DP83848_STATUS_100MBITS_FULLDUPLEX;
+    }
+    else if ((readval & LAN8710_PHYSCSR_HCDSPEEDMASK) == LAN8710_PHYSCSR_100BTX_HD)
+    {
+      return DP83848_STATUS_100MBITS_HALFDUPLEX;
+    }
+    else if ((readval & LAN8710_PHYSCSR_HCDSPEEDMASK) == LAN8710_PHYSCSR_10BT_FD)
+    {
+      return DP83848_STATUS_10MBITS_FULLDUPLEX;
+    }
+    else
+    {
+      return DP83848_STATUS_10MBITS_HALFDUPLEX;
+    }
+  }
+}
+
+/*
+int32_t DP83848_GetLinkState(dp83848_Object_t *pObj)
+{
+  uint32_t readval = 0;
+
+  // Read Status register
+  if(pObj->IO.ReadReg(pObj->DevAddr, DP83848_BSR, &readval) < 0)
+  {
+    return DP83848_STATUS_READ_ERROR;
+  }
+
+  // Read Status register again
+  if(pObj->IO.ReadReg(pObj->DevAddr, DP83848_BSR, &readval) < 0)
+  {
+    return DP83848_STATUS_READ_ERROR;
+  }
+
+  if((readval & DP83848_BSR_LINK_STATUS) == 0)
+  {
+    // Return Link Down status
+    return DP83848_STATUS_LINK_DOWN;
+  }
+
+  // Check Auto negotiaition
+  if(pObj->IO.ReadReg(pObj->DevAddr, DP83848_BCR, &readval) < 0)
+  {
+    return DP83848_STATUS_READ_ERROR;
+  }
+
+  if((readval & DP83848_BCR_AUTONEGO_EN) != DP83848_BCR_AUTONEGO_EN)
+  {
+    if(((readval & DP83848_BCR_SPEED_SELECT) == DP83848_BCR_SPEED_SELECT) && ((readval & DP83848_BCR_DUPLEX_MODE) == DP83848_BCR_DUPLEX_MODE))
+    {
+      return DP83848_STATUS_100MBITS_FULLDUPLEX;
+    }
+    else if ((readval & DP83848_BCR_SPEED_SELECT) == DP83848_BCR_SPEED_SELECT)
+    {
+      return DP83848_STATUS_100MBITS_HALFDUPLEX;
+    }
+    else if ((readval & DP83848_BCR_DUPLEX_MODE) == DP83848_BCR_DUPLEX_MODE)
+    {
+      return DP83848_STATUS_10MBITS_FULLDUPLEX;
+    }
+    else
+    {
+      return DP83848_STATUS_10MBITS_HALFDUPLEX;
+    }
+  }
+  else // Auto Nego enabled
   {
     if(pObj->IO.ReadReg(pObj->DevAddr, DP83848_PHYSCSR, &readval) < 0)
     {
       return DP83848_STATUS_READ_ERROR;
     }
 
-    /* Check if auto nego not done */
+    // Check if auto nego not done
     if((readval & DP83848_PHYSCSR_AUTONEGO_DONE) == 0)
     {
       return DP83848_STATUS_AUTONEGO_NOTDONE;
@@ -383,7 +492,7 @@ int32_t DP83848_GetLinkState(dp83848_Object_t *pObj)
     }
   }
 }
-
+*/
 /**
   * @brief  Set the link state of DP83848 device.
   * @param  pObj: Pointer to device object.

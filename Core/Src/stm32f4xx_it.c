@@ -55,11 +55,7 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-extern uint8_t tim;
-extern uint8_t packetReceived;
-extern uint8_t rxBuffer[50];
 extern SemaphoreHandle_t xPacketSemaphore;
-extern uint16_t start;
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -73,7 +69,6 @@ extern DMA_HandleTypeDef hdma_usart3_tx;
 extern UART_HandleTypeDef huart3;
 extern TIM_HandleTypeDef htim1;
 extern SPI_HandleTypeDef hspi4;
-//extern osMutexId_t SPI_MutexHandle;
 
 /* USER CODE BEGIN EV */
 
@@ -240,25 +235,6 @@ void TIM2_IRQHandler(void)
   */
 void USART3_IRQHandler(void)
 {
-  /* USER CODE BEGIN USART3_IRQn 0 */
-  /*
-  if(__HAL_UART_GET_FLAG(&huart3, UART_FLAG_ORE))
-  {
-    USART_Error_Handler(&huart3);
-  }
-  else if(__HAL_UART_GET_FLAG(&huart3, UART_FLAG_FE)) 
-  {
-    USART_Error_Handler(&huart3);
-  }   
-  else if(__HAL_UART_GET_FLAG(&huart3, UART_FLAG_PE))
-  {
-    USART_Error_Handler(&huart3);
-  }
-*/
-  
-  
-  
-  
   if (__HAL_UART_GET_FLAG(&huart3, UART_FLAG_IDLE)) 
   {
     __HAL_UART_CLEAR_IDLEFLAG(&huart3);
@@ -271,7 +247,7 @@ void USART3_IRQHandler(void)
   /* USER CODE END USART3_IRQn 0 */
   HAL_UART_IRQHandler(&huart3);
   /* USER CODE BEGIN USART3_IRQn 1 */
-
+  
   /* USER CODE END USART3_IRQn 1 */
 }
 
@@ -281,14 +257,17 @@ void USART3_IRQHandler(void)
 void DMA2_Stream0_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
-
-  
-  
+ 
   /* USER CODE END DMA2_Stream0_IRQn 0 */
   HAL_DMA_IRQHandler(&hdma_adc1);
   /* USER CODE BEGIN DMA2_Stream0_IRQn 1 */
 
   /* USER CODE END DMA2_Stream0_IRQn 1 */
+}
+
+void ADC_IRQHandler(void)
+{
+  HAL_ADC_IRQHandler(&hadc1);
 }
 
 /**

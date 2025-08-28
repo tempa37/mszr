@@ -47,18 +47,18 @@ void MX_USART3_UART_Init(void)
   huart3.Instance = USART3;
   huart3.Init.BaudRate = usart_speed;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
-  
-  
+
   switch (uartStopBits[0])
   {
-    case 1:
+    case 1: {
       huart3.Init.StopBits = UART_STOPBITS_1; 
       break;
-    case 2: 
+    }
+    case 2: { 
       huart3.Init.StopBits = UART_STOPBITS_2;
       break;
+    }
   }
-
   
   const char *string = "none";
   const char *string2 = "even";
@@ -67,29 +67,17 @@ void MX_USART3_UART_Init(void)
   if(strcmp(uartPARITY, string) == 0)
   {
     huart3.Init.Parity =  UART_PARITY_NONE;
-  }
-  else if(strcmp(uartPARITY, string2) == 0)
-  {
+  } else if(strcmp(uartPARITY, string2) == 0) {
     huart3.Init.WordLength = UART_WORDLENGTH_9B;
     huart3.Init.Parity = UART_PARITY_EVEN;
-  }
-  else if(strcmp(uartPARITY, string3) == 0)
-  {
+  } else if(strcmp(uartPARITY, string3) == 0) {
     huart3.Init.WordLength = UART_WORDLENGTH_9B;
     huart3.Init.Parity = UART_PARITY_ODD;
-  }
-  else
-  {
+  } else {
     huart3.Init.Parity = UART_PARITY_NONE;
-    memcpy(uartPARITY, string, sizeof(string));
+    memcpy(uartPARITY, string, 4);
   }
 
-  
-
-  
-  
-  
-  
   huart3.Init.Mode = UART_MODE_TX_RX;
   huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart3.Init.OverSampling = UART_OVERSAMPLING_16;

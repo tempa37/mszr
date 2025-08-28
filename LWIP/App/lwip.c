@@ -29,20 +29,11 @@
 #include <string.h>
 
 /* USER CODE BEGIN 0 */
-    typedef enum 
-    {
-      MAC,
-      IP,
-      NETMASK,
-      GATEWAY,
-      RS485SPEED,
-      RS485PARITIY,
-      RS485STOPBIT
-    } FlashDataType;
+
 /* USER CODE END 0 */
 /* Private function prototypes -----------------------------------------------*/
 static void ethernet_link_status_updated(struct netif *netif);
-extern void ReadFlash(FlashDataType type, uint8_t* buffer);
+
 /* ETH Variables initialization ----------------------------------------------*/
 void Error_Handler(void);
 
@@ -72,7 +63,8 @@ osThreadAttr_t attributes;
   */
 void MX_LWIP_Init(void)
 {
-  /* IP addresses initialization */
+  /*
+  // IP addresses initialization
   IP_ADDRESS[0] = 192;
   IP_ADDRESS[1] = 168;
   IP_ADDRESS[2] = 77;
@@ -85,90 +77,43 @@ void MX_LWIP_Init(void)
   GATEWAY_ADDRESS[1] = 168;
   GATEWAY_ADDRESS[2] = 77;
   GATEWAY_ADDRESS[3] = 254;
-
-/* USER CODE BEGIN IP_ADDRESSES */
-/* USER CODE END IP_ADDRESSES */
-
+  */
+  
+  /* USER CODE BEGIN IP_ADDRESSES */
+  /* USER CODE END IP_ADDRESSES */
+  
   /* Initialize the LwIP stack with RTOS */
   tcpip_init( NULL, NULL );
-  uint8_t TEST[4] = {0};
-  uint8_t test = 0;
   
-
-  
-  
-  ReadFlash(IP, TEST);
-  for (int i = 0; i < 4; i++) 
-  {
-        if (TEST[i] != 0xFF) 
-        {
-          test = 1;
-        }
-  }
-  if(test == 1)
-  {
-      ReadFlash(IP, IP_ADDRESS);   //------------------------------------ do nothing (write some code later) --------------------------
-      test = 0;
-  }
-  
-  ReadFlash(NETMASK, TEST);
-  for (int i = 0; i < 4; i++) 
-  {
-        if (TEST[i] != 0xFF) 
-        {
-          test = 1;
-        }
-  }
-  if(test == 1)
-  {
-        ReadFlash(NETMASK, NETMASK_ADDRESS);
-        test = 0;
-  }
-  
-  ReadFlash(GATEWAY, TEST);
-  for (int i = 0; i < 4; i++) 
-  {
-        if (TEST[i] != 0xFF) 
-        {
-          test = 1;
-        }
-  }
-  if(test == 1)
-  {
-        ReadFlash(GATEWAY, GATEWAY_ADDRESS);
-        test = 0;
-  }
-  
-
   /* IP addresses initialization without DHCP (IPv4) */
   IP4_ADDR(&ipaddr, IP_ADDRESS[0], IP_ADDRESS[1], IP_ADDRESS[2], IP_ADDRESS[3]);
   IP4_ADDR(&netmask, NETMASK_ADDRESS[0], NETMASK_ADDRESS[1] , NETMASK_ADDRESS[2], NETMASK_ADDRESS[3]);
   IP4_ADDR(&gw, GATEWAY_ADDRESS[0], GATEWAY_ADDRESS[1], GATEWAY_ADDRESS[2], GATEWAY_ADDRESS[3]);
-
+  
   /* add the network interface (IPv4/IPv6) with RTOS */
   netif_add(&gnetif, &ipaddr, &netmask, &gw, NULL, &ethernetif_init, &tcpip_input);
-
+  
   /* Registers the default network interface */
   netif_set_default(&gnetif);
-
+  
   /* We must always bring the network interface up connection or not... */
   netif_set_up(&gnetif);
-
+  
   /* Set the link callback function, this function is called on change of link status*/
   netif_set_link_callback(&gnetif, ethernet_link_status_updated);
-
+  
   /* Create the Ethernet link handler thread */
-/* USER CODE BEGIN H7_OS_THREAD_NEW_CMSIS_RTOS_V2 */
+  /* USER CODE BEGIN H7_OS_THREAD_NEW_CMSIS_RTOS_V2 */
   memset(&attributes, 0x0, sizeof(osThreadAttr_t));
   attributes.name = "EthLink";
   attributes.stack_size = INTERFACE_THREAD_STACK_SIZE;
   attributes.priority = osPriorityBelowNormal;
   osThreadNew(ethernet_link_thread, &gnetif, &attributes);
-/* USER CODE END H7_OS_THREAD_NEW_CMSIS_RTOS_V2 */
-
-/* USER CODE BEGIN 3 */
-
-/* USER CODE END 3 */
+  /* USER CODE END H7_OS_THREAD_NEW_CMSIS_RTOS_V2 */
+  
+  /* USER CODE BEGIN 3 */
+  
+  /* USER CODE END 3 */
 }
 
 #ifdef USE_OBSOLETE_USER_CODE_SECTION_4

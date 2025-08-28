@@ -2,335 +2,293 @@
 #include "stm32f4xx_hal.h"
 #include "main.h"
 
-
 void modbus(uint8_t *data, uint16_t len, uint8_t *data_out, uint16_t *len_out, Protocol protocol)
 {
-	uint16_t crc = 0;
-	uint16_t rx_crc = 0;
-	uint8_t fcode = 0;
-        
+  uint16_t crc = 0;
+  uint16_t rx_crc = 0;
+  uint8_t fcode = 0;
+  
+  if (((data[0] == SELF_ADDR) && (protocol == RTU)) || 
+      ((protocol == TCP) && data[6] == SELF_ADDR))
+  {
+    switch (protocol) {
+      case TCP: {
+        fcode = data[7];
+        break;
+      }
+      case RTU: {
+        crc = mbcrc(data, len-1);
+        rx_crc = (data[len-1] << 8) | data[len];
+        if ((crc == rx_crc) || (protocol == TCP)) {
+          fcode = data[1];
+        }
+        break;
+      }
+    }
     
-          if(((data[0] == SELF_ADDR) && (protocol == RTU))|| ((protocol == TCP) && data[6] == SELF_ADDR))
-            {     
-
-              switch (protocol)
-                {
-                case TCP:
-                  fcode = data[7];
-                  break;
-                case RTU:
-                  crc = mbcrc(data, len-1);
-                  rx_crc = (data[len-1] << 8) | data[len];
-                  if ((crc == rx_crc) || (protocol == TCP))
-                    {
-                      fcode = data[1];
-                    }
-                  break;
-                }
-
-              switch(fcode)
-                {
-                  case 03:							
-                    readREG(protocol, data, len, data_out, len_out);
-                    break;
-                  
-                  case 06:
-                    writeREG(protocol, data, len, data_out, len_out);
-                    break;
-                    /*
-                  case 0x10:
-                    writeMoreReg(protocol, data, len, data_out, len_out);
-                    break;
-                  case 0:  //crc error
-
-                    break;
-                    */
-                  default:
-                    modbus_response_err(protocol, data, data_out, len_out, 0x01);  //Illegal Function
-                    break;
-                }
-
-            }
-	}
-
-
-
-
-
+    switch (fcode) {
+      case 03: {							
+        readREG(protocol, data, len, data_out, len_out);
+        break;
+      }
+      case 06: {
+        writeREG(protocol, data, len, data_out, len_out);
+        break;
+      }
+      /*
+      case 0x10:
+      writeMoreReg(protocol, data, len, data_out, len_out);
+      break;
+      case 0:  //crc error
+      
+      break;
+      */
+      default: {
+        modbus_response_err(protocol, data, data_out, len_out, 0x01);  //Illegal Function
+        break;
+      }
+    }
+    
+  }
+}
 
 void readREG (Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out, uint16_t *len_out)
 {
-    uint16_t start_address; 
-    uint16_t quantity;       
-    uint16_t crc_calculated; 
-    uint16_t i;
-    uint8_t unit_id;
-
-	if(protocol == RTU)
-	{
-	
-		start_address = (data[2] << 8) | data[3];
-		quantity = (data[4] << 8) | data[5];
-		
-		if (quantity > LEN_0X03_REGISTERS || start_address + quantity > LEN_0X03_REGISTERS)
-		{
-			modbus_response_err(protocol,data, data_out, len_out, 0x02);  //Illegal Data Address
-			return;
-		}
-		
-		data_out[0] = data[0];  // ID запроса
-		data_out[1] = 0x03;     // код функции
-		data_out[2] = quantity * 2;  // количество байт с данными
-		
-		for (i = 0; i < quantity; i++) 
-		{
-                  if((start_address + i) <= (LEN_0X03_REGISTERS - 1))
-                  {
-			data_out[3 + i * 2] = (READ_REGISTERS[start_address + i] >> 8) & 0xFF;  //Data
-			data_out[4 + i * 2] = READ_REGISTERS[start_address + i] & 0xFF;       
-                  }
-		}
-		
-		crc_calculated = mbcrc(data_out, 3 + quantity * 2);
-		data_out[3 + quantity * 2] = (crc_calculated >> 8) & 0xFF; 
-		data_out[4 + quantity * 2] = crc_calculated & 0xFF;
-		*len_out = 5 + quantity * 2; 
-	 
-	}
-	else if(protocol == TCP)
-	{
-          
-		unit_id = data[6]; 
-
-		// Начало PDU (Protocol Data Unit)
-		start_address = (data[8] << 8) | data[9];  
-		quantity = (data[10] << 8) | data[11];     
-
-		if (quantity > LEN_0X03_REGISTERS || start_address + quantity > LEN_0X03_REGISTERS) 
-		{
-			modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
-			return;
-		}
-		
-		data_out[0] = data[0];  // Transaction ID 
-		data_out[1] = data[1];  // Transaction ID 
-		data_out[2] = 0x00;     // Protocol ID 
-		data_out[3] = 0x00;     // Protocol ID 
-		data_out[4] = 0x00;     // Длина 
-		data_out[5] = quantity * 2 + 3;  // Длина 
-		data_out[6] = unit_id;  // Unit Identifier
-		data_out[7] = 0x03;  
-		data_out[8] = quantity * 2;  
-		for (i = 0; i < quantity; i++) 
-		{
-                  if((start_address + i) <= (LEN_0X03_REGISTERS - 1))
-                  {
-			data_out[9 + i * 2] = (READ_REGISTERS[start_address + i] >> 8) & 0xFF;  //Data
-			data_out[10 + i * 2] = READ_REGISTERS[start_address + i] & 0xFF;      
-                  }
-		}
-		*len_out = 9 + quantity * 2;		
-	}
+  uint16_t start_address; 
+  uint16_t quantity;       
+  uint16_t crc_calculated; 
+  uint16_t i;
+  uint8_t unit_id;
+  
+  if (protocol == RTU) {
+    start_address = (data[2] << 8) | data[3];
+    quantity = (data[4] << 8) | data[5];
+    
+    if (quantity > LEN_0X03_REGISTERS || 
+        start_address + quantity > LEN_0X03_REGISTERS)
+    {
+      modbus_response_err(protocol,data, data_out, len_out, 0x02);  //Illegal Data Address
+      return;
+    }
+    
+    data_out[0] = data[0];  // ID запроса
+    data_out[1] = 0x03;     // код функции
+    data_out[2] = quantity * 2;  // количество байт с данными
+    
+    for (i = 0; i < quantity; i++) {
+      if ((start_address + i) <= (LEN_0X03_REGISTERS - 1)) {
+        data_out[3 + i * 2] = (READ_REGISTERS[start_address + i] >> 8) & 0xFF;  //Data
+        data_out[4 + i * 2] = READ_REGISTERS[start_address + i] & 0xFF;       
+      }
+    }
+    
+    crc_calculated = mbcrc(data_out, 3 + quantity * 2);
+    data_out[3 + quantity * 2] = (crc_calculated >> 8) & 0xFF; 
+    data_out[4 + quantity * 2] = crc_calculated & 0xFF;
+    *len_out = 5 + quantity * 2;
+  } else if (protocol == TCP) {
+    unit_id = data[6]; 
+    
+    // Начало PDU (Protocol Data Unit)
+    start_address = (data[8] << 8) | data[9];  
+    quantity = (data[10] << 8) | data[11];     
+    
+    if (quantity > LEN_0X03_REGISTERS || start_address + quantity > LEN_0X03_REGISTERS) {
+      modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
+      return;
+    }
+    
+    data_out[0] = data[0];  // Transaction ID 
+    data_out[1] = data[1];  // Transaction ID 
+    data_out[2] = 0x00;     // Protocol ID 
+    data_out[3] = 0x00;     // Protocol ID 
+    data_out[4] = 0x00;     // Длина 
+    data_out[5] = quantity * 2 + 3;  // Длина 
+    data_out[6] = unit_id;  // Unit Identifier
+    data_out[7] = 0x03;  
+    data_out[8] = quantity * 2;  
+    for (i = 0; i < quantity; i++) {
+      if ((start_address + i) <= (LEN_0X03_REGISTERS - 1)) {
+        data_out[9 + i * 2] = (READ_REGISTERS[start_address + i] >> 8) & 0xFF;  //Data
+        data_out[10 + i * 2] = READ_REGISTERS[start_address + i] & 0xFF;      
+      }
+    }
+    *len_out = 9 + quantity * 2;		
+  }
 }
-
-
 
 void writeREG(Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out, uint16_t *len_out)
 {
-	if(protocol == RTU)
-	{
-		uint16_t address = (data[2] << 8) | data[3];
-		
-		if ((address < WRITE_REGISTERS_ADDRESS || 
-			address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
-		{
-			modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
-			return;
-		}
-		
-		uint16_t value = (data[4] << 8) | data[5];
-		
-		WRITE_REGISTERS[address] = value;
-		
-		for (int i = 0; i < len; i++) 
-		{
-			data_out[i] = data[i];
-		}
-		
-		*len_out = len + 2;
-	}
-	else if(protocol == TCP)
-	{
-		uint16_t transaction_id = (data[0] << 8) | data[1];
-		uint16_t protocol_id = (data[2] << 8) | data[3];
-		uint16_t message_len = (data[4] << 8) | data[5];
-                
-		if (protocol_id != 0x0000 || message_len < 6)
-		{
-			modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
-			return;
-		}
-
-		uint8_t unit_id = data[6]; // Unit ID
-		uint16_t address = (data[8] << 8) | data[9]; 
-		uint16_t register_value = (data[10] << 8) | data[11]; 
-		if ((address < WRITE_REGISTERS_ADDRESS || 
-			address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
-		{
-			modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
-			return;
-		}
-
-		REGISTERS[address] = register_value;
-
-		data_out[0] = (transaction_id >> 8) & 0xFF;
-		data_out[1] = transaction_id & 0xFF;
-		data_out[2] = (protocol_id >> 8) & 0xFF;
-		data_out[3] = protocol_id & 0xFF;
-		data_out[4] = 0x00;
-		data_out[5] = 0x06; 
-		data_out[6] = unit_id; 
-		data_out[7] = 0x06; 
-		data_out[8] = (address >> 8) & 0xFF;
-		data_out[9] = address & 0xFF;
-		data_out[10] = (register_value >> 8) & 0xFF;
-		data_out[11] = register_value & 0xFF;
-                *len_out = 12;
-            }
+  if (protocol == RTU) {
+    uint16_t address = (data[2] << 8) | data[3];
+    
+    if ((address < WRITE_REGISTERS_ADDRESS || 
+         address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
+    {
+      modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
+      return;
+    }
+    
+    uint16_t value = (data[4] << 8) | data[5];
+    
+    WRITE_REGISTERS[address] = value;
+    
+    for (int i = 0; i < len; i++) {
+      data_out[i] = data[i];
+    }
+    
+    *len_out = len + 2;
+  } else if (protocol == TCP) {
+    uint16_t transaction_id = (data[0] << 8) | data[1];
+    uint16_t protocol_id = (data[2] << 8) | data[3];
+    uint16_t message_len = (data[4] << 8) | data[5];
+    
+    if (protocol_id != 0x0000 || message_len < 6) {
+      modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
+      return;
+    }
+    
+    uint8_t unit_id = data[6]; // Unit ID
+    uint16_t address = (data[8] << 8) | data[9]; 
+    uint16_t register_value = (data[10] << 8) | data[11]; 
+    if ((address < WRITE_REGISTERS_ADDRESS || 
+         address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
+    {
+      modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
+      return;
+    }
+    
+    REGISTERS[address] = register_value;
+    
+    data_out[0] = (transaction_id >> 8) & 0xFF;
+    data_out[1] = transaction_id & 0xFF;
+    data_out[2] = (protocol_id >> 8) & 0xFF;
+    data_out[3] = protocol_id & 0xFF;
+    data_out[4] = 0x00;
+    data_out[5] = 0x06; 
+    data_out[6] = unit_id; 
+    data_out[7] = 0x06; 
+    data_out[8] = (address >> 8) & 0xFF;
+    data_out[9] = address & 0xFF;
+    data_out[10] = (register_value >> 8) & 0xFF;
+    data_out[11] = register_value & 0xFF;
+    *len_out = 12;
+  }
 }
-
 
 void writeMoreReg(Protocol protocol, uint8_t *data, uint16_t len, uint8_t *data_out, uint16_t *len_out)
 {
-	if(protocol == RTU)
-	{
-		uint16_t address = (data[2] << 8) | data[3];
-		
-		if ((address < WRITE_REGISTERS_ADDRESS || 
-			address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
-		{
-			modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
-			return;
-		}
-		
-		uint16_t count = (data[4] << 8) | data[5];
-		
-                 for (int i = 0; i < count; i++) 
-                 {
-                   WRITE_REGISTERS[address +i] = (data[7+i*2] << 8) | data[8+i*2];
-                 }
-
-		for (int i = 0; i < 6; i++) 
-		{
-			data_out[i] = data[i];
-		}
-
-                *len_out = len + 2;   
-                
-                //save_time_unix();
-	}
-	else if(protocol == TCP)
-	{
-            uint16_t transaction_id = (data[0] << 8) | data[1];
-            uint16_t protocol_id    = (data[2] << 8) | data[3];
-            uint16_t message_len    = (data[4] << 8) | data[5];
-
-            // Проверяем корректность заголовка TCP (минимальная длина – 7 байт после заголовка)
-            if (protocol_id != 0x0000 || message_len < 7)
-            {
-                modbus_response_err(protocol, data, data_out, len_out, 0x02); // Illegal Data Address
-                return;
-            }
-
-            uint8_t unit_id      = data[6];
-            uint8_t function_code = data[7]; // Обычно 0x10 для записи нескольких регистров
-            uint16_t address     = (data[8] << 8) | data[9];
-            uint16_t count       = (data[10] << 8) | data[11];
-            
-            uint8_t byte_count   = data[12];
-            // Проверяем, соответствует ли байт-счётчик количеству переданных байтов (2 байта на регистр)
-            if (byte_count != count * 2)
-            {
-                modbus_response_err(protocol, data, data_out, len_out, 0x03); // Можно использовать иной код ошибки, например, Illegal Data Value
-                return;
-            }
-            
-
-            // Проверка адреса на валидность
-            if ((address < WRITE_REGISTERS_ADDRESS || 
-                 address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
-            {
-                modbus_response_err(protocol, data, data_out, len_out, 0x02); // Illegal Data Address
-                return;
-            }
-
-            // Записываем несколько регистров аналогично RTU
-            for (int i = 0; i < count; i++) 
-            {
-                WRITE_REGISTERS[address + i] = (data[13 + 2*i] << 8) | data[13 + 2*i + 1];
-            }
-
-            // Формируем ответ: echo заголовка с начальным адресом и количеством записанных регистров
-            data_out[0] = (transaction_id >> 8) & 0xFF;
-            data_out[1] = transaction_id & 0xFF;
-            data_out[2] = (protocol_id >> 8) & 0xFF;
-            data_out[3] = protocol_id & 0xFF;
-            data_out[4] = 0x00;
-            data_out[5] = 0x06; // Длина ответа: unit_id + function_code + адрес (2) + count (2)
-            data_out[6] = unit_id;
-            data_out[7] = function_code;
-            data_out[8] = (address >> 8) & 0xFF;
-            data_out[9] = address & 0xFF;
-            data_out[10] = (count >> 8) & 0xFF;
-            data_out[11] = count & 0xFF;
-            *len_out = 12;
-
-            //save_time_unix();
-        }
-
+  if (protocol == RTU) {
+    uint16_t address = (data[2] << 8) | data[3];
+    
+    if ((address < WRITE_REGISTERS_ADDRESS || 
+         address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
+    {
+      modbus_response_err(protocol, data, data_out, len_out, 0x02); //Illegal Data Address
+      return;
+    }
+    
+    uint16_t count = (data[4] << 8) | data[5];
+    
+    for (int i = 0; i < count; i++) {
+      WRITE_REGISTERS[address +i] = (data[7+i*2] << 8) | data[8+i*2];
+    }
+    
+    for (int i = 0; i < 6; i++) {
+      data_out[i] = data[i];
+    }
+    
+    *len_out = len + 2;   
+    
+    //save_time_unix();
+  } else if (protocol == TCP) {
+    uint16_t transaction_id = (data[0] << 8) | data[1];
+    uint16_t protocol_id    = (data[2] << 8) | data[3];
+    uint16_t message_len    = (data[4] << 8) | data[5];
+    
+    // Проверяем корректность заголовка TCP (минимальная длина – 7 байт после заголовка)
+    if (protocol_id != 0x0000 || message_len < 7) {
+      modbus_response_err(protocol, data, data_out, len_out, 0x02); // Illegal Data Address
+      return;
+    }
+    
+    uint8_t unit_id      = data[6];
+    uint8_t function_code = data[7]; // Обычно 0x10 для записи нескольких регистров
+    uint16_t address     = (data[8] << 8) | data[9];
+    uint16_t count       = (data[10] << 8) | data[11];
+    
+    uint8_t byte_count   = data[12];
+    // Проверяем, соответствует ли байт-счётчик количеству переданных байтов (2 байта на регистр)
+    if (byte_count != count * 2) {
+      modbus_response_err(protocol, data, data_out, len_out, 0x03); // Можно использовать иной код ошибки, например, Illegal Data Value
+      return;
+    }
+    
+    // Проверка адреса на валидность
+    if ((address < WRITE_REGISTERS_ADDRESS || 
+         address >= WRITE_REGISTERS_ADDRESS + LEN_0X06_REGISTERS) || UNWRITER)
+    {
+      modbus_response_err(protocol, data, data_out, len_out, 0x02); // Illegal Data Address
+      return;
+    }
+    
+    // Записываем несколько регистров аналогично RTU
+    for (int i = 0; i < count; i++) {
+      WRITE_REGISTERS[address + i] = (data[13 + 2*i] << 8) | data[13 + 2*i + 1];
+    }
+    
+    // Формируем ответ: echo заголовка с начальным адресом и количеством записанных регистров
+    data_out[0] = (transaction_id >> 8) & 0xFF;
+    data_out[1] = transaction_id & 0xFF;
+    data_out[2] = (protocol_id >> 8) & 0xFF;
+    data_out[3] = protocol_id & 0xFF;
+    data_out[4] = 0x00;
+    data_out[5] = 0x06; // Длина ответа: unit_id + function_code + адрес (2) + count (2)
+    data_out[6] = unit_id;
+    data_out[7] = function_code;
+    data_out[8] = (address >> 8) & 0xFF;
+    data_out[9] = address & 0xFF;
+    data_out[10] = (count >> 8) & 0xFF;
+    data_out[11] = count & 0xFF;
+    *len_out = 12;
+    
+    //save_time_unix();
+  }
 }
-
-
 
 void modbus_response_err(uint8_t protocol, uint8_t *data, uint8_t *data_out, uint16_t *len_out, uint8_t err_code) 
 {
-	if(protocol == RTU)
-	{
-            uint8_t function_code = err_code;      
-
-            data_out[0] = SELF_ADDR;             
-            data_out[1] = function_code | 0x80;  
-            data_out[2] = err_code;             
-
-            // Вычисляем CRC для первых трех байтов (адрес, функция, код ошибки)
-            uint16_t crc = mbcrc(data_out, 3);
-            data_out[3] = (crc >> 8) & 0xFF;    
-            data_out[4] = crc & 0xFF;    
-            *len_out = 5;
-	}
-	else if(protocol == TCP)
-	{
-            uint16_t transaction_id = (data[0] << 8) | data[1];  
-            uint16_t protocol_id = (data[2] << 8) | data[3]; 
-            //uint16_t length = (data[4] << 8) | data[5];          
-            uint8_t unit_id = data[6];                         
-            uint8_t function_code = data[7];                   
-
-
-            data_out[0] = (transaction_id >> 8) & 0xFF;  
-            data_out[1] = transaction_id & 0xFF;        
-            data_out[2] = (protocol_id >> 8) & 0xFF;    
-            data_out[3] = protocol_id & 0xFF;           
-            data_out[4] = 0x00;                         
-            data_out[5] = 0x03;                        
-            data_out[6] = unit_id;                       
-            data_out[7] = function_code | 0x80;          
-            data_out[8] = err_code;               
-            *len_out = 9;
-    }
+  if (protocol == RTU) {
+    uint8_t function_code = err_code;      
+    
+    data_out[0] = SELF_ADDR;             
+    data_out[1] = function_code | 0x80;  
+    data_out[2] = err_code;             
+    
+    // Вычисляем CRC для первых трех байтов (адрес, функция, код ошибки)
+    uint16_t crc = mbcrc(data_out, 3);
+    data_out[3] = (crc >> 8) & 0xFF;    
+    data_out[4] = crc & 0xFF;    
+    *len_out = 5;
+  } else if (protocol == TCP) {
+    uint16_t transaction_id = (data[0] << 8) | data[1];  
+    uint16_t protocol_id = (data[2] << 8) | data[3]; 
+    //uint16_t length = (data[4] << 8) | data[5];          
+    uint8_t unit_id = data[6];                         
+    uint8_t function_code = data[7];                   
+    
+    data_out[0] = (transaction_id >> 8) & 0xFF;  
+    data_out[1] = transaction_id & 0xFF;        
+    data_out[2] = (protocol_id >> 8) & 0xFF;    
+    data_out[3] = protocol_id & 0xFF;           
+    data_out[4] = 0x00;                         
+    data_out[5] = 0x03;                        
+    data_out[6] = unit_id;                       
+    data_out[7] = function_code | 0x80;          
+    data_out[8] = err_code;               
+    *len_out = 9;
+  }
 }
-
-
 
 static const uint16_t crc16table[] = {
   0x0000, 0xC0C1, 0xC181, 0x0140, 0xC301, 0x03C0, 0x0280, 0xC241,
@@ -369,12 +327,13 @@ static const uint16_t crc16table[] = {
 
 uint16_t mbcrc(uint8_t * data, int32_t len)
 {
-    uint16_t crc = 0xFFFF;
-    
-    for (uint16_t i = 0; i < len; i++)
+  uint16_t crc = 0xFFFF;
+  
+  for (uint16_t i = 0; i < len; i++) {
     crc = (crc >> 8) ^ crc16table[(crc & 0xFF) ^ data[i]];
-    
-    unsigned char temp = crc >> 8;
-    crc = (crc << 8) | temp; 
-    return crc;
+  }
+  
+  unsigned char temp = crc >> 8;
+  crc = (crc << 8) | temp; 
+  return crc;
 }

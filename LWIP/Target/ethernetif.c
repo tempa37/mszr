@@ -33,7 +33,7 @@
 
 /* Within 'USER CODE' section, code will be kept by default at each generation */
 /* USER CODE BEGIN 0 */
-#include "freertos.h"
+
 /* USER CODE END 0 */
 
 /* Private define ------------------------------------------------------------*/
@@ -41,7 +41,7 @@
 #define TIME_WAITING_FOR_INPUT ( portMAX_DELAY )
 /* USER CODE BEGIN OS_THREAD_STACK_SIZE_WITH_RTOS */
 /* Stack size of the interface thread */
-#define INTERFACE_THREAD_STACK_SIZE ( 350 )
+#define INTERFACE_THREAD_STACK_SIZE ( 1024 )
 /* USER CODE END OS_THREAD_STACK_SIZE_WITH_RTOS */
 /* Network interface name */
 #define IFNAME0 's'
@@ -52,15 +52,7 @@
 #define ETH_TX_BUFFER_MAX             ((ETH_TX_DESC_CNT) * 2U)
 
 /* USER CODE BEGIN 1 */
- typedef enum 
-    {
-      MAC,
-      IP,
-      NETMASK,
-      GATEWAY
-    } FlashDataType;
 
-extern void ReadFlash(FlashDataType type, uint8_t* buffer);
 /* USER CODE END 1 */
 
 /* Private variables ---------------------------------------------------------*/
@@ -174,6 +166,8 @@ void HAL_ETH_ErrorCallback(ETH_HandleTypeDef *handlerEth)
 
 /* USER CODE BEGIN 4 */
 
+uint8_t MACAddr[6];
+
 /* USER CODE END 4 */
 
 /*******************************************************************************
@@ -191,50 +185,23 @@ static void low_level_init(struct netif *netif)
   HAL_StatusTypeDef hal_eth_init_status = HAL_OK;
 /* USER CODE BEGIN OS_THREAD_ATTR_CMSIS_RTOS_V2 */
   osThreadAttr_t attributes;
-  uint8_t TEST[4] = {0};
-  uint8_t test = 0;
 /* USER CODE END OS_THREAD_ATTR_CMSIS_RTOS_V2 */
   uint32_t duplex, speed = 0;
   int32_t PHYLinkState = 0;
   ETH_MACConfigTypeDef MACConf = {0};
   /* Start ETH HAL Init */
 
-   uint8_t MACAddr[6] ;
+  
   heth.Instance = ETH;
+/*
   MACAddr[0] = 0x00;
   MACAddr[1] = 0x80;
   MACAddr[2] = 0xE1;
   MACAddr[3] = 0x00;
   MACAddr[4] = 0x00;
   MACAddr[5] = 0x00;
-  
-  
-  ReadFlash(MAC, TEST);
-  for (int i = 0; i < 4; i++) 
-  {
-        if (TEST[i] != 0xFF) 
-        {
-          test = 1;
-        }
-  }
-  if(test == 1)
-  {
-        ReadFlash(MAC, MACAddr);
-        test = 0;
-  }
-  else
-  {
-    MACAddr[0] = 0x00;
-    MACAddr[1] = 0x80;
-    MACAddr[2] = 0xE1;
-    MACAddr[3] = 0x00;
-    MACAddr[4] = 0x00;
-    MACAddr[5] = 0x00;
-  }
-  
-  
-  
-  
+*/  
+
   heth.Init.MACAddr = &MACAddr[0];
   heth.Init.MediaInterface = HAL_ETH_MII_MODE;
   heth.Init.TxDesc = DMATxDscrTab;
@@ -454,6 +421,8 @@ static struct pbuf * low_level_input(struct netif *netif)
 
   return p;
 }
+
+UBaseType_t WM_ETH_IN;
 
 /**
  * @brief This function should be called when a packet is ready to be read
@@ -813,67 +782,67 @@ void ethernet_link_thread(void* argument)
   ETH_MACConfigTypeDef MACConf = {0};
   int32_t PHYLinkState = 0;
   uint32_t linkchanged = 0U, speed = 0U, duplex = 0U;
-
+  
   struct netif *netif = (struct netif *) argument;
-/* USER CODE BEGIN ETH link init */
-
-/* USER CODE END ETH link init */
-
+  /* USER CODE BEGIN ETH link init */
+  
+  /* USER CODE END ETH link init */
+  
   for(;;)
   {
-  PHYLinkState = DP83848_GetLinkState(&DP83848);
-
-  if(netif_is_link_up(netif) && (PHYLinkState <= DP83848_STATUS_LINK_DOWN))
-  {
-    HAL_ETH_Stop_IT(&heth);
-    netif_set_down(netif);
-    netif_set_link_down(netif);
-  }
-  else if(!netif_is_link_up(netif) && (PHYLinkState > DP83848_STATUS_LINK_DOWN))
-  {
-    switch (PHYLinkState)
+    PHYLinkState = DP83848_GetLinkState(&DP83848);
+    
+    if(netif_is_link_up(netif) && (PHYLinkState <= DP83848_STATUS_LINK_DOWN))
     {
-    case DP83848_STATUS_100MBITS_FULLDUPLEX:
-      duplex = ETH_FULLDUPLEX_MODE;
-      speed = ETH_SPEED_100M;
-      linkchanged = 1;
-      break;
-    case DP83848_STATUS_100MBITS_HALFDUPLEX:
-      duplex = ETH_HALFDUPLEX_MODE;
-      speed = ETH_SPEED_100M;
-      linkchanged = 1;
-      break;
-    case DP83848_STATUS_10MBITS_FULLDUPLEX:
-      duplex = ETH_FULLDUPLEX_MODE;
-      speed = ETH_SPEED_10M;
-      linkchanged = 1;
-      break;
-    case DP83848_STATUS_10MBITS_HALFDUPLEX:
-      duplex = ETH_HALFDUPLEX_MODE;
-      speed = ETH_SPEED_10M;
-      linkchanged = 1;
-      break;
-    default:
-      break;
+      HAL_ETH_Stop_IT(&heth);
+      netif_set_down(netif);
+      netif_set_link_down(netif);
     }
-
-    if(linkchanged)
+    else if(!netif_is_link_up(netif) && (PHYLinkState > DP83848_STATUS_LINK_DOWN))
     {
-      /* Get MAC Config MAC */
-      HAL_ETH_GetMACConfig(&heth, &MACConf);
-      MACConf.DuplexMode = duplex;
-      MACConf.Speed = speed;
-      HAL_ETH_SetMACConfig(&heth, &MACConf);
-      HAL_ETH_Start_IT(&heth);
-      netif_set_up(netif);
-      netif_set_link_up(netif);
+      switch (PHYLinkState)
+      {
+        case DP83848_STATUS_100MBITS_FULLDUPLEX:
+        duplex = ETH_FULLDUPLEX_MODE;
+        speed = ETH_SPEED_100M;
+        linkchanged = 1;
+        break;
+        case DP83848_STATUS_100MBITS_HALFDUPLEX:
+        duplex = ETH_HALFDUPLEX_MODE;
+        speed = ETH_SPEED_100M;
+        linkchanged = 1;
+        break;
+        case DP83848_STATUS_10MBITS_FULLDUPLEX:
+        duplex = ETH_FULLDUPLEX_MODE;
+        speed = ETH_SPEED_10M;
+        linkchanged = 1;
+        break;
+        case DP83848_STATUS_10MBITS_HALFDUPLEX:
+        duplex = ETH_HALFDUPLEX_MODE;
+        speed = ETH_SPEED_10M;
+        linkchanged = 1;
+        break;
+        default:
+        break;
+      }
+      
+      if(linkchanged)
+      {
+        /* Get MAC Config MAC */
+        HAL_ETH_GetMACConfig(&heth, &MACConf);
+        MACConf.DuplexMode = duplex;
+        MACConf.Speed = speed;
+        HAL_ETH_SetMACConfig(&heth, &MACConf);
+        HAL_ETH_Start_IT(&heth);
+        netif_set_up(netif);
+        netif_set_link_up(netif);
+      }
     }
-  }
-
-/* USER CODE BEGIN ETH link Thread core code for User BSP */
-
-/* USER CODE END ETH link Thread core code for User BSP */
-
+    
+    /* USER CODE BEGIN ETH link Thread core code for User BSP */
+    
+    /* USER CODE END ETH link Thread core code for User BSP */
+    
     osDelay(100);
   }
 }

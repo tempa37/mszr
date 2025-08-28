@@ -47,48 +47,16 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-  uint16_t adcBuffer[457] = {0};
+extern uint8_t USART_3_SPEED[10];
+extern uint8_t uartStopBits[10];
+extern uint8_t uartPARITY[10]; 
 
+uint32_t usart_speed = 0;
+  
+#define START_ADDR 0x08020000
 
-  volatile uint16_t REGISTERS[9];
-  uint8_t OLED = 1;
-  uint8_t t = 0;
-  uint8_t rxBuffer[8] = {0};
-  extern uint8_t TIME_RESET_OLED;
-    typedef struct 
-    {
-      uint8_t seconds;  
-      uint8_t minutes;  
-      uint8_t hours;    
-      uint16_t days;     
-      
-    } TimeStruct;
-    
-        typedef enum 
-    {
-      MAC,
-      IP,
-      NETMASK,
-      GATEWAY,
-      SERIAL,
-      RS485SPEED,
-      RS485PARITIY,
-      RS485STOPBIT
-    } FlashDataType;
-    
-  extern uint16_t start;
-  extern uint8_t fff;
-  extern TimeStruct time;
-  extern uint8_t USART_3_SPEED[10];
-  extern uint8_t uartStopBits[10];
-  extern uint8_t uartPARITY[10]; 
-  uint32_t usart_speed = 0;
-  
-  #define START_ADDR 0x08020000
-  
- uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] @ ".ccmram";
-  
-  TimeStruct time_raw = {0};
+uint8_t ucHeap[configTOTAL_HEAP_SIZE] @ ".ccmram" = {0};;
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -108,6 +76,7 @@ void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 void vTimerCallback(TimerHandle_t xTimer);
 static void ProtectBootSectorsOnce(void);
+extern void ReadFlash(FlashDataType type, uint8_t* buffer);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -118,51 +87,39 @@ static void ProtectBootSectorsOnce(void);
 /**
   * @brief  The application entry point.
   * @retval int
-  */
-
+*/
     
-     
-    
-
- 
-       
-
-
-
 int main(void)
-{
-
+{  
   /* USER CODE BEGIN 1 */
-    __disable_irq();
-    SCB->VTOR = START_ADDR;
-    __enable_irq();
+  __disable_irq();
+  SCB->VTOR = START_ADDR;
+  __enable_irq();
   /* USER CODE END 1 */
-
+  
   /* MCU Configuration--------------------------------------------------------*/
-
+  
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  
+    
   /* USER CODE BEGIN Init */
-
+  
   /* USER CODE END Init */
-
+  
   /* Configure the system clock */
   SystemClock_Config();
-
+  
   /* USER CODE BEGIN SysInit */
-
+  
   /* USER CODE END SysInit */
-
+  
   /* Initialize all configured peripherals */
-  REGISTERS[2] = 1;
+
   MX_GPIO_Init();
   
   __HAL_RCC_DMA1_FORCE_RESET();   
   __HAL_RCC_DMA1_RELEASE_RESET(); 
   
-
   MX_DMA_Init();
   MX_SPI4_Init();
   MX_ADC1_Init();
@@ -171,159 +128,122 @@ int main(void)
   ProtectBootSectorsOnce();
   
   uint8_t TEST[10] = {0};
-  uint8_t test = 0;
+  //uint8_t test = 0;
   
   ReadFlash(RS485SPEED, TEST);
-  for (int i = 0; i < 4; i++) 
-  {
-        if (TEST[i] != 0xFF) 
-        {
-          test = 1;
-        }
+  for (uint8_t i = 0; i < 4; i++) {
+    if (TEST[i] != 0xFF) {
+      //test = 1;
+      ReadFlash(RS485SPEED, USART_3_SPEED);
+      if ((USART_3_SPEED[0] == 0x31) && (USART_3_SPEED[1] == 0x32)) {
+        usart_speed = 1200;
+      } else if ((USART_3_SPEED[0] == 0x39) && (USART_3_SPEED[1] == 0x36)) {
+        usart_speed = 9600;
+      } else if ((USART_3_SPEED[0] == 0x31) && (USART_3_SPEED[1] == 0x39)) {
+        usart_speed = 19200;
+      } else if ((USART_3_SPEED[0] == 0x33) && (USART_3_SPEED[1] == 0x38)) {
+        usart_speed = 38400;
+      } else if ((USART_3_SPEED[0] == 0x35) && (USART_3_SPEED[1] == 0x37)) {
+        usart_speed = 57600;
+      } else if ((USART_3_SPEED[0] == 0x31) && (USART_3_SPEED[1] == 0x31)) {
+        usart_speed = 115200;
+      }    
+    } else {
+      usart_speed = 115200;
+    }
   }
-  if(test == 1)
-  {
-        ReadFlash(RS485SPEED, USART_3_SPEED);
-        if((USART_3_SPEED[0] == 0x31) && (USART_3_SPEED[1] == 0x32))
-        {
-          usart_speed = 1200;
-        }
-        else if ((USART_3_SPEED[0] == 0x39) && (USART_3_SPEED[1] == 0x36))
-        {
-          usart_speed = 9600;
-        }
-        else if ((USART_3_SPEED[0] == 0x31) && (USART_3_SPEED[1] == 0x39))
-        {
-          usart_speed = 19200;
-        }
-        else if ((USART_3_SPEED[0] == 0x33) && (USART_3_SPEED[1] == 0x38))
-        {
-          usart_speed = 38400;
-        }
-        else if ((USART_3_SPEED[0] == 0x35) && (USART_3_SPEED[1] == 0x37))
-        {
-          usart_speed = 57600;
-        }
-        else if ((USART_3_SPEED[0] == 0x31) && (USART_3_SPEED[1] == 0x31))
-        {
-          usart_speed = 115200;
-        }
-        
-        test = 0;
-  }
-  else
-  {
+
+/*  
+  if (test == 1) {
+  ReadFlash(RS485SPEED, USART_3_SPEED);
+  if ((USART_3_SPEED[0] == 0x31) && (USART_3_SPEED[1] == 0x32)) {
+    usart_speed = 1200;
+  } else if ((USART_3_SPEED[0] == 0x39) && (USART_3_SPEED[1] == 0x36)) {
+    usart_speed = 9600;
+  } else if ((USART_3_SPEED[0] == 0x31) && (USART_3_SPEED[1] == 0x39)) {
+    usart_speed = 19200;
+  } else if ((USART_3_SPEED[0] == 0x33) && (USART_3_SPEED[1] == 0x38)) {
+    usart_speed = 38400;
+  } else if ((USART_3_SPEED[0] == 0x35) && (USART_3_SPEED[1] == 0x37)) {
+    usart_speed = 57600;
+  } else if ((USART_3_SPEED[0] == 0x31) && (USART_3_SPEED[1] == 0x31)) {
+    usart_speed = 115200;
+  }    
+    test = 0;
+  } else {
     usart_speed = 115200;
   }
-  
+*/
   
   ReadFlash(RS485PARITIY, TEST);
-  for (int i = 0; i < 4; i++) 
-  {
-        if (TEST[i] != 0xFF) 
-        {
-          test = 1;
-        }
-  }
-  if(test == 1)
-  {
-        ReadFlash(RS485PARITIY, uartPARITY);
-        test = 0;
-  }
-  else
-  {
-    strcpy(uartPARITY, "none");
+  for (uint8_t i = 0; i < 4; i++) {
+    if (TEST[i] != 0xFF) {
+      //test = 1;
+      ReadFlash(RS485PARITIY, uartPARITY);
+    } else {
+      strcpy((char *)uartPARITY, "none");
+    }
   }
   
-  
-  
-  
+/*  
+  if (test == 1) {
+    ReadFlash(RS485PARITIY, uartPARITY);
+    test = 0;
+  } else {
+    strcpy((char *)uartPARITY, "none");
+  }
+*/
+
   ReadFlash(RS485STOPBIT, TEST);
-  for (int i = 0; i < 4; i++) 
-  {
-        if (TEST[i] != 0xFF) 
-        {
-          test = 1;
-        }
-  }
-  if(test == 1)
-  {
-        ReadFlash(RS485STOPBIT, uartStopBits);
-        test = 0;
-  }
-  else 
-  {
+  for (uint8_t i = 0; i < 4; i++) {
+    if (TEST[i] != 0xFF) {
+      //test = 1;
+      ReadFlash(RS485STOPBIT, uartStopBits);
+    } else {
+      uartStopBits[0] = 1;
+    }
+  } 
+  /*  
+  if(test == 1) {
+    ReadFlash(RS485STOPBIT, uartStopBits);
+    test = 0;
+  } else {
     uartStopBits[0] = 1;
   }
-  
-
-
-  
+  */
   
   MX_USART3_UART_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);
-  //HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rxBuffer, sizeof(rxBuffer));
-  //HAL_UART_Receive_DMA(&huart1, rxBuffer, sizeof(rxBuffer));
-  //__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
-  /* USER CODE END 2 */
+  
   /* Init scheduler */
-  
-
-  
   osKernelInitialize();
-
+  
   /* Call init function for freertos objects (in cmsis_os2.c) */
   MX_FREERTOS_Init();
   TimerHandle_t xTimer = xTimerCreate("Timer", pdMS_TO_TICKS(1000), pdTRUE, 0, vTimerCallback);
   
-    if (xTimer != NULL)
-    {
-        xTimerStart(xTimer, 0);
-    }
-
+  if (xTimer != NULL) {
+    xTimerStart(xTimer, 0);
+  }
+  
   /* Start scheduler */
   osKernelStart();
-
+  
   /* We should never get here as control is now taken by the scheduler */
-
+  
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
     /* USER CODE END WHILE */
-
+    
     /* USER CODE BEGIN 3 */
-  HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_RESET);
-  osDelay(19);
-  HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_SET);  // - PHY init
-  osDelay(19);
-  
-  //HAL_GPIO_WritePin(UART2_RE_DE_GPIO_Port, UART2_RE_DE_Pin, GPIO_PIN_RESET); 
-  
-  
-  //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET);
-  //uint8_t rxBuffer[10];
-  //HAL_UART_Receive_DMA(&huart1, rxBuffer, sizeof(rxBuffer));
-  
-  //__HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
-  
-  
- // MX_LWIP_Init();
-  
-  
-  
-  // - task priority should been normal
-  
-    //HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_RESET);
-   //HAL_Delay(2);
-   // HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_SET);
-   // HAL_Delay(2);
   }
   /* USER CODE END 3 */
 }
-
+  
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -382,68 +302,30 @@ void SystemClock_Config(void)
 
 static void ProtectBootSectorsOnce(void)
 {
-    FLASH_OBProgramInitTypeDef ob = {0};
-
-    HAL_FLASH_OB_Unlock();
-    HAL_FLASHEx_OBGetConfig(&ob);
-
-    uint32_t want = OB_WRP_SECTOR_0 | OB_WRP_SECTOR_1 | OB_WRP_SECTOR_2;
-    if ((ob.WRPSector & want) == want)    
-    {
-        HAL_FLASH_OB_Lock();
-        return;                            
-    }
-
-   
-    ob.OptionType = OPTIONBYTE_WRP;
-    ob.WRPState   = OB_WRPSTATE_ENABLE;
-    ob.WRPSector |= want;                 
-
-    HAL_FLASH_Unlock();                    
-    if (HAL_FLASHEx_OBProgram(&ob) != HAL_OK)
-        Error_Handler();
-
-    HAL_FLASH_OB_Launch();                 
+  FLASH_OBProgramInitTypeDef ob = {0};
+  
+  HAL_FLASH_OB_Unlock();
+  HAL_FLASHEx_OBGetConfig(&ob);
+  
+  uint32_t want = OB_WRP_SECTOR_0 | OB_WRP_SECTOR_1 | OB_WRP_SECTOR_2;
+  if ((ob.WRPSector & want) == want)    
+  {
+    HAL_FLASH_OB_Lock();
+    return;                            
+  }
+  
+  ob.OptionType = OPTIONBYTE_WRP;
+  ob.WRPState   = OB_WRPSTATE_ENABLE;
+  ob.WRPSector |= want;                 
+  
+  HAL_FLASH_Unlock();
+  if (HAL_FLASHEx_OBProgram(&ob) != HAL_OK)
+    Error_Handler();
+  
+  HAL_FLASH_OB_Launch();                 
 }
 
 
-
-void vTimerCallback(TimerHandle_t xTimer)
-{
-      time_raw.seconds++;
-      
-      
-        if (time_raw.seconds >= 60)
-          {
-            
-            
-            time_raw.seconds = 0;
-            time_raw.minutes++;
-            REGISTERS[3] = (time_raw.minutes + (time_raw.hours * 60) + (time_raw.days * 24 * 60));
-             
-             if(t == TIME_RESET_OLED)
-             {
-               t = 0;
-               OLED = 0;              
-             }
-
-            if (time_raw.minutes >= 60)
-              {
-                  time_raw.minutes = 0;
-                  time_raw.hours++;
-                  if (time_raw.hours >= 24)
-                    {
-                        time_raw.hours = 0;
-                        time_raw.days++;
-                    }
-              }
-          }
-        
-       time.seconds = time_raw.seconds;
-       time.minutes = time_raw.minutes;
-       time.hours = time_raw.hours;
-       time.days = time_raw.days;
-}
 /* USER CODE END 4 */
 
 /**

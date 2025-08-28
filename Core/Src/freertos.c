@@ -33,8 +33,7 @@
 #include "lwip/api.h"
 #include "lwip/apps/fs.h"
 #include "lwip/apps/httpd.h"
-#include "cmsis_os.h"
-#include "cJSON.h"
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -45,6 +44,8 @@
 #include "stm32f4xx_hal_rtc.h"
 #include "stm32f4xx.h"
 #include "dp83848.h"
+
+#include "measurement.h"
 
 /* USER CODE END Includes */
 #include "lwip/tcp.h"
@@ -60,20 +61,17 @@
 osMutexId_t RelayMutexHandle;  //защита общего регистра REGISTERS[2] (состояние реле)
 SemaphoreHandle_t xHighPrioritySemaphore; //будить HighPriorityTask по готовности ADC
 
-
-
-
 extern struct netif gnetif;
 extern UART_HandleTypeDef huart3;
-extern  uint8_t rxBuffer[50]; //буфер приёма для HAL_UARTEx_ReceiveToIdle_DMA
-extern uint8_t IP_ADDRESS[4];
-extern uint8_t NETMASK_ADDRESS[4];
-extern uint8_t GATEWAY_ADDRESS[4];
-extern volatile uint16_t REGISTERS[9];
+
+//буфер приёма для HAL_UARTEx_ReceiveToIdle_DMA
+uint8_t rxBuffer[50] = {0};
+
+volatile uint16_t REGISTERS[9] = {0};
+
 extern uint32_t usart_speed;
+
 uint8_t SERIAL_ADDRESS[6] = {0};
-
-
 
 extern void MX_USART3_UART_Init(void);
 //----------------------------ADC---LOGIC---------------------------------------
@@ -86,12 +84,12 @@ uint8_t reley_auto_protection = 1;  // Ручное или автоматиче�
 
 volatile uint8_t log_ready = 0;     //можно ли сейчас писать лог в флеш
 
-static TimerHandle_t xRelayReleaseTimer = NULL; //Таймер отключения реле после сработки
+
 static TimerHandle_t xTestBlockTimer = NULL;    //Не дает бесконечно зажимать тест
                                                 //      (перегрев)
 
-volatile uint8_t button_ivent = 0;       //событие кнопки ТЕСТ получено
-volatile uint8_t button_ivent_block = 0; // блок повторных срабатываний
+volatile uint8_t button_event = 0;       //событие кнопки ТЕСТ получено
+volatile uint8_t button_block = 0; // блок повторных срабатываний
 
 float C_phase_A = 0;
 float R_leak_A = 0;
@@ -99,10 +97,12 @@ float C_phase_B = 0;
 float R_leak_B = 0;
 float C_phase_C = 0;
 float R_leak_C = 0;
-uint8_t TARGET_VALUE = 0;
-uint8_t TARGET_VALUE_DEF = 25; //25
-uint8_t WARNING_VALUE = 0;
-uint8_t WARNING_VALUE_DEF = 20; //20
+
+uint8_t TARGET_VALUE = 25;
+uint8_t TARGET_VALUE_DEF = 25;
+
+uint8_t WARNING_VALUE = 20;
+uint8_t WARNING_VALUE_DEF = 20;
 
 //uint8_t hw_protection = 0;
 #define FLASH_ADDRESS_C_PHASE_A 0x0800C0A0
@@ -117,11 +117,7 @@ uint8_t WARNING_VALUE_DEF = 20; //20
 #define FLASH_ADDRESS_RELAY_TIME 0x0800C130
 
 
-#define SQ3         1.732050807f    // sqrt(3)
-#define COS30       0.866025403f    // cos(30°)
-#define OMEGA       314.1592653f    // 2 * M_PI * 50 ≈ 6.283185307 * 50
-#define MULT_UP     43824.0f        // 14608 * 3
-#define MULT_DOWN   2.057065f       // 11.365 * 0.181
+
 
 //------------------------------------------------------------------------------
 
@@ -131,15 +127,14 @@ char uartPARITY[10];
 uint8_t output[200] = {0};
 
 
-uint16_t ADC_BUFFER_SIZE = 457;  //900
-extern uint16_t adcBuffer[457];  //900
-uint8_t adc_ready = 0;     //Говорит о том, что данные с ADC готовы
+
+
 
 volatile uint16_t neead_write_flash = 0; //Отложенная запись WriteFlash(0,0)
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {0x01, 0x01, 0x05};
-uint16_t soft_ver_modbus = 115;
+uint8_t SOFTWARE_VERSION[3] = {1, 1, 8};
+uint16_t soft_ver_modbus = 118;
 
 extern struct httpd_state *hs;
 
@@ -156,47 +151,6 @@ const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
 "STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "MODE" , "CRCACC", "JSON", "WVALUE", "ALERT", "LOG", "RELTIM"};
 
-
-typedef enum 
-{
-  MAC,
-  IP,
-  NETMASK,
-  GATEWAY,
-  SERIAL,
-  RS485SPEED,
-  RS485PARITIY,
-  RS485STOPBIT,
-  C_PHASE_A,
-  R_LEAK_A,
-  C_PHASE_B, 
-  R_LEAK_B, 
-  C_PHASE_C,
-  R_LEAK_C,
-  TaRGET_VALUE,
-  HW_PROTECTION,
-  Warning_VALUE,
-  Relay_TIME,
-  StartPhase
-} FlashDataType;
-
-typedef struct 
-{
-  uint8_t seconds;  
-  uint8_t minutes;  
-  uint8_t hours;    
-  uint16_t days;  
-  
-} TimeStruct;
-
-TimeStruct time = {0}; 
-
-//-------------------------------------SETINGS-OLED-------------------------------------------------
-
-uint16_t BACKGROUND_COLOR = 0x0000;   //0x4A49;
-uint8_t brightness = 0xFF;  // 0x00-0xFF
-uint32_t TIME_RESET_OLED = 18000; // in miliseconds
-
 //---------------------------------------FLASH-OS----------------------------------------------------
 static uint32_t address = 0;
 static uint32_t len = 0;
@@ -206,11 +160,7 @@ extern volatile uint8_t theme;
 
 
 volatile uint8_t protection_pause = 0;   // дефолштная пауза
-volatile uint16_t relay_timeout = 0;  // пауза после срабатывания
-
-//PA9_out
-#define RELAY_CONTROL_PIN          GPIO_PIN_9
-#define RELAY_CONTROL_PORT         GPIOA
+volatile uint16_t relay_timeout = 250;  // пауза после срабатывания
 
 //PA6_in
 #define FIXING_THE_LEAK_PIN        GPIO_PIN_6
@@ -232,8 +182,6 @@ volatile uint16_t relay_timeout = 0;  // пауза после срабатыв�
 uint8_t PIN[6] = {0x34, 0x37, 0x32, 0x32, 0x30, 0x31};   // pin in ASCII - 4-7-2-2-0-1
 uint8_t pinaccept = 0;
 
-
-
 #define FLASH_ADDRESS_MAC 0x0800C000
 #define FLASH_ADDRESS_IP  0x0800C010
 #define FLASH_ADDRESS_NETMASK 0x0800C020
@@ -249,8 +197,10 @@ uint8_t pinaccept = 0;
 #define BOOT_OS_OK_ADDRESS 0x0800C080
 #define BOOT_CRC_ADDRESS 0x0800C200
 #define BOOT_FLAG_NEW_ADDRESS 0x0800C084 
-#define SECTOR_1_ADDRESS 0x08020000 //end in 0x08080000 (sector 5/6/7) 384kb in total
-#define SECTOR_2_ADDRESS 0x08080000 // end in 0x080E0000 (sector 8/9/10) 384kb in total
+//#define SECTOR_1_ADDRESS 0x08020000 //end in 0x08080000 (sector 5/6/7) 384kb in total
+
+#define SECTOR_8_ADDRESS 0x08080000 // end in 0x080E0000 (sector 8/9/10) 384kb in total
+
 #define BOOTLOADER_ADDRESS 0x08000000 //end in 0x0800C080  48kb in total
 #define SECTOR_ENABLED_ADDRESS 0x0800C088 //1 - нет новой ОС, 2 - есть новоя ОС
 #define LOG_SECTOR_ACTIVE 0x0800C204 //в каком секторе мы пишем лог сейчас
@@ -258,13 +208,11 @@ uint8_t pinaccept = 0;
 #define LOG_START_ADDR_BLOCK 0x08120000  //17-23 sectors (128х7)
 #define LOG_END_ADDR_BLOCK 0x081FFFF8 
 #define LOG_ENTRY_SIZE  (12U)
-#define LOG_BUFF_SIZE 1026
+
 
 
 #define TIME_FLAG_SET   (1U << 2)  // bit2: время установлено
 #define TIME_FLAG_APPLY (1U << 3)  // bit3: попросить применить время
-
-
 
 #define MINUTE_10_SIZE 10
 #define HOUR_1_SIZE 6
@@ -274,36 +222,32 @@ volatile uint16_t avg1h = 0;
 volatile uint16_t avg2d = 0;
 
 //-------------------------TIME-&-LOG--SECTION---------------------------------------
-UBaseType_t uxHighWaterMark1;
-UBaseType_t uxHighWaterMark2;
-UBaseType_t uxHighWaterMark3;
-UBaseType_t uxHighWaterMark4;
-UBaseType_t uxHighWaterMark5;
-UBaseType_t uxHighWaterMark6;
-UBaseType_t uxHighWaterMark;
+UBaseType_t WM_LWIP;
+UBaseType_t WM_ADC;
+UBaseType_t WM_MODBUS;
+UBaseType_t WM_OLED;
+UBaseType_t WM_WDI;
+UBaseType_t WM_RELAY;
 
+UBaseType_t uxHighWaterMark2;
 
 typedef struct {
-    uint8_t seconds;   // 0-59
-    uint8_t minutes;   // 0-59
-    uint8_t hours;     // 0-23 (24-часовой формат)
-    uint8_t day;       // 1-31 (день месяца)
-    uint8_t month;     // 1-12
-    uint16_t year;     // Пример: 2023 (полный год)   //not used
+  uint8_t seconds;   // 0-59
+  uint8_t minutes;   // 0-59
+  uint8_t hours;     // 0-23 (24-часовой формат)
+  uint8_t day;       // 1-31 (день месяца)
+  uint8_t month;     // 1-12
+  uint16_t year;     // Пример: 2023 (полный год)   //not used
 } DateTime;
 
-
- typedef struct {
-    uint8_t timestamp[6];  // ss:mm:hh:dd:mm:yy (временная метка)
-    uint8_t event_code;    // код события
-    uint8_t data[5];       //поле данных
-  } LogEntry; 
+typedef struct {
+  uint8_t timestamp[6];  // ss:mm:hh:dd:mm:yy (временная метка)
+  uint8_t event_code;    // код события
+  uint8_t data[5];       //поле данных
+} LogEntry; 
                            //12 байт
 
 
-volatile uint32_t gRelayReleaseTimeoutMs = 250; 
-static inline void StartRelayReleaseTimer(uint32_t delayMs);
-volatile uint8_t adc_lock = 0;  //Замер ADC запрещен
 
 volatile uint32_t log_ptr = 0;  //Указатель на ячейку лога для записи
                                 //Если он равен 0, то лог пишется в память загрузчика
@@ -315,8 +259,8 @@ volatile uint32_t LOG_END_ADDR = 0;
 
 volatile uint8_t log_sector_active = 0;
 
-volatile uint8_t log_for_wed[LOG_BUFF_SIZE] = {0}; //1kb
-
+#define LOG_BUFF_SIZE 1026
+volatile uint8_t log_for_wed[LOG_BUFF_SIZE] = {0};
 
 static int first_call = 1;
 
@@ -332,13 +276,11 @@ volatile uint8_t crc_accepted = 5;
 
 uint8_t restart = 0; //нужно перезагрузиться после изменения настроек
 SemaphoreHandle_t xPacketSemaphore;
-SemaphoreHandle_t xxMutex;
 SemaphoreHandle_t xPacketSaved;
 CRC_HandleTypeDef hcrc;
 uint16_t start = 1;  //флаг того, что у нас фаза запуска
 uint8_t OLED_RESET = 1;
 volatile uint8_t RS485 = 0;
-uint8_t fff = 1;
 volatile uint32_t er = 0;
 uint8_t response_data[50] = {0}; //Общий буфер для ответов Modbus
 
@@ -373,8 +315,8 @@ typedef struct {
 osThreadId_t HighPriorityTaskHandle;
 const osThreadAttr_t HighPriorityTask_attributes = {
    .name = "HighPriorityTask",
-   .stack_size = 1024 * 10, // Размер стека (измените при необходимости)
-   .priority = (osPriority_t) osPriorityHigh, // Приоритет выше остальных      osPriorityHigh
+   .stack_size = 7000, // Размер стека (измените при необходимости)
+   .priority = (osPriority_t) osPriorityAboveNormal, // Приоритет выше остальных
 };
 
 /* Definitions for defaultTask */
@@ -384,6 +326,7 @@ const osThreadAttr_t defaultTask_attributes = {
   .stack_size = 1248 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+
 /* Definitions for Relay_task */
 osThreadId_t Relay_taskHandle;
 const osThreadAttr_t Relay_task_attributes = {
@@ -409,7 +352,7 @@ const osThreadAttr_t Relay_control_attributes = {
 osThreadId_t LWGL_controlHandle;
 const osThreadAttr_t LWGL_control_attributes = {
   .name = "LWGL_control",
-  .stack_size = 1280 * 4,
+  .stack_size = 4200,
   .priority = (osPriority_t) osPriorityNormal, //osPriorityNormal
 };
 /* Definitions for WDI */
@@ -427,7 +370,6 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen);
 void ReadFlash(FlashDataType type, uint8_t* buffer);
 void WriteFlash(FlashDataType type, uint8_t* data);
 void convert_str_to_uint8_array(const char* input, uint8_t* output, int is_mac);
-void setrelay(uint16_t i);
 void send_uart(const uint8_t *response, uint16_t len);
 void DrawCenteredSemiCircle2(UWORD percent);
 void DrawCenteredSemiCircle();
@@ -454,7 +396,7 @@ void save_time_to_rtc(uint8_t* arr);
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
 void CRC_Config(void);
 uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str);
-char *parser(uint8_t *buf, uint16_t len, const char *str);
+uint8_t * parser(uint8_t *buf, uint16_t len, const char *str);
 void get_current_timestamp(uint8_t *timestamp);
 void initBuffer10Min(CircularBuffer10Min *buffer);
 void initBuffer1Hour(CircularBuffer1Hour *buffer);
@@ -466,7 +408,7 @@ uint16_t getAverage10Min(CircularBuffer10Min *buffer);
 uint16_t getAverage1Hour(CircularBuffer1Hour *buffer);
 uint16_t getAverage2Day(CircularBuffer2Day *buffer);
 
-static void vRelayReleaseCallback(TimerHandle_t xTimer);
+
 static void vTestBlockReleaseCb(TimerHandle_t xTimer);
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
@@ -475,9 +417,6 @@ err_t httpd_post_begin(void *connection, const char *uri, const char *http_reque
 err_t httpd_post_receive_data(void *connection, struct pbuf *p);
 void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len);
 
-float calculate_rms_B_macros(uint16_t rms);
-float calculate_rms_C_macros(uint16_t rms);
-float calculate_rms_A_macros(uint16_t rms);
 extern void OLED_1in5_rgb_run();
 
 
@@ -503,7 +442,49 @@ void HighPriorityTask(void *argument);
 uint8_t save_time_unix(uint64_t timestamp);
 void apply_time_from_registers(void);
 extern void MX_LWIP_Init(void);
-void MX_FREERTOS_Init(void); 
+void MX_FREERTOS_Init(void);
+
+extern uint8_t IP_ADDRESS[4];
+extern uint8_t NETMASK_ADDRESS[4];
+extern uint8_t GATEWAY_ADDRESS[4];
+
+extern uint8_t MACAddr[6];
+
+typedef struct 
+{
+  uint8_t seconds;
+  uint8_t minutes;
+  uint8_t hours;
+  uint16_t days;
+} TimeStruct;
+
+TimeStruct time = {0}; 
+TimeStruct time_raw = {0};
+
+void vTimerCallback(TimerHandle_t xTimer)
+{
+  time_raw.seconds++;
+  
+  if (time_raw.seconds >= 60) {
+    time_raw.seconds = 0;
+    time_raw.minutes++;
+    REGISTERS[3] = (time_raw.minutes + (time_raw.hours * 60) + (time_raw.days * 24 * 60));
+    
+    if (time_raw.minutes >= 60) {
+      time_raw.minutes = 0;
+      time_raw.hours++;
+      if (time_raw.hours >= 24) {
+        time_raw.hours = 0;
+        time_raw.days++;
+      }
+    }
+  }
+  
+  time.seconds = time_raw.seconds;
+  time.minutes = time_raw.minutes;
+  time.hours = time_raw.hours;
+  time.days = time_raw.days;
+}
 
 /**
 * @brief  FreeRTOS initialization
@@ -512,6 +493,91 @@ void MX_FREERTOS_Init(void);
 */
 void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
+  
+  REGISTERS[2] = 1;
+  
+  ReadFlash(SERIAL, SERIAL_ADDRESS);
+  
+  IP_ADDRESS[0] = 192;
+  IP_ADDRESS[1] = 168;
+  IP_ADDRESS[2] = 77;
+  IP_ADDRESS[3] = 1;
+  NETMASK_ADDRESS[0] = 255;
+  NETMASK_ADDRESS[1] = 255;
+  NETMASK_ADDRESS[2] = 255;
+  NETMASK_ADDRESS[3] = 0;
+  GATEWAY_ADDRESS[0] = 192;
+  GATEWAY_ADDRESS[1] = 168;
+  GATEWAY_ADDRESS[2] = 77;
+  GATEWAY_ADDRESS[3] = 254;
+  
+  uint8_t TEST[4] = {0};
+  //uint8_t test = 0;
+  
+  ReadFlash(IP, TEST);
+  for (uint8_t i = 0; i < 4; i++) {
+    if (TEST[i] != 0xFF) {
+      //test = 1;
+      ReadFlash(IP, IP_ADDRESS);
+    }
+  }
+/*  
+  if (test == 1) {
+    ReadFlash(IP, IP_ADDRESS);
+    test = 0;
+  }
+*/
+  
+  ReadFlash(NETMASK, TEST);
+  for (uint8_t i = 0; i < 4; i++) {
+    if (TEST[i] != 0xFF) {
+      //test = 1;
+      ReadFlash(NETMASK, NETMASK_ADDRESS);
+    }
+  }
+/*  
+  if (test == 1) {
+    ReadFlash(NETMASK, NETMASK_ADDRESS);
+    test = 0;
+  }
+*/  
+  
+  ReadFlash(GATEWAY, TEST);
+  for (uint8_t i = 0; i < 4; i++) {
+    if (TEST[i] != 0xFF) {
+      //test = 1;
+      ReadFlash(GATEWAY, GATEWAY_ADDRESS);
+    }
+  }
+/*  
+  if (test == 1) {
+    ReadFlash(GATEWAY, GATEWAY_ADDRESS);
+    test = 0;
+  }
+*/
+  
+  MACAddr[0] = 0x00;
+  MACAddr[1] = 0x80;
+  MACAddr[2] = 0xE1;
+  MACAddr[3] = 0x00;
+  MACAddr[4] = 0x00;
+  MACAddr[5] = 0x00;
+  
+  ReadFlash(MAC, TEST);
+  for (uint8_t i = 0; i < 4; i++) {
+    if (TEST[i] != 0xFF) {
+      //test = 1;
+      ReadFlash(MAC, MACAddr);
+    }
+  }
+/*  
+  if (test == 1) {
+    ReadFlash(MAC, MACAddr);
+    test = 0;
+  }
+*/
+  
+  load_values_from_flash();
   
   /* USER CODE END Init */
   
@@ -522,10 +588,15 @@ void MX_FREERTOS_Init(void) {
   
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
+  
+  xPacketSemaphore = xSemaphoreCreateBinary();
+  xPacketSaved = xSemaphoreCreateBinary();
+  
   /* USER CODE END RTOS_SEMAPHORES */
   
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
+  
   /* USER CODE END RTOS_TIMERS */
   
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -534,6 +605,7 @@ void MX_FREERTOS_Init(void) {
   
   /* Create the thread(s) */
   /* creation of defaultTask */
+  
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
   
   /* creation of Relay_task */
@@ -572,28 +644,25 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* init code for LWIP */
-  
-  
+ 
   /**Блок начальной иициализации**/
-  
-  
+
   HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_RESET);
-  osDelay(50);
+  osDelay(100);
   HAL_GPIO_WritePin(RST_PHYLAN_GPIO_Port, RST_PHYLAN_Pin, GPIO_PIN_SET);  // - PHY init
-  osDelay(50);
+  osDelay(1);
   
-  
-  
+  MX_LWIP_Init();
   
   EXTI12_Init();
-  MX_LWIP_Init();
+  
+  while (!netif_is_link_up(&gnetif)) {
+    osDelay(100);
+  }
 
   httpd_init();
   httpd_ssi_init();
-  
-  
-  
-  
+
   __HAL_RCC_CRC_CLK_ENABLE();
   CRC_Config(); 
   
@@ -603,17 +672,14 @@ void StartDefaultTask(void *argument)
   CGI_TAB[1] = JSON_CGI;
   CGI_TAB[2] = LOG_CGI;
   http_set_cgi_handlers(CGI_TAB, 3);
-  xPacketSemaphore = xSemaphoreCreateBinary();
-  xPacketSaved = xSemaphoreCreateBinary();
-  
-  load_values_from_flash();
-
   
   REGISTERS[4] |= 0x04; 
   REGISTERS[0] = soft_ver_modbus;
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
   load_flags_from_flash();
-  osDelay(100);
+  
+  //osDelay(100);
+  
   RTC_Init();
   xSemaphoreGive(xPacketSaved);
   
@@ -621,31 +687,24 @@ void StartDefaultTask(void *argument)
   
   /* Infinite loop */
   
-  
-  
-  for(;;)     //------------------------------------------------------modbus_RTU------------------------------
-  {
-    uxHighWaterMark1 = uxTaskGetStackHighWaterMark(NULL);
-    
-    
- 
-    
-    if (REGISTERS[4] & (1 << 4)) 
-    {
+  // modbus_RTU
+  while (1) {
+
+#if DEBUG == 1
+    WM_LWIP = uxTaskGetStackHighWaterMark(NULL);
+#endif
+
+    if (REGISTERS[4] & (1 << 4)) {
       // 4-й бит установлен (1)
       mode = 1;
-    } 
-    else 
-    {
+    } else {
       // 4-й бит сброшен (0)
       mode = 0;
     }
     
-    
-    if (xSemaphoreTake(xPacketSemaphore, pdMS_TO_TICKS(1500)) == pdTRUE)
-    {
-
+    if (xSemaphoreTake(xPacketSemaphore, pdMS_TO_TICKS(1500)) == pdTRUE) {
       uint8_t data[20] = {0};
+      
       uint16_t len_ext = 0;
       
       uint16_t len = (sizeof(rxBuffer) - __HAL_DMA_GET_COUNTER(huart3.hdmarx));
@@ -655,10 +714,8 @@ void StartDefaultTask(void *argument)
       modbus(data, len, response_data, &len_ext, RTU); 
       
       send_uart(response_data, len_ext);   
-      
     }
-    
-    
+/*
     if (
         __HAL_UART_GET_FLAG(&huart3, UART_FLAG_FE)  ||  // Frame Error
           __HAL_UART_GET_FLAG(&huart3, UART_FLAG_NE)  ||  // Noise Error
@@ -666,16 +723,12 @@ void StartDefaultTask(void *argument)
               __HAL_UART_GET_FLAG(&huart3, UART_FLAG_ORE)     // Overrun Error
                 ) 
     {
-      
-      
       volatile uint32_t dummy = huart3.Instance->DR;
       (void)dummy;  
       
       memset(rxBuffer, 0, sizeof(rxBuffer));
       
       HAL_UART_DMAStop(&huart3);
-      
-      
       
       __HAL_UART_CLEAR_FEFLAG(&huart3);
       __HAL_UART_CLEAR_NEFLAG(&huart3);
@@ -685,19 +738,20 @@ void StartDefaultTask(void *argument)
       
       HAL_UART_DeInit(&huart3);
       
-      
       MX_USART3_UART_Init();
       
       HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
       
     }
-    osDelay(80);
+*/
+    osDelay(20);
   }
-  
-  
   /* USER CODE END StartDefaultTask */
   
 }
+
+extern uint16_t adcBuffer[];
+extern uint8_t adc_ready;
 
 /* USER CODE BEGIN Header_StartTask02 */
 /**
@@ -711,87 +765,70 @@ void StartTask02(void *argument)
   /* USER CODE BEGIN StartTask02 */
   /* Infinite loop */
   
-
-  
   HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_RESET);
-  ReadFlash(SERIAL, SERIAL_ADDRESS);
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
-
+  
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUF);
   
   CircularBuffer10Min buffer10;
   CircularBuffer1Hour buffer1Hour;
   CircularBuffer2Day buffer2Day;
   
-  
   initBuffer10Min(&buffer10);
   initBuffer1Hour(&buffer1Hour);
   initBuffer2Day(&buffer2Day);
   
-  for(;;)
-  {
-    
+  static uint8_t lasttime = 0;
+  static uint8_t lasttime_hour = 0;
+  
+  static uint8_t flag_1 = 0; // или bool flag_1 = false;
+      
+  while (1) {
     //---------------------------------ADC-and-Realay-logic-------------------------
+
+#if DEBUG == 1    
     uxHighWaterMark2 = uxTaskGetStackHighWaterMark(NULL);
-
-    if(adc_ready == 1)
-    {
-     
-//----------------------------------------------------------------------------------WARNING-LOGIC-------------
-        static uint8_t lasttime = 0;
-        static uint8_t lasttime_hour = 0;
-
-        
-        if(lasttime != time.minutes)
-        {
-          lasttime = time.minutes;
-          addValue10Min(&buffer10, REGISTERS[1]); 
-          if((time.minutes % 10) == 0)
-          {
-            uint16_t Average10min = (uint16_t)getAverage10Min(&buffer10);
-
-            addValue1Hour(&buffer1Hour, Average10min);
-            if(lasttime_hour != time.hours)
-            {
-              uint16_t Average1h = (uint16_t) getAverage1Hour(&buffer1Hour);
-              avg1h = Average1h;
-              lasttime_hour = time.hours;
-              addValue2Day(&buffer2Day, Average1h);
-              avg2d = getAverage2Day(&buffer2Day);
-            }
+#endif
+    
+    if (adc_ready == 1) {      
+      //----------------------------------------------------------------------------------WARNING-LOGIC-------------
+      if (lasttime != time.minutes) {
+        lasttime = time.minutes;
+        addValue10Min(&buffer10, REGISTERS[1]); 
+        if ((time.minutes % 10) == 0) {
+          uint16_t Average10min = (uint16_t)getAverage10Min(&buffer10);
+          
+          addValue1Hour(&buffer1Hour, Average10min);
+          if (lasttime_hour != time.hours) {
+            uint16_t Average1h = (uint16_t)getAverage1Hour(&buffer1Hour);
+            avg1h = Average1h;
+            lasttime_hour = time.hours;
+            addValue2Day(&buffer2Day, Average1h);
+            avg2d = getAverage2Day(&buffer2Day);
           }
         }
-//----------------------------------------------------------------------------------WARNING-LOGIC-END----------
+      }
+      //----------------------------------------------------------------------------------WARNING-LOGIC-END----------
     }
-   
-    if(!start)
-    {
+    
+    if (!start) {
       static uint8_t value_was_changed = 1;
       //warning 2
-      if(REGISTERS[1] >= WARNING_VALUE) 
-      {
-        if(value_was_changed == 1)
-        {
-        REGISTERS[4] |= 0x02;
-        uint8_t data = REGISTERS[1];
-        taskENTER_CRITICAL();
-        write_to_log(0x32, &data, 1);
-        taskEXIT_CRITICAL();
-        value_was_changed = 0;
+      if (REGISTERS[1] >= WARNING_VALUE) {
+        if (value_was_changed == 1) {
+          REGISTERS[4] |= 0x02;
+          uint8_t data = REGISTERS[1];
+          taskENTER_CRITICAL();
+          write_to_log(0x32, &data, 1);
+          taskEXIT_CRITICAL();
+          value_was_changed = 0;
         }
-      }
-      else if(REGISTERS[1] < WARNING_VALUE)
-      {
+      } else if(REGISTERS[1] < WARNING_VALUE) {
         value_was_changed = 1;
       }
-      
-      
-      static uint8_t flag_1 = 0; // или bool flag_1 = false;
 
-      if(avg1h)
-      {
+      if (avg1h) {
         // Если мгновенный ток на 10% выше часового среднего и флаг не выставлен – записываем лог
-        if((REGISTERS[1] > (avg1h * 1.1)) && (flag_1 == 0))
-        {
+        if ((REGISTERS[1] > (avg1h * 1.1f)) && (flag_1 == 0)) {
           uint8_t data = REGISTERS[1];
           taskENTER_CRITICAL();
           write_to_log(0x30, &data, 1);
@@ -799,25 +836,19 @@ void StartTask02(void *argument)
           taskEXIT_CRITICAL();
         }
         // Сброс флага, когда ток снижается ниже среднего
-        else if ((REGISTERS[1] <= (avg1h)) && (flag_1 == 1))
-        {
+        else if ((REGISTERS[1] <= (avg1h)) && (flag_1 == 1)) {
           flag_1 = 0;
         }
       }
     }
 
-    
-        if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2))
-    {     
+    if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2)) {     
       static uint8_t period = 0;
-      if(avg1h > avg2d)
-      {   
-        if(period != time.hours)
-        {
+      if (avg1h > avg2d) {   
+        if (period != time.hours) {
           period = time.hours;
           uint16_t delta = (avg2d - avg1h);
-          if(delta >= 5)
-          {
+          if (delta >= 5) {
             REGISTERS[4] |= 0x01;
             uint8_t data = 0x02;
             taskENTER_CRITICAL();
@@ -827,75 +858,70 @@ void StartTask02(void *argument)
         }
       }
     }
-
-//--------------------------------------------------------------OS-UPDATE--------
     
-    if((boot_flag_new == 1) && (next_free_addr != 0))
-    { 
-          taskENTER_CRITICAL();
-          address = SECTOR_2_ADDRESS;
-          uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
-          if(crc_os == crc_stm)
-          {
-            uint8_t data = 0x00;
-            write_to_log(0x07, &data, 1);
-            crc_accepted = 1;
-            sector_enabled = 2;
-            WriteFlash(0, 0);
-            flash_block = 1;
-            log_ready = 0;
-            startMyTimer_RESET(7000);
-            next_free_addr = 0;
-          }
-          else if(crc_os != crc_stm)
-          {
-            uint8_t data = 0xFF;
-            write_to_log(0x07, &data, 1);
-            crc_accepted = 0;
-            sector_enabled = 2;
-            WriteFlash(0, 0);
-            flash_block = 1;
-            log_ready = 0;
-            next_free_addr = 0;
-            startMyTimer_RESET(7000);
-          }
-
-          taskEXIT_CRITICAL();
+    // OS-UPDATE
+    if ((boot_flag_new == 1) && (next_free_addr != 0)) { 
+      taskENTER_CRITICAL();
+      address = SECTOR_8_ADDRESS;
+      uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
+      if (crc_os == crc_stm) {
+        uint8_t data = 0x00;
+        write_to_log(0x07, &data, 1);
+        crc_accepted = 1;
+        sector_enabled = 2;
+        WriteFlash((FlashDataType)0, 0);
+        flash_block = 1;
+        log_ready = 0;
+        startMyTimer_RESET(7000);
+        next_free_addr = 0;
+      } else if (crc_os != crc_stm) {
+        uint8_t data = 0xFF;
+        write_to_log(0x07, &data, 1);
+        crc_accepted = 0;
+        sector_enabled = 2;
+        WriteFlash((FlashDataType)0, 0);
+        flash_block = 1;
+        log_ready = 0;
+        next_free_addr = 0;
+        startMyTimer_RESET(7000);
+      }      
+      taskEXIT_CRITICAL();
     }
     
-    if(neead_write_flash)
-    {
+    if (neead_write_flash) {
       osDelay(100);
-      WriteFlash(0,0);
+      WriteFlash((FlashDataType)0, 0);
       neead_write_flash = 0;
     }
     
-        
-    if(restart == 1)
-    {
+    if (restart == 1) {
       startMyTimer_RESET(25000);
       restart = 0;
-    } 
-
+    }
     
-    
-    if (REGISTERS[4] & TIME_FLAG_APPLY) 
-    {
+    if (REGISTERS[4] & TIME_FLAG_APPLY) {
       // Бит TIME_FLAG_APPLY (3-й бит) установлен
       apply_time_from_registers();
     }
     
-     //----------------------------------------------------------------OS-UPDATE-END--
-     osDelay(25);
-    
-    //--------------------------------------------------------------------
-    
+    // OS-UPDATE-END
+    osDelay(25);
   }
-  
-  
-  /* USER CODE END StartTask02 */
-  
 }
+
+typedef enum
+{
+  STATE_INIT,
+  STATE_CREATE_SOCKET,
+  STATE_BIND,
+  STATE_LISTEN,
+  STATE_ACCEPT,
+  STATE_RECEIVE,
+  STATE_PROCESS,
+  STATE_SEND,
+  STATE_CLOSE_CONNECTION,
+  STATE_ERROR
+} FSM_State;
 
 /* USER CODE BEGIN Header_StartTask03 */
 /**
@@ -906,185 +932,161 @@ void StartTask02(void *argument)
 /* USER CODE END Header_StartTask03 */
 void StartTask03(void *argument)
 {
-  /* USER CODE BEGIN StartTask03 */
-
+  FSM_State current_state = STATE_INIT;
+  
+  volatile err_t res = 0;
+  //ip_addr_t local_ip;
+  struct netbuf *buf = NULL;
+  void *data = NULL;
+  uint16_t len = 0;
+  uint16_t len_ext = 0;
+  uint8_t buffer[20] = {0};
+  //local_ip = gnetif.ip_addr;
+  err_t bind_result = 0;
+  
+  while (!netif_is_link_up(&gnetif)) {
+    osDelay(100);
+  }
+  
   /* Infinite loop */
-  for (;;)
-  {
+  while (1) {
     
-    volatile err_t res = 0;
-    ip_addr_t local_ip;
-    struct netbuf *buf;
-    void *data;
-    uint16_t len;
-    uint16_t len_ext;
-    uint8_t buffer[20] = {0};
-    local_ip = gnetif.ip_addr;
-    err_t bind_result = 0;
+#if DEBUG == 1    
+    WM_MODBUS = uxTaskGetStackHighWaterMark(NULL);
+#endif
     
-    
-    typedef enum 
-    {
-      STATE_INIT,
-      STATE_CREATE_SOCKET,
-      STATE_BIND,
-      STATE_LISTEN,
-      STATE_ACCEPT,
-      STATE_RECEIVE,
-      STATE_PROCESS,
-      STATE_SEND,
-      STATE_CLOSE_CONNECTION,
-      STATE_ERROR
-    } FSM_State;
-    
-    FSM_State current_state = STATE_INIT;
-    
-    
-    while (1)
-    {
-      uxHighWaterMark3 = uxTaskGetStackHighWaterMark(NULL);
-
-      switch (current_state)
-      {
-      case STATE_INIT:
+    switch ((uint8_t)current_state) {
+      case STATE_INIT: {
         nc = netconn_new(NETCONN_TCP);
-        if (nc != NULL) 
-        {
+        if (nc != NULL) {
           current_state = STATE_CREATE_SOCKET;
-        } 
-        else 
-        {
+        } else {
           current_state = STATE_ERROR;
         }
         break;
+      }
+      //-----------------------------------------------------------------------
+      case STATE_CREATE_SOCKET: {
+        //local_ip = gnetif.ip_addr;
         
-        //------------------------------------------------------------------------------
-      case STATE_CREATE_SOCKET:
-        local_ip = gnetif.ip_addr;
-        
-        if (nc != NULL) 
-        {
-          current_state = STATE_CREATE_SOCKET;
-        } 
+        if (nc == NULL) {
+          current_state = STATE_ERROR;
+          break;
+          //current_state = STATE_CREATE_SOCKET;
+        }
         
         nc->pcb.tcp->so_options |= SOF_REUSEADDR;
         
-        bind_result = netconn_bind(nc, &local_ip, 502);
+        bind_result = netconn_bind(nc, NULL, 502);
         
-        if (bind_result == ERR_OK)
-        {
+        if (bind_result == ERR_OK) {
           current_state = STATE_LISTEN;
-        } 
-        else if(bind_result == ERR_USE)
-        {
+        } else if (bind_result == ERR_USE) {
           CleanupResources(nc, newconn, buf);
           current_state = STATE_INIT;
-        }
-        else
-        {
+        } else {
           current_state = STATE_ERROR;
         }
         break;
-        
-        //------------------------------------------------------------------------------
-      case STATE_LISTEN:
-        if (nc != NULL) 
-        {
-          current_state = STATE_CREATE_SOCKET;
+      }
+      //-----------------------------------------------------------------------
+      case STATE_LISTEN: {
+        if (nc == NULL) {
+          current_state = STATE_ERROR;
+          break;
+          //current_state = STATE_CREATE_SOCKET;
         } 
         netconn_listen(nc);
         current_state = STATE_ACCEPT;
         break;
-        
-        //------------------------------------------------------------------------------
-      case STATE_ACCEPT:
-        if (nc != NULL) 
-        {
-          current_state = STATE_CREATE_SOCKET;
-        } 
+      }
+      //-----------------------------------------------------------------------
+      case STATE_ACCEPT: {
+        if (nc == NULL) {
+          //current_state = STATE_CREATE_SOCKET;
+          current_state = STATE_ERROR;
+          break;
+        }
         res = netconn_accept(nc, &newconn);
-        if (res == ERR_OK) 
-        {
-          TickType_t last_activity_time = xTaskGetTickCount();
+        if (res == ERR_OK) {
           netconn_set_recvtimeout(newconn, 5000);
           current_state = STATE_RECEIVE;
-        } 
-        else 
-        {
+        } else {
           current_state = STATE_ERROR;
         }
         break;
-        
-        //------------------------------------------------------------------------------
-      case STATE_RECEIVE:
-        if (newconn != NULL) 
-        {
-          current_state = STATE_CREATE_SOCKET;
-        } 
+      }
+      //-----------------------------------------------------------------------
+      case STATE_RECEIVE: {
+        if (newconn == NULL) {
+          current_state = STATE_CLOSE_CONNECTION;
+          break;
+          //current_state = STATE_CREATE_SOCKET;
+        }
         res = netconn_recv(newconn, &buf);
-        if (res == ERR_OK) 
-        {
+        if (res == ERR_OK) {
           netbuf_data(buf, &data, &len);
           memcpy(buffer, data, len);
           current_state = STATE_PROCESS;
-        } 
-        else
-        {
-          if(buf != 0)
-          {
+        } else {
+          if (buf != 0) {
             netbuf_delete(buf);
           }
           current_state = STATE_CLOSE_CONNECTION;
         }
         break;
-        
-        //------------------------------------------------------------------------------
-      case STATE_PROCESS:
+      }
+      //-----------------------------------------------------------------------
+      case STATE_PROCESS: {
         modbus(buffer, len, response_data, &len_ext, TCP);
         current_state = STATE_SEND;
         break;
-        
-        //------------------------------------------------------------------------------
-      case STATE_SEND:
-        if (newconn != NULL) 
-        {
-          current_state = STATE_CREATE_SOCKET;
+      }
+      //-----------------------------------------------------------------------
+      case STATE_SEND: {
+        if (newconn == NULL) {
+          current_state = STATE_ERROR;
+          break;
+          //current_state = STATE_CREATE_SOCKET;
         } 
         send_ethernet(response_data, len_ext, newconn);
         netbuf_delete(buf);
         current_state = STATE_RECEIVE;  
         break;
-        
-        //------------------------------------------------------------------------------
-      case STATE_CLOSE_CONNECTION:
-        if (newconn != NULL)
-        {
+      }
+      //-----------------------------------------------------------------------
+      case STATE_CLOSE_CONNECTION: {
+        if (newconn != NULL) {
           netconn_close(newconn);
           netconn_delete(newconn);
           newconn = NULL;
         }
+        netbuf_delete(buf);
         current_state = STATE_ACCEPT;  // Возврат к приёму новых клиентов
         break;
-        //-----------------------------------------------------------------------------             
-      case STATE_ERROR:
-        if(nc != NULL)
-        {
+      }
+      //-----------------------------------------------------------------------            
+      case STATE_ERROR: {
+        if (nc != NULL) {
           netconn_close(nc);
           netconn_delete(nc);
           nc = NULL;
           newconn = NULL;
         }
-        osDelay(1000);
+        osDelay(10);
         current_state = STATE_INIT;  
         break;
       }
     }
-
   }
-  /* USER CODE END StartTask03 */
 }
 
+#define EVENT_RESET 0
+#define EVENT_PRESSED 1
+#define nBLOCK_BUTTON 0
+#define BLOCK_BUTTON 1
 
+volatile uint8_t test_leak = 0;
 
 /* USER CODE BEGIN Header_StartTask04 */
 /**
@@ -1095,98 +1097,84 @@ void StartTask03(void *argument)
 /* USER CODE END Header_StartTask04 */
 void StartTask04(void *argument)
 {
-  /* USER CODE BEGIN StartTask04 */
   /* Создаём однократный таймер на 1 с */
-    xTestBlockTimer = xTimerCreate("TestBlock",
-                                   pdMS_TO_TICKS(1000),   // 1 секунда
-                                   pdFALSE,               // однократный
-                                   NULL,
-                                   vTestBlockReleaseCb);
-    configASSERT(xTestBlockTimer);
-  /* Infinite loop */
-  for(;;)
-  {
+  xTestBlockTimer = xTimerCreate("TestBlock", pdMS_TO_TICKS(1000), pdFALSE, NULL, vTestBlockReleaseCb);
+  configASSERT(xTestBlockTimer);
+
+  start = 0;
+  
+  reley_auto_protection = 1;
+  
+  uint8_t log_value = 0;
+  
+  while (1) {
+
+#if DEBUG == 1    
+    WM_RELAY = uxTaskGetStackHighWaterMark(NULL);
+#endif
     
-    uxHighWaterMark4 = uxTaskGetStackHighWaterMark(NULL);
-    
-    
-    if(mode)
-    {
-      
-      
-      switch(REGISTERS[2])
-      {
-      case 0:
-        if(last_position != 0)
-        {
-           HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
-           uint8_t temp[1] = {0x00};
-           write_to_log(0x05, &temp[0], 1);
-           last_position = 0;
-           
+    if (mode) {
+      switch(REGISTERS[2]) {
+        case 0: {
+          if (last_position != 0) {
+            //HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+            //HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+            
+#if OUT == 0
+            HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+#else
+            HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+#endif
+            
+            log_value = 0;
+            write_to_log(0x05, &log_value, 1);
+            last_position = 0;
+          }
+          break;
         }
-        break;
         
-      case 1:
-        if(last_position != 1)
-        {
-           HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-           last_position = 1;
-           uint8_t temp[1] = {0x01};
-           write_to_log(0x05, &temp[0], 1);
+        case 1: {
+          if (last_position != 1) {
+            //HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+            //HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+            
+#if OUT == 0
+            HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+#else
+            HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+#endif
+            
+            last_position = 1;
+            log_value = 1;
+            write_to_log(0x05, &log_value, 1);
+          }
+          break;
         }
-        break;  
       }
     }
     
-    
-    if(fff)
-    {
-      reley_auto_protection = 0;
-      setrelay(0);
-      osDelay(5000);
-      reley_auto_protection = 1;
-      
-      start = 0;
-      fff = 0;
-    }
-
-    if((button_ivent) && (!button_ivent_block))
-    {
-       /* 1. Запрещаем новые измерения и останавливаем ADC */
-      adc_lock = 1;
-      HAL_ADC_Stop_DMA(&hadc1);
-      
+    if ((button_event == EVENT_PRESSED) && (button_block == nBLOCK_BUTTON)) {
+      test_leak = 1;
       /* 2. Сам тест */
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
-      osDelay(3000);
-      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+      osDelay(1000);
+      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);      
+      osDelay(100);  
+      test_leak = 0;
       
-      
-      osDelay(300);  
-      
-      
-       /* 3. Логирование события TEST */
+      /* 3. Логирование события TEST */
       taskENTER_CRITICAL();
-      write_to_log(0x31, 0x00, 1);
+      log_value = 0;
+      write_to_log(0x31, &log_value, 1);
       taskEXIT_CRITICAL();
       
-      /* 4. Снимаем запрет АЦП и запускаем первое измерение*/
-      adc_lock = 0;
-      HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
-      
       /* 5. Блокируем повторное нажатие */
-      button_ivent = 0;
-      button_ivent_block = 1;
+      button_event = EVENT_RESET;
+      button_block = BLOCK_BUTTON;
       xTimerStart(xTestBlockTimer, 0);
     }
-    osDelay(10);
-
-    
-    
+    osDelay(5);
   }
-  /* USER CODE END StartTask04 */
-  
 }
 
 /* USER CODE BEGIN Header_StartTask05 */
@@ -1198,26 +1186,15 @@ void StartTask04(void *argument)
 /* USER CODE END Header_StartTask05 */
 void StartTask05(void *argument)
 {
-  /* USER CODE BEGIN StartTask05 */
-  /* Infinite loop */
-  for(;;)
-  {
-     uxHighWaterMark5 = uxTaskGetStackHighWaterMark(NULL);
-
-    if(start == 0)
-    {
-      uxHighWaterMark5 = uxTaskGetStackHighWaterMark(NULL);
-
+  while (1) {
+    if (start == 0) {
       OLED_1in5_rgb_run();
     }
-
     osDelay(10);
-    
-    /* USER CODE END StartTask05 */
   }
 }
 
-
+uint32_t wdi_tick;
 
 /* USER CODE BEGIN Header_StartTask06 */
 /**
@@ -1228,188 +1205,18 @@ void StartTask05(void *argument)
 /* USER CODE END Header_StartTask06 */
 void StartTask06(void *argument)
 {
-  /* USER CODE BEGIN StartTask06 */
-  
-  /* Infinite loop */
-  for(;;)
-  {  
-    //HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_SET);
-    //osDelay(100);
-    //HAL_GPIO_WritePin(WDI_GPIO_Port, WDI_Pin, GPIO_PIN_RESET);
-    //osDelay(300);
-    
+  while (1) {  
     HAL_GPIO_TogglePin(WDI_GPIO_Port, WDI_Pin);
-    osDelay(300);
-    
-    uxHighWaterMark6 = uxTaskGetStackHighWaterMark(NULL);
-    
+    osDelay(1000);
+#if DEBUG == 1
+    wdi_tick++;
+    WM_WDI = uxTaskGetStackHighWaterMark(NULL);
+#endif
   }
-  /* USER CODE END StartTask06 */
-  
 }
-
-
-
-void HighPriorityTask(void *argument) 
-{
-   xRelayReleaseTimer = xTimerCreate("RelayRelease", pdMS_TO_TICKS(300), pdFALSE, NULL, vRelayReleaseCallback);
-
-   uint32_t timetag = HAL_GetTick(); //-------//------//-----
-   //static uint8_t last_state = 5;
-    for(;;) 
-    {   
-      
-        if (xSemaphoreTake(xHighPrioritySemaphore, portMAX_DELAY) == pdTRUE) 
-        {
-          
-          uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-          
-          uint16_t rms = adc_get_rms(adcBuffer, ADC_BUFFER_SIZE);
-          
-          /*
-            
-          #define A3_Q20   ( 10)         //  0.00001 * 2^20
-          #define A2_Q20   (-2307)       // -0.00220 * 2^20
-          #define A1_Q20   (488209)      //  0.46580 * 2^20
-          #define A0_Q20   (4687953)     //  4.47160 * 2^20
-          #define Q        20            // количество дробных бит
-
-          int32_t x = (int32_t)rms - 199;    
-          if (x < 0) x = 0;
-
-          int64_t acc = A3_Q20;             
-          acc = acc * x;                     
-          acc += A2_Q20;                    
-          acc = acc * x;                  
-          acc += A1_Q20;                    
-          acc = acc * x;                     
-          acc += A0_Q20;                     
-
- 
-          uint32_t y = (uint32_t)(acc >> Q);   
-
-          if (y > 65535U) y = 65535U;
-          uint16_t result = (uint16_t)y;
-          REGISTERS[1]   = result;
-       */   
-          
-/*
-          volatile uint32_t boot_word = *(volatile uint32_t *)BOOTLOADER_ADDRESS;
-
-
-          if (boot_word == 0xFFFFFFFFu)
-          {
-
-              while (1)
-              {
-                  __NOP();       
-              }
-          }
-          
-*/          
-          
-          float leak_phase_A_macros = calculate_rms_A_macros(rms);
-          float leak_phase_B_macros = calculate_rms_B_macros(rms);
-          float leak_phase_C_macros = calculate_rms_C_macros(rms);
-
-          
-          uint16_t max_val = (uint16_t) fmaxf(fmaxf(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
-          REGISTERS[1] = max_val;
-
-          
-          
-           if((!mode) && (protection_pause == 0))
-          {
-              if((REGISTERS[1] >= TARGET_VALUE) && reley_auto_protection)
-              {
-                osMutexWait(RelayMutexHandle, osWaitForever);
-                REGISTERS[2] = 0;
-                osMutexRelease(RelayMutexHandle);
-                adc_lock = 1;  //запрет на измерение ADC
-                
-                HAL_ADC_Stop_DMA(&hadc1);
-                if(relay_timeout != 0)
-                {
-                protection_pause = 1;
-                StartRelayReleaseTimer(relay_timeout);  //тут снимаем запрет на измерения + в button_ivent
-                }
-              }
-              else if ((REGISTERS[1] <= TARGET_VALUE) && reley_auto_protection)
-              {
-                osMutexWait(RelayMutexHandle, osWaitForever);
-                REGISTERS[2] = 1;
-                osMutexRelease(RelayMutexHandle);
-              }
-              
-
-                  
-
-             
-              if((REGISTERS[2] == 0) && (last_position != REGISTERS[2]))
-              {
-                HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
-                theme = 2;
-                if(!start)
-                {
-                   taskENTER_CRITICAL();
-                   uint8_t temp_value = (uint8_t)REGISTERS[1];
-                   write_to_log(0x33, &temp_value, 1);
-                   uint8_t temp[1] = {0x00};
-                   write_to_log(0x05, &temp[0], 1);
-                   taskEXIT_CRITICAL();
-                }
-                last_position = REGISTERS[2];
-              }
-              else if((REGISTERS[2] == 1) && (last_position != REGISTERS[2]))
-              {
-                 HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-                 last_position = REGISTERS[2];
-                 uint8_t temp[1] = {0x01};
-                 write_to_log(0x05, &temp[0], 1);
-                 theme = 1;
-              }    
-          }
-
-          
-          
-          
-          if (!adc_lock)
-          {
-          HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
-          }
-          
-          
-          osDelay(1); 
-          //osDelay(100);
-          
-        }
-    
-}
-}
-
-
 
 /* Private application code */
 /* USER CODE BEGIN Application */
-
-void setrelay(uint16_t i)
-{
-  static uint8_t last_i = 0;
-  
-  if(last_i != i)
-  {
-     last_i = i;
-     uint8_t data = (uint8_t) i;
-     taskENTER_CRITICAL();
-     write_to_log(0x05, &data, 1);
-     osMutexWait(RelayMutexHandle, osWaitForever);
-     REGISTERS[2] = i;
-     osMutexRelease(RelayMutexHandle);
-     taskEXIT_CRITICAL();
-  }
-}
-
-
 
 //---------------------------------------------------------------------------------HTTPD-SERVER-LOGICS-START---
 
@@ -1417,9 +1224,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 {
   uint8_t buffer[50] = {0};
   uint8_t bufferSize = 50;
-  
-  
-  
+
   if (iIndex == 0) 
   {
     snprintf((char*)buffer, bufferSize, "%02X.%02X.%02X.%02X.%02X.%02X",  gnetif.hwaddr[0], gnetif.hwaddr[1], gnetif.hwaddr[2], gnetif.hwaddr[3], gnetif.hwaddr[4], gnetif.hwaddr[5]);
@@ -1464,7 +1269,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   {
     if(!first_call)
     {
-    first_call = 1;
+      first_call = 1;
     }
     if(REGISTERS[2])
     {
@@ -1533,29 +1338,29 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   {
     snprintf((char*)buffer, bufferSize, "%.9f", (double)C_phase_B);
   }
-    else if(iIndex == 20)
+  else if(iIndex == 20)
   {
     snprintf((char*)buffer, bufferSize, "%.9f", (double)R_leak_B);
   }
-    else if(iIndex == 21)
+  else if(iIndex == 21)
   {
     snprintf((char*)buffer, bufferSize, "%.9f", (double)C_phase_C);
   }
-    else if(iIndex == 22)
+  else if(iIndex == 22)
   {
     snprintf((char*)buffer, bufferSize, "%.9f", (double)R_leak_C);
   }
-    else if(iIndex == 23)
+  else if(iIndex == 23)
   {
     snprintf((char*)buffer, bufferSize, "%d", TARGET_VALUE);
   }
-    else if(iIndex == 24)
+  else if(iIndex == 24)
   {
     /*
     if(hw_protection)
     {
-      snprintf((char*)buffer, bufferSize, "checked");
-    }
+    snprintf((char*)buffer, bufferSize, "checked");
+  }
     */
     snprintf((char*)buffer, bufferSize, "%d", mode);
   }
@@ -1564,8 +1369,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
     snprintf((char*)buffer, bufferSize, "%d", crc_accepted);
   }
   else if(iIndex == 26)
-  {
-
+  {    
     snprintf((char*)buffer, bufferSize, "{\"current\":%u}", REGISTERS[1]);   //like a JSON
   }
   else if(iIndex == 27)
@@ -1578,20 +1382,18 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
   else if(iIndex == 29)
   {
-     log_for_web_init();
-     memcpy(pcInsert, (void const *)log_for_wed, 1025);
-     return 1025;
+    log_for_web_init();
+    memcpy(pcInsert, (void const *)log_for_wed, 1025);
+    return 1025;
   }
   else if(iIndex == 30)
   {
     snprintf((char*)buffer, bufferSize, "%d", relay_timeout);
   }
-
-  
+    
   snprintf(pcInsert, iInsertLen, "%s", buffer);
   return strlen(pcInsert);
 }
-
 
 void httpd_ssi_init(void) 
 {
@@ -1600,150 +1402,141 @@ void httpd_ssi_init(void)
 
 void log_for_web_init()
 {
-      // Порог пустых записей (0xFF)
-    uint8_t FF_THRESHOLD = 5;
+  // Порог пустых записей (0xFF)
+  uint8_t FF_THRESHOLD = 5;
+  
+  // Статические переменные для отслеживания состояния между вызовами
+  // current_addr – текущая позиция чтения (идём в обратном направлении)
+  // initial_addr – адрес, с которого начался текущий цикл передачи (для определения полного круга)
+  // first_call – флаг первого вызова в рамках одной последовательной передачи логов
+  static uint32_t current_addr = 0;
+  static uint32_t initial_addr = 0;
+  
+  memset((void *)log_for_wed, 0, LOG_BUFF_SIZE);
+  
+  int buf_index = 0;
+  int max_buf_size = sizeof(log_for_wed);  // Размер выходного буфера (например, 1 КБ)
+  int max_entries = max_buf_size / LOG_ENTRY_SIZE; // Количество записей, умещающихся в буфере
+  int consecutive_ff = 0; // Счётчик подряд идущих пустых (0xFF) записей
+  
+  // При первом вызове начинаем с самой новой записи
+  if (first_call)
+  {
+    if (log_ptr == LOG_START_ADDR_BLOCK)
+      // Если указатель равен началу, начинаем с последней валидной записи
+      current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
+    else
+      current_addr = log_ptr - LOG_ENTRY_SIZE;
+    // Запоминаем стартовую позицию для определения полного круга
+    initial_addr = current_addr;
+    first_call = 0;
+  }
+  
+  // Чтение логов в обратном порядке (от самой новой записи)
+  for (int i = 0; i < max_entries; i++)
+  {
+    // Если уже прошли полный круг, прекращаем чтение
+    if (i > 0 && current_addr == initial_addr)
+      break;
     
-    // Статические переменные для отслеживания состояния между вызовами
-    // current_addr – текущая позиция чтения (идём в обратном направлении)
-    // initial_addr – адрес, с которого начался текущий цикл передачи (для определения полного круга)
-    // first_call – флаг первого вызова в рамках одной последовательной передачи логов
-    static uint32_t current_addr = 0;
-    static uint32_t initial_addr = 0;
-
-    memset((void *)log_for_wed, 0, LOG_BUFF_SIZE);
+    // Проверка корректности указателя; если он вне диапазона,
+    // устанавливаем его на последнюю валидную запись
+    if (current_addr < LOG_START_ADDR_BLOCK || current_addr > (LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE)) {
+      current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
+    }
     
-    int buf_index = 0;
-    int max_buf_size = sizeof(log_for_wed);  // Размер выходного буфера (например, 1 КБ)
-    int max_entries = max_buf_size / LOG_ENTRY_SIZE; // Количество записей, умещающихся в буфере
-    int consecutive_ff = 0; // Счётчик подряд идущих пустых (0xFF) записей
-
-    // При первом вызове начинаем с самой новой записи
-    if (first_call)
+    uint8_t entry[LOG_ENTRY_SIZE] = {0};
+    // Считываем одну запись по текущему адресу
+    
+    //Логика для пропуска лишних 8-ми байт в конце каждого сектора (иначе сбивается кратность 12-ти)
+    if ((current_addr & 0xDFFFF) == 0xDFFF4) 
     {
-        if (log_ptr == LOG_START_ADDR_BLOCK)
-            // Если указатель равен началу, начинаем с последней валидной записи
-            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
-        else
-            current_addr = log_ptr - LOG_ENTRY_SIZE;
-        // Запоминаем стартовую позицию для определения полного круга
-        initial_addr = current_addr;
-        first_call = 0;
+      current_addr -= 8;
     }
-
-    // Чтение логов в обратном порядке (от самой новой записи)
-    for (int i = 0; i < max_entries; i++)
+    else if ((current_addr & 0xBFFFF) == 0xBFFF4)
     {
-        // Если уже прошли полный круг, прекращаем чтение
-        if (i > 0 && current_addr == initial_addr)
-            break;
-
-        // Проверка корректности указателя; если он вне диапазона,
-        // устанавливаем его на последнюю валидную запись
-        if (current_addr < LOG_START_ADDR_BLOCK || current_addr > (LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE)) {
-            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
-        }
-        
-        uint8_t entry[LOG_ENTRY_SIZE];
-        // Считываем одну запись по текущему адресу
-        
-        
-        
-        //Логика для пропуска лишних 8-ми байт в конце каждого сектора (иначе сбивается кратность 12-ти)
-        if ((current_addr & 0xDFFFF) == 0xDFFF4) 
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0xBFFFF) == 0xBFFF4)
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0x9FFFF) == 0x9FFF4)
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0x7FFFF) == 0x7FFF4)
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0x5FFFF) == 0x5FFF4)
-        {
-          current_addr -= 8;
-        }
-        else if ((current_addr & 0x3FFFF) == 0x3FFF4)
-        {
-          current_addr -= 8;
-        }
-          
-          
-          
-          
-        memcpy(entry, (const void *)current_addr, LOG_ENTRY_SIZE);
-
-        // Проверяем, является ли запись "пустой" (все байты равны 0xFF)
-        int is_ff = 1;
-        for (int j = 0; j < LOG_ENTRY_SIZE; j++)
-        {
-            if (entry[j] != 0xFF)
-            {
-                is_ff = 0;
-                break;
-            }
-        }
-
-        // Подсчёт подряд идущих пустых записей
-        if (is_ff)
-            consecutive_ff++;
-        else
-            consecutive_ff = 0;
-
-        // Если встречено достаточное число пустых записей, считаем, что валидных логов больше нет
-        if (consecutive_ff >= FF_THRESHOLD)
-            break;
-
-        // Копируем запись в выходной буфер
-        memcpy((void *)&log_for_wed[buf_index], entry, LOG_ENTRY_SIZE);
-        buf_index += LOG_ENTRY_SIZE;
-
-
-        // Обновляем указатель. Если вычитание размера записи привело бы к значению ниже начала сектора,
-        // переносим указатель на последнюю валидную запись
-        if (current_addr - LOG_ENTRY_SIZE < LOG_START_ADDR_BLOCK)
-            current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
-        else
-            current_addr -= LOG_ENTRY_SIZE;
+      current_addr -= 8;
     }
-
-    // Если достигнут конец логов (либо по порогу пустых записей, либо полный круг пройден),
-    // добавляем сигнальную последовательность в конец выходного буфера
-    if (consecutive_ff >= FF_THRESHOLD || ((!first_call) && current_addr == initial_addr) || current_addr == (initial_addr - 1) ||current_addr == (initial_addr - 2) ||current_addr == (initial_addr + 2) ||current_addr == (initial_addr + 1) ||current_addr == (initial_addr + 3) ||current_addr == (initial_addr -3)) 
+    else if ((current_addr & 0x9FFFF) == 0x9FFF4)
     {
-        const char marker[] = "\r\n-\r\n";
-        int marker_len = sizeof(marker) - 1; // Без завершающего '\0'
-        if (buf_index + marker_len < max_buf_size)
-        {
-            memcpy((void *)&log_for_wed[buf_index], marker, marker_len);
-            buf_index += marker_len;
-        }
-        // Сброс состояния для следующей передачи – в следующий раз начинаем с самой свежей записи
-        first_call = 1;
+      current_addr -= 8;
     }
-    else if(first_call)
+    else if ((current_addr & 0x7FFFF) == 0x7FFF4)
     {
-      first_call = 0;
+      current_addr -= 8;
     }
-    // Функция используется для SSI (<!--LOG-->),
-    // поэтому возвращаем 0 
-
+    else if ((current_addr & 0x5FFFF) == 0x5FFF4)
+    {
+      current_addr -= 8;
+    }
+    else if ((current_addr & 0x3FFFF) == 0x3FFF4)
+    {
+      current_addr -= 8;
+    }
+    
+    memcpy(entry, (const void *)current_addr, LOG_ENTRY_SIZE);
+    
+    // Проверяем, является ли запись "пустой" (все байты равны 0xFF)
+    int is_ff = 1;
+    for (int j = 0; j < LOG_ENTRY_SIZE; j++)
+    {
+      if (entry[j] != 0xFF)
+      {
+        is_ff = 0;
+        break;
+      }
+    }
+    
+    // Подсчёт подряд идущих пустых записей
+    if (is_ff)
+      consecutive_ff++;
+    else
+      consecutive_ff = 0;
+    
+    // Если встречено достаточное число пустых записей, считаем, что валидных логов больше нет
+    if (consecutive_ff >= FF_THRESHOLD)
+      break;
+    
+    // Копируем запись в выходной буфер
+    memcpy((void *)&log_for_wed[buf_index], entry, LOG_ENTRY_SIZE);
+    buf_index += LOG_ENTRY_SIZE;
+    
+    // Обновляем указатель. Если вычитание размера записи привело бы к значению ниже начала сектора,
+    // переносим указатель на последнюю валидную запись
+    if (current_addr - LOG_ENTRY_SIZE < LOG_START_ADDR_BLOCK)
+      current_addr = LOG_END_ADDR_BLOCK - LOG_ENTRY_SIZE;
+    else
+      current_addr -= LOG_ENTRY_SIZE;
+  }
+  
+  // Если достигнут конец логов (либо по порогу пустых записей, либо полный круг пройден),
+  // добавляем сигнальную последовательность в конец выходного буфера
+  if (consecutive_ff >= FF_THRESHOLD || ((!first_call) && current_addr == initial_addr) || current_addr == (initial_addr - 1) ||current_addr == (initial_addr - 2) ||current_addr == (initial_addr + 2) ||current_addr == (initial_addr + 1) ||current_addr == (initial_addr + 3) ||current_addr == (initial_addr -3)) 
+  {
+    const char marker[] = "\r\n-\r\n";
+    int marker_len = sizeof(marker) - 1; // Без завершающего '\0'
+    if (buf_index + marker_len < max_buf_size)
+    {
+      memcpy((void *)&log_for_wed[buf_index], marker, marker_len);
+      buf_index += marker_len;
+    }
+    // Сброс состояния для следующей передачи – в следующий раз начинаем с самой свежей записи
+    first_call = 1;
+  }
+  else if(first_call)
+  {
+    first_call = 0;
+  }
+  // Функция используется для SSI (<!--LOG-->),
+  // поэтому возвращаем 0 
+  
 }
-
 
 //Логика обработки /Save запросов от клиента в веб интерфейсе
 const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
-{
-  
+{  
   first_call = 1;
-  
-  
+    
   char ip[16] = {0};
   char mask[16] = {0};
   char gateway[16] = {0};
@@ -1754,7 +1547,6 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char rs485stopbit[18] = {0};
   char reley_time[16]   = {0};
   
-  
   char c_phase_a_str[18]  = {0};
   char r_leak_a_str[18]   = {0};
   char c_phase_b_str[18]  = {0};
@@ -1764,7 +1556,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char target_value_str[18] = {0};
   char warning_value_str[18] = {0};
   char date_arr[50] = {0};
-
+  
   uint8_t c_phase_a_flag     = 0;
   uint8_t r_leak_a_flag      = 0;
   uint8_t c_phase_b_flag     = 0;
@@ -1821,8 +1613,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       if (pinget == 6)
       {
         pinaccept = 1;
-      }
-      
+      }      
       memset(mac, 0, sizeof(mac));
     }
     else if (strcmp(pcParam[i], "relay") == 0) 
@@ -1834,8 +1625,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       else
       {
         REGISTERS[2] = 1;
-      }
-      
+      }      
     }
     if (strcmp(pcParam[i], "serial") == 0) 
     {
@@ -1857,7 +1647,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       strncpy(rs485stopbit, pcValue[i], sizeof(rs485stopbit) - 1);
       stopbit_flag = 1;
     }  
-     else if (strcmp(pcParam[i], "c_phase_a") == 0)
+    else if (strcmp(pcParam[i], "c_phase_a") == 0)
     {
       strncpy(c_phase_a_str, pcValue[i], sizeof(c_phase_a_str) - 1);
       c_phase_a_flag = 1;
@@ -1899,7 +1689,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     }
     else if(strcmp(pcParam[i], "test") == 0)
     {
-      button_ivent = 1;
+      button_event = 1;
     }
     else if(strcmp(pcParam[i], "date") == 0)
     {
@@ -1908,34 +1698,30 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     }
     else if (strcmp(pcParam[i], "givetime") == 0) 
     {
-       uint16_t mask = (1 << 2);  
-       REGISTERS[4] = (REGISTERS[4] | mask); 
+      uint16_t mask = (1 << 2);  
+      REGISTERS[4] = (REGISTERS[4] | mask); 
     }
     else if (strcmp(pcParam[i], "swichmode") == 0) 
     {
-       REGISTERS[4] ^= (1 << 4);
-       
-       if(mode)
-       {
-         mode = 0;
-       }
-       else
-       {
-         mode = 1;
-       }
+      REGISTERS[4] ^= (1 << 4);
+      
+      if(mode)
+      {
+        mode = 0;
+      }
+      else
+      {
+        mode = 1;
+      }
     }
     else if (strcmp(pcParam[i], "reley_time") == 0) 
     {
-       strncpy(reley_time, pcValue[i], sizeof(reley_time) - 1);
-       reley_time_flag = 1; 
+      strncpy(reley_time, pcValue[i], sizeof(reley_time) - 1);
+      reley_time_flag = 1; 
     }
-    
-    
-
-  
   }
   
-  if(date_flag != 0)
+  if (date_flag != 0)
   {
     taskENTER_CRITICAL();
     save_time_to_rtc((uint8_t*) date_arr);
@@ -1955,6 +1741,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     pinaccept = 1;
     taskEXIT_CRITICAL();
   }
+  
   if(serial_flag != 0)
   {
     convert_str_to_uint8_array_serial(serial, output);
@@ -1967,134 +1754,124 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     pinaccept = 1;
     taskEXIT_CRITICAL();
   }
-
   
+  if (c_phase_a_flag != 0)
+  {
+    convert_str_to_float_bytes(c_phase_a_str, output); 
+    taskENTER_CRITICAL();
+    WriteFlash(C_PHASE_A, output);
+    memset(output, 0, sizeof(output));
+    c_phase_a_flag = 0;
+    C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
+    write_to_log(0x12, (uint8_t *)&C_phase_A, sizeof(C_phase_A));
+    taskEXIT_CRITICAL();
+  }
   
-    if (c_phase_a_flag != 0)
-    {
-      convert_str_to_float_bytes(c_phase_a_str, output); 
-      taskENTER_CRITICAL();
-      WriteFlash(C_PHASE_A, output);
-      memset(output, 0, sizeof(output));
-      c_phase_a_flag = 0;
-      C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
-      write_to_log(0x12, (uint8_t *)&C_phase_A, sizeof(C_phase_A));
-      taskEXIT_CRITICAL();
-    }
-
-    if (r_leak_a_flag != 0)
-    {
-      convert_str_to_float_bytes(r_leak_a_str, output);
-      taskENTER_CRITICAL();
-      WriteFlash(R_LEAK_A, output);
-      memset(output, 0, sizeof(output));
-      r_leak_a_flag = 0;
-      R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
-      
-      write_to_log(0x15, (uint8_t *)&R_leak_A, sizeof(R_leak_A));
-      taskEXIT_CRITICAL();
-    }
-
-    if (c_phase_b_flag != 0)
-    {
-      taskENTER_CRITICAL();
-      convert_str_to_float_bytes(c_phase_b_str, output); 
-      WriteFlash(C_PHASE_B, output);
-      memset(output, 0, sizeof(output));
-      c_phase_b_flag = 0;
-      C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
-      
-      write_to_log(0x13, (uint8_t *)&C_phase_B, sizeof(C_phase_B));
-      taskEXIT_CRITICAL();
-    }
-
-    if (r_leak_b_flag != 0)
-    {
-      taskENTER_CRITICAL();
-      convert_str_to_float_bytes(r_leak_b_str, output);
-      WriteFlash(R_LEAK_B, output);
-      memset(output, 0, sizeof(output));
-      r_leak_b_flag = 0;
-      R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
-      
-      write_to_log(0x16, (uint8_t *)&R_leak_B, sizeof(R_leak_B));
-      taskEXIT_CRITICAL();
-    }
-
-    if (c_phase_c_flag != 0)
-    {
-      taskENTER_CRITICAL();
-      convert_str_to_float_bytes(c_phase_c_str, output);
-      WriteFlash(C_PHASE_C, output);
-      memset(output, 0, sizeof(output));
-      c_phase_c_flag = 0;
-      C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
-      
-      write_to_log(0x14, (uint8_t *)&C_phase_C, sizeof(C_phase_C));
-      taskEXIT_CRITICAL();
-    }
-
-    if (r_leak_c_flag != 0)
-    {
-      taskENTER_CRITICAL();
-     convert_str_to_float_bytes(r_leak_c_str, output);
-      WriteFlash(R_LEAK_C, output);
-      memset(output, 0, sizeof(output));
-      r_leak_c_flag = 0;
-      R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
-      
-      write_to_log(0x17, (uint8_t *)&R_leak_C, sizeof(R_leak_C));
-      taskEXIT_CRITICAL();
-    }
-
-    if (target_value_flag != 0)
-    {
-      taskENTER_CRITICAL();
-      output[0] = (uint8_t)atoi(target_value_str);
-      WriteFlash(TaRGET_VALUE, output);
-      memset(output, 0, sizeof(output));
-      target_value_flag = 0;
-      TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
-      
-      write_to_log(0x18, &TARGET_VALUE, 1);
-      taskEXIT_CRITICAL();
-    }
+  if (r_leak_a_flag != 0)
+  {
+    convert_str_to_float_bytes(r_leak_a_str, output);
+    taskENTER_CRITICAL();
+    WriteFlash(R_LEAK_A, output);
+    memset(output, 0, sizeof(output));
+    r_leak_a_flag = 0;
+    R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
+    write_to_log(0x15, (uint8_t *)&R_leak_A, sizeof(R_leak_A));
+    taskEXIT_CRITICAL();
+  }
   
-      if (warning_value_flag != 0)
-    {
-      taskENTER_CRITICAL();
-      output[0] = (uint8_t)atoi(warning_value_str);
-      WriteFlash(Warning_VALUE, output);
-      memset(output, 0, sizeof(output));
-      warning_value_flag = 0;
-      WARNING_VALUE = *((uint8_t *)FLASH_ADDRESS_WARNING_VALUE);
-      
-      write_to_log(0x19, &WARNING_VALUE, 1);
-      taskEXIT_CRITICAL();
-    }
-    
-      if(reley_time_flag != 0)
-      {
-        taskENTER_CRITICAL();
-        
-        uint16_t value = (uint16_t)atoi(reley_time);   // value = 300
-        memcpy(output, &value, sizeof(value));
-        
-        WriteFlash(Relay_TIME, output);
-        memset(output, 0, sizeof(output));
-        reley_time_flag = 0;
-        relay_timeout = *((uint16_t *)FLASH_ADDRESS_RELAY_TIME);
-        
-        write_to_log(0x18, (uint8_t *)&relay_timeout, 1);
-        taskEXIT_CRITICAL();   
-      }
-
- 
-  
-  if(pinaccept)
+  if (c_phase_b_flag != 0)
   {
     taskENTER_CRITICAL();
-    if(ip_flag != 0)
+    convert_str_to_float_bytes(c_phase_b_str, output); 
+    WriteFlash(C_PHASE_B, output);
+    memset(output, 0, sizeof(output));
+    c_phase_b_flag = 0;
+    C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
+    write_to_log(0x13, (uint8_t *)&C_phase_B, sizeof(C_phase_B));
+    taskEXIT_CRITICAL();
+  }
+  
+  if (r_leak_b_flag != 0)
+  {
+    taskENTER_CRITICAL();
+    convert_str_to_float_bytes(r_leak_b_str, output);
+    WriteFlash(R_LEAK_B, output);
+    memset(output, 0, sizeof(output));
+    r_leak_b_flag = 0;
+    R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
+    write_to_log(0x16, (uint8_t *)&R_leak_B, sizeof(R_leak_B));
+    taskEXIT_CRITICAL();
+  }
+  
+  if (c_phase_c_flag != 0)
+  {
+    taskENTER_CRITICAL();
+    convert_str_to_float_bytes(c_phase_c_str, output);
+    WriteFlash(C_PHASE_C, output);
+    memset(output, 0, sizeof(output));
+    c_phase_c_flag = 0;
+    C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
+    write_to_log(0x14, (uint8_t *)&C_phase_C, sizeof(C_phase_C));
+    taskEXIT_CRITICAL();
+  }
+  
+  if (r_leak_c_flag != 0)
+  {
+    taskENTER_CRITICAL();
+    convert_str_to_float_bytes(r_leak_c_str, output);
+    WriteFlash(R_LEAK_C, output);
+    memset(output, 0, sizeof(output));
+    r_leak_c_flag = 0;
+    R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
+    write_to_log(0x17, (uint8_t *)&R_leak_C, sizeof(R_leak_C));
+    taskEXIT_CRITICAL();
+  }
+  
+  if (target_value_flag != 0)
+  {
+    taskENTER_CRITICAL();
+    output[0] = (uint8_t)atoi(target_value_str);
+    WriteFlash(TaRGET_VALUE, output);
+    memset(output, 0, sizeof(output));
+    target_value_flag = 0;
+    TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
+    
+    write_to_log(0x18, &TARGET_VALUE, 1);
+    taskEXIT_CRITICAL();
+  }
+  
+  if (warning_value_flag != 0)
+  {
+    taskENTER_CRITICAL();
+    output[0] = (uint8_t)atoi(warning_value_str);
+    WriteFlash(Warning_VALUE, output);
+    memset(output, 0, sizeof(output));
+    warning_value_flag = 0;
+    WARNING_VALUE = *((uint8_t *)FLASH_ADDRESS_WARNING_VALUE);
+    
+    write_to_log(0x19, &WARNING_VALUE, 1);
+    taskEXIT_CRITICAL();
+  }
+  
+  if(reley_time_flag != 0)
+  {
+    taskENTER_CRITICAL();
+    
+    uint16_t value = (uint16_t)atoi(reley_time);   // value = 300
+    memcpy(output, &value, sizeof(value));
+    
+    WriteFlash(Relay_TIME, output);
+    memset(output, 0, sizeof(output));
+    reley_time_flag = 0;
+    relay_timeout = *((uint16_t *)FLASH_ADDRESS_RELAY_TIME);
+    
+    write_to_log(0x18, (uint8_t *)&relay_timeout, 1);
+    taskEXIT_CRITICAL();   
+  }
+  
+  if (pinaccept) {
+    taskENTER_CRITICAL();
+    if (ip_flag != 0)
     {
       convert_str_to_uint8_array(ip, output, 0);
       WriteFlash(IP, output);
@@ -2156,18 +1933,11 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     
     taskEXIT_CRITICAL();
     restart = 1;
-
+    
     return 0;
-  }
-
-  
-  
-  
-  
+  }  
   return 0;
 }
-
-
 
 const char * JSON_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
 {
@@ -2178,16 +1948,11 @@ const char * JSON_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
 
 uint8_t loghhh = 0;
 
-
 const char * LOG_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
-{       
-  
+{  
     return 0;
 }
 //---------------------------------------------------------------------------------HTTPD-SERVER-LOGICS-END---
-
-
-
 
 //---------------------------------------------------------------------------------FLASH-LOGICS-START--------
 
@@ -2242,7 +2007,6 @@ void ReadFlash(FlashDataType type, uint8_t* buffer)
     buffer[i] = *(uint8_t*)(address + i);
   }
 }
-
 
 //Удаляет лишние знаки из строки (АА:FF:SS:DD:HH -> AAFFSSDDHH)
 void convert_str_to_uint8_array(const char* input, uint8_t* output, int is_mac) 
@@ -2314,247 +2078,264 @@ void convert_str_to_uint8_array_serial(const char* input, uint8_t* output)
   }
 }
 
-
 __attribute__((section(".ramfunc")))
 void WriteToFlash(uint32_t startAddress, uint8_t* data, uint32_t length)
 {
-    if(!flash_block)
-    {
+  if (!flash_block) {
+    uint32_t sector_error = 0;
+    FLASH_EraseInitTypeDef FLASH_EraseInitStruct;
+    FLASH_EraseInitStruct.TypeErase = FLASH_TYPEERASE_SECTORS;
+    FLASH_EraseInitStruct.NbSectors = 1;
+    FLASH_EraseInitStruct.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+    
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP|FLASH_FLAG_OPERR|FLASH_FLAG_WRPERR|
+                           FLASH_FLAG_PGAERR|FLASH_FLAG_PGPERR|FLASH_FLAG_PGSERR);
+    
     __disable_irq();
-  
+    
     HAL_FLASH_Unlock();
     
     if((startAddress >= 0x0800C000) && (startAddress <= 0x0800FFFF))
     {
-      FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
+      FLASH_EraseInitStruct.Sector = FLASH_SECTOR_3;
+      HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error);
+      //FLASH_Erase_Sector(FLASH_SECTOR_3, VOLTAGE_RANGE_3);
     }
     else if((startAddress >= 0x08100000) && (startAddress <= 0x08103FFF))
     {
-      FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
+      FLASH_EraseInitStruct.Sector = FLASH_SECTOR_12;
+      HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error);
+      //FLASH_Erase_Sector(FLASH_SECTOR_12, VOLTAGE_RANGE_3);
     }
     
     for (uint32_t i = 0; i < length; i++) {
-        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, data[i]) != HAL_OK) {
-            HAL_FLASH_Lock();
-            return;
-        }
+      if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, data[i]) != HAL_OK) {
+        HAL_FLASH_Lock();
+        __enable_irq();
+        return;
+      }
     }
-
+    
     HAL_FLASH_Lock();
+    
     __enable_irq();
-    }
+  }
 }
-
 
 // Функция для работы с переменными в памяти
 __attribute__((section(".ramfunc")))
 void WriteFlash(FlashDataType type, uint8_t* data)
 {
-    size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
-    taskENTER_CRITICAL();
-    uint8_t sectorData[0x1000]; // Формат сектора памяти (4 KB)
-    uint32_t *address = 0;
-    uint32_t dataSize = 0;
+  size_t minFreeHeapSize = xPortGetMinimumEverFreeHeapSize();
+  taskENTER_CRITICAL();
+  uint8_t sectorData[0x1000]; // Формат сектора памяти (4 KB)
+  uint32_t *address = 0;
+  uint32_t dataSize = 0;
   
-    // Считывание полного сектора
-    for (uint32_t i = 0; i < 0x1000; i++) {
-        sectorData[i] = *(volatile uint8_t*)(0x0800C000 + i);
+  // Считывание полного сектора
+  for (uint32_t i = 0; i < 0x1000; i++) {
+    sectorData[i] = *(volatile uint8_t*)(0x0800C000 + i);
+  }
+  
+  // Изменение значений в буфере 
+  sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
+  //sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
+  sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
+  sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
+  sectorData[LOG_SECTOR_ACTIVE - 0x0800C000] = log_sector_active;
+  
+  uint32_t index = BOOT_CRC_ADDRESS - 0x0800C000;
+  
+  sectorData[index + 0] = (uint8_t)(crc_os & 0xFF);        // младший байт
+  sectorData[index + 1] = (uint8_t)((crc_os >> 8) & 0xFF);  // второй байт
+  sectorData[index + 2] = (uint8_t)((crc_os >> 16) & 0xFF); // третий байт
+  sectorData[index + 3] = (uint8_t)((crc_os >> 24) & 0xFF); // старший байт
+  
+  switch (type) {
+    case MAC: {
+      address = (uint32_t *)FLASH_ADDRESS_MAC;
+      dataSize = 6;
+      break;
     }
-    
-    
-    // Изменение значений в буфере 
-    sectorData[BOOT_OS_OK_ADDRESS - 0x0800C000] = boot_os_ok;
-    //sectorData[BOOT_FLAG_CRC_ADDRESS - 0x0800C000] = boot_flag_crc;
-    sectorData[BOOT_FLAG_NEW_ADDRESS - 0x0800C000] = boot_flag_new;
-    sectorData[SECTOR_ENABLED_ADDRESS - 0x0800C000] = sector_enabled;
-    sectorData[LOG_SECTOR_ACTIVE - 0x0800C000] = log_sector_active;
-    
-
-    uint32_t index = BOOT_CRC_ADDRESS - 0x0800C000;
-    
-    sectorData[index + 0] = (uint8_t)(crc_os & 0xFF);        // младший байт
-    sectorData[index + 1] = (uint8_t)((crc_os >> 8) & 0xFF);  // второй байт
-    sectorData[index + 2] = (uint8_t)((crc_os >> 16) & 0xFF); // третий байт
-    sectorData[index + 3] = (uint8_t)((crc_os >> 24) & 0xFF); // старший байт
-    
-    
-      switch (type) 
-      {
-      case MAC:
-        address = (uint32_t *)FLASH_ADDRESS_MAC;
-        dataSize = 6;
-        break;
-      case IP:
-        address = (uint32_t *)FLASH_ADDRESS_IP;
-        dataSize = 4;
-        break;
-      case NETMASK:
-        address = (uint32_t *)FLASH_ADDRESS_NETMASK;
-        dataSize = 4;
-        break;
-      case GATEWAY:
-        address = (uint32_t *)FLASH_ADDRESS_GATEWAY;
-        dataSize = 4;
-        break;
-      case SERIAL:
-        address = (uint32_t *)FLASH_ADDRESS_SERIAL;
-        dataSize = 6;
-        break;
-      case RS485SPEED:
-        address = (uint32_t *)FLASH_ADDRESS_RS485_SPEED;
-        dataSize = 10;
-        break;
-      case RS485PARITIY:
-        address = (uint32_t *)FLASH_ADDRESS_RS485_PARITIY;
-        dataSize = 10;
-        break;
-      case RS485STOPBIT:
-        address = (uint32_t *)FLASH_ADDRESS_RS485_STOPBIT;
-        dataSize = 1;
-        break;
-      case C_PHASE_A:
-        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_A;
-        dataSize = 4;
-        break;
-      case R_LEAK_A:
-        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_A;
-        dataSize = 4;
-        break;
-      case C_PHASE_B:
-        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_B;
-        dataSize = 4;
-        break;
-      case R_LEAK_B:
-        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_B;
-        dataSize = 4;
-        break;
-      case C_PHASE_C:
-        address = (uint32_t *)FLASH_ADDRESS_C_PHASE_C;
-        dataSize = 4;
-        break;
-      case R_LEAK_C:
-        address = (uint32_t *)FLASH_ADDRESS_R_LEAK_C;
-        dataSize = 4;
-        break;
-      case TaRGET_VALUE:
-        address = (uint32_t *)FLASH_ADDRESS_TARGET_VALUE;
-        dataSize = 1;
-        break;
-      case HW_PROTECTION:
-        address = (uint32_t *)FLASH_ADDRESS_HW_PROTECTION;
-        dataSize = 1;
-        break;
-      case Warning_VALUE:
-        address = (uint32_t *)FLASH_ADDRESS_WARNING_VALUE;
-        dataSize = 1;
-        break;
-      case Relay_TIME:
-        address = (uint32_t *)FLASH_ADDRESS_RELAY_TIME;
-        dataSize = 4;
-        break;
-      default:
-        return; 
-      }
-    
-    if (data) 
-    {
+    case IP: {
+      address = (uint32_t *)FLASH_ADDRESS_IP;
+      dataSize = 4;
+      break;
+    }
+    case NETMASK: {
+      address = (uint32_t *)FLASH_ADDRESS_NETMASK;
+      dataSize = 4;
+      break;
+    }
+    case GATEWAY: {
+      address = (uint32_t *)FLASH_ADDRESS_GATEWAY;
+      dataSize = 4;
+      break;
+    }
+    case SERIAL: {
+      address = (uint32_t *)FLASH_ADDRESS_SERIAL;
+      dataSize = 6;
+      break;
+    }
+    case RS485SPEED: {
+      address = (uint32_t *)FLASH_ADDRESS_RS485_SPEED;
+      dataSize = 10;
+      break;
+    }
+    case RS485PARITIY: {
+      address = (uint32_t *)FLASH_ADDRESS_RS485_PARITIY;
+      dataSize = 10;
+      break;
+    }
+    case RS485STOPBIT: {
+      address = (uint32_t *)FLASH_ADDRESS_RS485_STOPBIT;
+      dataSize = 1;
+      break;
+    }
+    case C_PHASE_A: {
+      address = (uint32_t *)FLASH_ADDRESS_C_PHASE_A;
+      dataSize = 4;
+      break;
+    }
+    case R_LEAK_A: {
+      address = (uint32_t *)FLASH_ADDRESS_R_LEAK_A;
+      dataSize = 4;
+      break;
+    }
+    case C_PHASE_B: {
+      address = (uint32_t *)FLASH_ADDRESS_C_PHASE_B;
+      dataSize = 4;
+      break;
+    }
+    case R_LEAK_B: {
+      address = (uint32_t *)FLASH_ADDRESS_R_LEAK_B;
+      dataSize = 4;
+      break;
+    }
+    case C_PHASE_C: {
+      address = (uint32_t *)FLASH_ADDRESS_C_PHASE_C;
+      dataSize = 4;
+      break;
+    }
+    case R_LEAK_C: {
+      address = (uint32_t *)FLASH_ADDRESS_R_LEAK_C;
+      dataSize = 4;
+      break;
+    }
+    case TaRGET_VALUE: {
+      address = (uint32_t *)FLASH_ADDRESS_TARGET_VALUE;
+      dataSize = 1;
+      break;
+    }
+    case HW_PROTECTION: {
+      address = (uint32_t *)FLASH_ADDRESS_HW_PROTECTION;
+      dataSize = 1;
+      break;
+    }
+    case Warning_VALUE:{
+      address = (uint32_t *)FLASH_ADDRESS_WARNING_VALUE;
+      dataSize = 1;
+      break;
+    }
+    case Relay_TIME:{
+      address = (uint32_t *)FLASH_ADDRESS_RELAY_TIME;
+      dataSize = 4;
+      break;
+    }
+    default: {
+      taskEXIT_CRITICAL();
+      return;
+    }
+  }
+  
+  if (data) {
     memcpy(&sectorData[(uint32_t)address - 0x0800C000], data, dataSize);
-    }
-    
-    
-    osDelay(150);
-    // Запись полного сектора в память
-    WriteToFlash(0x0800C000, sectorData, 0x1000);
-    taskEXIT_CRITICAL();
+  }
+  
+  //osDelay(150);
+  // Запись полного сектора в память
+  WriteToFlash(0x0800C000, sectorData, 0x1000);
+  taskEXIT_CRITICAL();
 }
 
 void load_values_from_flash(void)
 {
-    uint32_t temp; 
-    
-    // Чтение и проверка C_phase_A
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_A;
-    if (temp != 0xFFFFFFFF) {
-       memcpy(&C_phase_A, &temp, sizeof(float));
-    } else {
-        //C_phase_A = 0.3f;
-      C_phase_A = 0.5f;
-    }
+  uint32_t temp; 
+  
+  // Чтение и проверка C_phase_A
+  temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_A;
+  if (temp != 0xFFFFFFFF) {
+    memcpy(&C_phase_A, &temp, sizeof(float));
+  } else {
+    //C_phase_A = 0.3f;
+    C_phase_A = 0.2f;
+  }
+  
+  // Чтение и проверка R_leak_A
+  temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_A;
+  if (temp != 0xFFFFFFFF) {
+    memcpy(&R_leak_A, &temp, sizeof(float));
+  } else {
+    R_leak_A = 10.0f;
+  }
+  
+  // Чтение и проверка C_phase_B
+  temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_B;
+  if (temp != 0xFFFFFFFF) {
+    memcpy(&C_phase_B, &temp, sizeof(float));
+  } else {
+    //C_phase_B = 0.3f;
+    C_phase_B = 0.2f;
+  }
+  
+  // Чтение и проверка R_leak_B
+  temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_B;
+  if (temp != 0xFFFFFFFF) {
+    memcpy(&R_leak_B, &temp, sizeof(float));
+  } else {
+    R_leak_B = 10.0f;
+  }
+  
+  // Чтение и проверка C_phase_C
+  temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_C;
+  if (temp != 0xFFFFFFFF) {
+    memcpy(&C_phase_C, &temp, sizeof(float));
+  } else {
+    //C_phase_C = 0.3f;
+    C_phase_C = 0.2f;
+  }
+  
+  // Чтение и проверка R_leak_C
+  temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_C;
+  if (temp != 0xFFFFFFFF) {
+    memcpy(&R_leak_C, &temp, sizeof(float));
+  } else {
+    R_leak_C = 10.0f;
+  }
+  
+  // Чтение и проверка TARGET_VALUE
+  TARGET_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_TARGET_VALUE;
+  if (TARGET_VALUE == 0xFF) {
+    TARGET_VALUE = TARGET_VALUE_DEF;
+  }
+  
+  /*
+  hw_protection = *(volatile uint8_t *)FLASH_ADDRESS_HW_PROTECTION;
+  if (hw_protection == 0xFF) {
+  hw_protection = 1;
+}
+  */
+  
+  WARNING_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_WARNING_VALUE;
+  if(WARNING_VALUE == 0xFF) {
+    WARNING_VALUE = WARNING_VALUE_DEF;
+  }
 
-    // Чтение и проверка R_leak_A
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_A;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&R_leak_A, &temp, sizeof(float));
-    } else {
-        R_leak_A = 10.0f;
-    }
-
-    // Чтение и проверка C_phase_B
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_B;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&C_phase_B, &temp, sizeof(float));
-    } else {
-        //C_phase_B = 0.3f;
-      C_phase_B = 0.5f;
-   }
-
-    // Чтение и проверка R_leak_B
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_B;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&R_leak_B, &temp, sizeof(float));
-    } else {
-        R_leak_B = 10.0f;
-    }
-
-    // Чтение и проверка C_phase_C
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_C;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&C_phase_C, &temp, sizeof(float));
-    } else {
-        //C_phase_C = 0.3f;
-        C_phase_C = 0.5f;
-    }
-
-    // Чтение и проверка R_leak_C
-    temp = *(volatile uint32_t *)FLASH_ADDRESS_R_LEAK_C;
-    if (temp != 0xFFFFFFFF) {
-        memcpy(&R_leak_C, &temp, sizeof(float));
-    } else {
-        R_leak_C = 10.0f;
-    }
-
-    // Чтение и проверка TARGET_VALUE
-    TARGET_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_TARGET_VALUE;
-    if (TARGET_VALUE == 0xFF) {
-        TARGET_VALUE = TARGET_VALUE_DEF;
-    }
-    
-    /*
-    hw_protection = *(volatile uint8_t *)FLASH_ADDRESS_HW_PROTECTION;
-    if (hw_protection == 0xFF) {
-        hw_protection = 1;
-    }
-    */
-    
-    WARNING_VALUE = *(volatile uint8_t *)FLASH_ADDRESS_WARNING_VALUE;
-    if(WARNING_VALUE == 0xFF) {
-       WARNING_VALUE = WARNING_VALUE_DEF;
-    }
-    
-    
-    relay_timeout = *(volatile uint16_t *)FLASH_ADDRESS_RELAY_TIME;
-    if (relay_timeout == 0xFFFF) 
-    {
-        relay_timeout = 250;
-    }
-
-    
-    
-    
-    
-    
-    
-
+  relay_timeout = *(volatile uint16_t *)FLASH_ADDRESS_RELAY_TIME;
+  if (relay_timeout == 0xFFFF) 
+  {
+    relay_timeout = 250;
+  }
 }
 
 //---------------------------------------------------------------------------------FLASH-LOGICS-END--------
@@ -2566,13 +2347,11 @@ void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn)
   struct netbuf *response_buf = netbuf_new();
   
   netbuf_ref(response_buf, data, len); 
-  if (newconn != NULL && netconn_err(newconn) == ERR_OK) 
-  {
+  if (newconn != NULL && netconn_err(newconn) == ERR_OK) {
     err_t xRes = netconn_write(newconn, data, len, NETCONN_COPY); 
-    if (xRes != ERR_OK)
-    {
-      osDelay(10);
-    }
+    //if (xRes != ERR_OK) {
+    //  osDelay(10);
+    //}
   }
   netbuf_delete(response_buf); 
 }
@@ -2590,8 +2369,7 @@ void send_uart(const uint8_t *response, uint16_t len)
   HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_SET);
   HAL_StatusTypeDef ui;
   ui = HAL_UART_Transmit_DMA(&huart3, response, len); 
-  if (ui != HAL_OK)
-  {
+  if (ui != HAL_OK) {
     HAL_UART_ErrorCallback(&huart3);
   }
 }
@@ -2600,9 +2378,21 @@ void send_uart(const uint8_t *response, uint16_t len)
 //(необходима для ситуаций, когда к usart подклются на неверной скорости)
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
+  if (huart->Instance == USART3) {
+    HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_RESET);
+    while (HAL_UARTEx_ReceiveToIdle_DMA(huart, rxBuffer, sizeof(rxBuffer)) != HAL_OK)
+    {
+      HAL_UART_DMAStop(huart);
+    }
+    // we don't need half-transfer interrupt
+    __HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_HT);
+  }
+
+/*  
   HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_SET);
-  HAL_UART_DMAStop(&huart3);
+  
   osDelay(100);
+  
   
   if (huart == &huart3)
   {
@@ -2634,6 +2424,37 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     osDelay(100);
     HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_RESET);
   }
+  
+  
+  
+      if (
+        __HAL_UART_GET_FLAG(&huart3, UART_FLAG_FE)  ||  // Frame Error
+          __HAL_UART_GET_FLAG(&huart3, UART_FLAG_NE)  ||  // Noise Error
+            __HAL_UART_GET_FLAG(&huart3, UART_FLAG_PE)  ||  // Parity Error
+              __HAL_UART_GET_FLAG(&huart3, UART_FLAG_ORE)     // Overrun Error
+                ) 
+    {
+      volatile uint32_t dummy = huart3.Instance->DR;
+      (void)dummy;  
+      
+      memset(rxBuffer, 0, sizeof(rxBuffer));
+      
+      HAL_UART_DMAStop(&huart3);
+      
+      __HAL_UART_CLEAR_FEFLAG(&huart3);
+      __HAL_UART_CLEAR_NEFLAG(&huart3);
+      __HAL_UART_CLEAR_OREFLAG(&huart3);
+      __HAL_UART_CLEAR_PEFLAG(&huart3);
+      __HAL_UART_CLEAR_IDLEFLAG(&huart3);
+      
+      HAL_UART_DeInit(&huart3);
+      
+      MX_USART3_UART_Init();
+      
+      HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
+      
+    }
+*/
 }
 
 //---------------------------------------------------------------------------------MOODBUS-OUTPUT-END----
@@ -2641,104 +2462,29 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 //---------------------------------------------------------------------------------ADC-LOGICS-START----
 
-
-
-
-
-#define ADC_BUFFER_SIZE 512  // Пример размера буфера; 
-#define MA_WINDOW_SIZE    5   // Размер окна для скользящего среднего
-
-
-
-uint16_t adc_get_rms(uint16_t *arr, uint16_t length)
-{
-
-    uint16_t rms = 0;
-    float sum_sq = 0.0f;
-    uint32_t cnt = (length < ADC_BUFFER_SIZE) ? length : ADC_BUFFER_SIZE;
-  
-    
-  
-  
-    
-    for (uint32_t k = 0; k < cnt; k++)
-    {
-        sum_sq += (float)arr[k] * (float)arr[k];
-    }
-    float rms_f = sqrtf(sum_sq / (float)cnt);
-    rms = (uint16_t)rms_f;
-      
-
-    return rms;
-}
-
-
-
-
-
-
-//показывает что данные с ADC готовы к обработке
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
-{
-  if (hadc->Instance == ADC1) 
-  {
-    adc_ready = 1;
-    HAL_ADC_Stop_DMA(&hadc1);
-    //----------------------------
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xSemaphoreGiveFromISR(xHighPrioritySemaphore, &xHigherPriorityTaskWoken);
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-  }
-}
-
-
-void ADC_IRQHandler(void)
-{
-  HAL_ADC_IRQHandler(&hadc1);
-}
 //---------------------------------------------------------------------------------ANOTHER-CODE-START---
 
 //Таймер, который срабатывает если пользователь изменил настройки 
 //в веб интерфейсе и необходима перезагрузка для их применения
 void startMyTimer_RESET(uint32_t timeout_ms) 
 {
-  TimerHandle_t myTimer = xTimerCreate
-    (
-     "OneShotTimer",                       
-     pdMS_TO_TICKS(timeout_ms),            
-     pdFALSE,                              
-     (void *) 0,                           
-     vMyTimerCallback                      
-       );
+  TimerHandle_t myTimer = xTimerCreate("OneShotTimer", pdMS_TO_TICKS(timeout_ms), pdFALSE, (void *) 0, vMyTimerCallback);
   
-  if (myTimer != NULL) 
-  {
+  if (myTimer != NULL) {
     xTimerStart(myTimer, 0);  
-  } 
-  else 
-  {
+  } else {
     while(1);
   }
 }
-//---↑
-//---↑
+
 void vMyTimerCallback(TimerHandle_t xTimer) 
 {
-  __disable_irq();
-  SCB->VTOR = FLASH_BASE;  
-  __DSB();
-
-  __ISB();
   HAL_NVIC_SystemReset();
 }
 
-
-
-
-
-
 char stackOverflowTaskName[64];
-//Переполнение стека
+
+// Переполнение стека
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
   strncpy(stackOverflowTaskName, pcTaskName, 64 - 1);
@@ -2749,15 +2495,12 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
   {
     TTT++;  //FREERTOS STACK ERROR
   }
-
 }
 
 //прерывание с кнопки PA12
 void EXTI12_Init(void)   
 {
-  
   __HAL_RCC_SYSCFG_CLK_ENABLE();
-  
   
   SYSCFG->EXTICR[3] &= ~(SYSCFG_EXTICR4_EXTI12);
   SYSCFG->EXTICR[3] |= (SYSCFG_EXTICR4_EXTI12_PA);
@@ -2770,360 +2513,403 @@ void EXTI12_Init(void)
   NVIC_EnableIRQ(EXTI15_10_IRQn);
   NVIC_SetPriority(EXTI15_10_IRQn, 1);
 }
-//---↑
-//---↑
-//---↑
-void EXTI15_10_IRQHandler(void) 
-{
-  if (EXTI->PR & EXTI_PR_PR12) 
-  { 
-    EXTI->PR |= EXTI_PR_PR12; 
-    
-    //setrelay(0);
-    
 
-    button_ivent = 1;
-    
-    for (int i = 0; i < 100; i++) 
-    {
-    }
-    
+void EXTI15_10_IRQHandler(void)
+{
+  if (EXTI->PR & EXTI_PR_PR12) { 
+    EXTI->PR |= EXTI_PR_PR12;
+    button_event = EVENT_PRESSED;
   }
 }
-//HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
-
-
 
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf)
 {
-      if (newconn != NULL)
-    {
-        netconn_close(newconn);
-        netconn_delete(newconn);
-        newconn = NULL;
-    }
-      if (nc != NULL)
-    {
-        netconn_close(nc);
-        netconn_delete(nc);
-        nc = NULL;
-    }
-      if (buf != NULL)
-    {
-        netbuf_delete(buf);
-        buf = NULL;
-    } 
+  if (newconn != NULL) {
+    netconn_close(newconn);
+    netconn_delete(newconn);
+    newconn = NULL;
+  }
+  
+  if (nc != NULL) {
+    netconn_close(nc);
+    netconn_delete(nc);
+    nc = NULL;
+  }
+  
+  if (buf != NULL) {
+    netbuf_delete(buf);
+    buf = NULL;
+  } 
 }
-
 
 //---------------------------------------------------------------------------------ANOTHER-CODE-END---
-
 void load_flags_from_flash(void)
 {
-    boot_os_ok = *(volatile uint8_t *)BOOT_OS_OK_ADDRESS;
-    if (boot_os_ok == 0xFF)
-    {
-      boot_os_ok = 0;
-    }
-    
-
-    
-    sector_enabled = *(volatile uint8_t *)SECTOR_ENABLED_ADDRESS;
-    if((sector_enabled != 1) && (sector_enabled != 2))
-    {
-      sector_enabled = 1;
-    }
-    
-    log_sector_active = *(volatile uint8_t *)LOG_SECTOR_ACTIVE;
-    if(log_sector_active == 0xFF)
-    {
-      log_sector_active = 1;
-    }
-    
-    switch (log_sector_active){
-      case 1:
-        LOG_START_ADDR = 0x08120000; 
-        LOG_END_ADDR = 0x0813FFFF;
-        break;
-      case 2: 
-        LOG_START_ADDR = 0x08140000; 
-        LOG_END_ADDR = 0x0815FFFF;
-        break;
-      case 3:
-        LOG_START_ADDR = 0x08160000; 
-        LOG_END_ADDR = 0x0817FFFF;
-        break;
-      case 4:
-        LOG_START_ADDR = 0x08180000; 
-        LOG_END_ADDR = 0x0819FFFF;
-        break;
-      case 5:
-        LOG_START_ADDR = 0x081A0000; 
-        LOG_END_ADDR = 0x081BFFFF;
-        break;
-      case 6:
-        LOG_START_ADDR = 0x081C0000; 
-        LOG_END_ADDR = 0x081DFFFF;
-        break;
-      case 7:
-        LOG_START_ADDR = 0x081E0000; 
-        LOG_END_ADDR = 0x081FFFFF;
-        break;      
-      
-      
-      
-    }
-    
-    log_ptr = find_next_free_log_address();
-    if (log_ptr == 0xFF)
-    {
-       Swipe_Log_Sector();
-    }
-    
+  boot_os_ok = *(volatile uint8_t *)BOOT_OS_OK_ADDRESS;
+  if (boot_os_ok == 0xFF) {
+    boot_os_ok = 0;
+  }
+  
+  sector_enabled = *(volatile uint8_t *)SECTOR_ENABLED_ADDRESS;
+  if ((sector_enabled != 1) && (sector_enabled != 2)) {
+    sector_enabled = 1;
+  }
+  
+  log_sector_active = *(volatile uint8_t *)LOG_SECTOR_ACTIVE;
+  if(log_sector_active == 0xFF)
+  {
+    log_sector_active = 1;
+  }
+  
+  switch (log_sector_active) {
+    case 1:
+    LOG_START_ADDR = 0x08120000; 
+    LOG_END_ADDR = 0x0813FFFF;
+    break;
+    case 2: 
+    LOG_START_ADDR = 0x08140000; 
+    LOG_END_ADDR = 0x0815FFFF;
+    break;
+    case 3:
+    LOG_START_ADDR = 0x08160000; 
+    LOG_END_ADDR = 0x0817FFFF;
+    break;
+    case 4:
+    LOG_START_ADDR = 0x08180000; 
+    LOG_END_ADDR = 0x0819FFFF;
+    break;
+    case 5:
+    LOG_START_ADDR = 0x081A0000; 
+    LOG_END_ADDR = 0x081BFFFF;
+    break;
+    case 6:
+    LOG_START_ADDR = 0x081C0000; 
+    LOG_END_ADDR = 0x081DFFFF;
+    break;
+    case 7:
+    LOG_START_ADDR = 0x081E0000; 
+    LOG_END_ADDR = 0x081FFFFF;
+    break;      
+  }
+  
+  log_ptr = find_next_free_log_address();
+  if (log_ptr == 0xFF) {
+    Swipe_Log_Sector();
+  }
 }
 
+static uint8_t first = 1; 
 
-
-        
 HAL_StatusTypeDef Flash_WritePacket(uint8_t *packet, uint16_t packet_size)
 {
-  
   taskENTER_CRITICAL();
   HAL_FLASH_Unlock();
   HAL_StatusTypeDef status = HAL_OK;
   
-    static uint8_t first = 1;
-    if(first)
-    {
-      address = SECTOR_2_ADDRESS;
-      len = 393216;
-      next_free_addr = SECTOR_2_ADDRESS;
-      
-      first = 0;
-    }
-  
-  
-    // Проверка на переполнение области
-    if ((next_free_addr + packet_size) >= (address + len + 1))
-    {
-        HAL_FLASH_Lock();
-        taskEXIT_CRITICAL();
-        return HAL_ERROR; // Флеш память переполнена
-    }
+  if (first) {
+    /*
+    uint32_t sector_error = 0;
+    FLASH_EraseInitTypeDef FLASH_EraseInitStruct;    
+    FLASH_EraseInitStruct.TypeErase = FLASH_TYPEERASE_SECTORS;
+    FLASH_EraseInitStruct.Sector = FLASH_SECTOR_8;
+    FLASH_EraseInitStruct.NbSectors = 3;
+    FLASH_EraseInitStruct.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+    // Clear pending flags (if any)
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP|FLASH_FLAG_OPERR|FLASH_FLAG_WRPERR|
+                           FLASH_FLAG_PGAERR|FLASH_FLAG_PGPERR|FLASH_FLAG_PGSERR);
     
-
-
-    // Запись пакета во флеш по байтам (или словам, в зависимости от требований)
-    for (uint16_t i = 0; i < packet_size; i += 4)
-    {
-        uint32_t data_word = 0xFFFFFFFF;
-
-        // Копируем данные пакета в 32-битное слово
-        memcpy(&data_word, &packet[i], (packet_size - i >= 4) ? 4 : (packet_size - i));
-
-        // Записываем слово во флеш
-        status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, next_free_addr + i, data_word);
-        if (status != HAL_OK)
-        {
-            HAL_FLASH_Lock();
-            taskEXIT_CRITICAL();
-            return status; // Ошибка при записи
-        }
+    if (HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error) != HAL_OK) {
+      return HAL_ERROR;
     }
-
-    // Сохраняем указатель на свободную ячейку для следующего пакета
-    next_free_addr += packet_size;  // ---invalid
-    // Блокировка флеш памяти после записи
+    */
+    address = SECTOR_8_ADDRESS;
+    len = 393216;
+    next_free_addr = SECTOR_8_ADDRESS;
+    first = 0;
+  }
+    
+  // Проверка на переполнение области
+  if ((next_free_addr + packet_size) >= (address + len + 1)) {
     HAL_FLASH_Lock();
-   
     taskEXIT_CRITICAL();
-    //xSemaphoreGive(xPacketSaved);
-    return status;
+    return HAL_ERROR; // Флеш память переполнена
+  }
+    
+  // Запись пакета во флеш по байтам (или словам, в зависимости от требований)
+  for (uint16_t i = 0; i < packet_size; i += 4) {
+    uint32_t data_word = 0xFFFFFFFF;
+    
+    // Копируем данные пакета в 32-битное слово
+    memcpy(&data_word, &packet[i], (packet_size - i >= 4) ? 4 : (packet_size - i));
+    
+    // Записываем слово во флеш
+    status = HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, next_free_addr + i, data_word);
+    if (status != HAL_OK) {
+      HAL_FLASH_Lock();
+      taskEXIT_CRITICAL();
+      return status; // Ошибка при записи
+    }
+  }
+  
+  // Сохраняем указатель на свободную ячейку для следующего пакета
+  next_free_addr += packet_size;  // ---invalid
+  // Блокировка флеш памяти после записи
+  HAL_FLASH_Lock();
+  
+  taskEXIT_CRITICAL();
+  return status;
 }
-
-
 
 //---------------------------------------------------------------------------------OS-UDATE-FUNCTIONS---
 
 //возвращает указатель на элемент массива[указанный тег + 0x0d 0x0a 0x0d 0x0a]
-char *parser(uint8_t *buf, uint16_t len, const char *str) {
-    uint8_t flags[] = {0x0D, 0x0A, 0x0D, 0x0A};
-    size_t str_len = strlen(str);
-    size_t buf_len = len; 
-
-    for (size_t i = 0; i < buf_len; i++) {
-        if (strncmp((char *)&buf[i], str, str_len) == 0) {
-            // Проверяем флаги после строки
-            if (memcmp(&buf[i + str_len], flags, sizeof(flags)) == 0) {
-                // Возвращаем указатель на элемент после флагов
-                return &buf[i + str_len + sizeof(flags)];
-            }
-        }
+uint8_t * parser(uint8_t *buf, uint16_t len, const char *str) {
+  uint8_t flags[] = {0x0D, 0x0A, 0x0D, 0x0A};
+  size_t str_len = strlen(str);
+  size_t buf_len = len; 
+  
+  for (size_t i = 0; i < buf_len; i++) {
+    if (strncmp((char *)&buf[i], str, str_len) == 0) {
+      // Проверяем флаги после строки
+      if (memcmp(&buf[i + str_len], flags, sizeof(flags)) == 0) {
+        // Возвращаем указатель на элемент после флагов
+        return &buf[i + str_len + sizeof(flags)];
+      }
     }
-    return NULL;
+  }
+  return NULL;
 }
 
 //вытаскивает числовые значения, переданные в multipart/form-data пакете по тегу
 uint16_t parser_num(uint8_t *buf, uint16_t len, const char *str) {
-    uint8_t flags[] = {0x22, 0x0D, 0x0A, 0x0D, 0x0A};
-    size_t str_len = strlen(str);
-    size_t buf_len = len;
-
-    for (size_t i = 0; i < buf_len; i++) {
-        if (strncmp((char *)&buf[i], str, str_len) == 0) {
-            // Проверяем флаги после строки
-            if (i + str_len + sizeof(flags) >= buf_len) {
-                // Данные выходят за пределы буфера
-                return 0;
-            }
-
-            if (memcmp(&buf[i + str_len], flags, sizeof(flags)) == 0) {
-                // Позиция начала числа
-                size_t num_start = i + str_len + sizeof(flags);
-
-                // Ищем конец числа (0x0D 0x0A)
-                size_t num_end = num_start;
-                while (num_end + 1 < buf_len && !(buf[num_end] == 0x0D && buf[num_end + 1] == 0x0A)) {
-                    num_end++;
-                }
-
-                if (num_end + 1 >= buf_len) {
-                    // Конец строки не найден
-                    return 0;
-                }
-
-                // Извлекаем строку числа
-                size_t num_len = num_end - num_start;
-                if (num_len == 0 || num_len > 5) { // Число не может быть больше 65535
-                    return 0;
-                }
-
-                char num_str[6] = {0}; // Максимум 5 символов + \0
-                memcpy(num_str, &buf[num_start], num_len);
-                num_str[num_len] = '\0';
-
-                // Преобразуем строку в число
-                uint16_t result = (uint16_t)atoi(num_str);
-                return result;
-            }
+  uint8_t flags[] = {0x22, 0x0D, 0x0A, 0x0D, 0x0A};
+  size_t str_len = strlen(str);
+  size_t buf_len = len;
+  
+  for (size_t i = 0; i < buf_len; i++) {
+    if (strncmp((char *)&buf[i], str, str_len) == 0) {
+      // Проверяем флаги после строки
+      if (i + str_len + sizeof(flags) >= buf_len) {
+        // Данные выходят за пределы буфера
+        return 0;
+      }
+      
+      if (memcmp(&buf[i + str_len], flags, sizeof(flags)) == 0) {
+        // Позиция начала числа
+        size_t num_start = i + str_len + sizeof(flags);
+        
+        // Ищем конец числа (0x0D 0x0A)
+        size_t num_end = num_start;
+        while (num_end + 1 < buf_len && !(buf[num_end] == 0x0D && buf[num_end + 1] == 0x0A)) {
+          num_end++;
         }
+        
+        if (num_end + 1 >= buf_len) {
+          // Конец строки не найден
+          return 0;
+        }
+        
+        // Извлекаем строку числа
+        size_t num_len = num_end - num_start;
+        if (num_len == 0 || num_len > 5) { // Число не может быть больше 65535
+          return 0;
+        }
+        
+        char num_str[6] = {0}; // Максимум 5 символов + \0
+        memcpy(num_str, &buf[num_start], num_len);
+        num_str[num_len] = '\0';
+        
+        // Преобразуем строку в число
+        uint16_t result = (uint16_t)atoi(num_str);
+        return result;
+      }
     }
-    return 0; // Если строка не найдена
+  }
+  return 0; // Если строка не найдена
 }
-
-
 
 uint8_t buf_for_bad_chank[1300] = {0};
 
+#define RX_BUF_SIZE 2000
+
 err_t httpd_post_receive_data(void *connection, struct pbuf *p) 
-{
-  
-    log_ready = 0;
-    static uint16_t packet_cnt = 0;
-    static uint16_t packet_cnt_dab = 0; // флаг: собираем ли недочанк
-    static uint16_t bad_chunk_pos = 0;  // куда дописывать в buf_for_bad_chank
-    
-    
-    
-    
-    // Извлечение данных из pbuf
-    uint16_t packet_size = p->tot_len; // Общий размер данных пакета
-    uint8_t *payload = (uint8_t *)p->payload; // указатель на полезные данные
-    
-    
-    uint16_t packetNow = parser_num((uint8_t*)payload, packet_size, "chunkIndex");
-    uint16_t packetTotal = parser_num((uint8_t*)payload, packet_size, "totalChunks");
-    
-    // Если пришёл маленький фрагмент — собираем его
-    if ((packet_size < 1200) && (packetNow != (packetTotal-1)))
+{  
+      /* ---------- статический конструктор одного чанка ---------- */
+    static struct {
+        uint8_t buf[RX_BUF_SIZE];
+        uint16_t len;            /* уже получено */
+        uint16_t expected_len; /* 0, пока не знаем, сколько должно быть */
+    } rx = { .len = 0, .expected_len = 0 };
+
+    uint16_t packet_size = p->tot_len;
+    uint8_t *payload     = (uint8_t *)p->payload;
+
+    /* ---------- 1. копируем фрагмент ---------- */
+    if ((uint32_t)rx.len + packet_size > sizeof(rx.buf)) {
+        rx.len = rx.expected_len = 0;         /* сброс при переполнении */
+        httpd_post_data_recved(connection, packet_size);
+        pbuf_free(p);
+        return ERR_BUF;
+    }
+    memcpy(rx.buf + rx.len, payload, packet_size);
+    rx.len += packet_size;
+
+    /* ---------- 2. пробуем уточнить, сколько нужно всего ---------- */
     {
-        if (!packet_cnt_dab) 
-        {
-            // часть чанка: копируем в буфер и запоминаем позицию
-            if (packet_size > sizeof(buf_for_bad_chank)) {
-                // Слишком большой кусок для буфера — ошибка
-                pbuf_free(p);
-                return ERR_BUF;
-            }
-            memcpy(buf_for_bad_chank, payload, packet_size);
-            bad_chunk_pos = packet_size;
-            packet_cnt_dab = 1;
+        uint16_t raw_len    = parser_num(rx.buf, rx.len, "rawDataLength");
+        uint8_t *stream_ptr = (uint8_t *)parser(rx.buf, rx.len, "stream");
 
-            // Сообщаем стеку, что данные приняты и ждём следующий вызов
-            httpd_post_data_recved(connection, packet_size);
-            pbuf_free(p);
-            return ERR_OK;
-        } 
-        else 
-        {
-            // Второй фрагмент: доклеиваем чанк и дальше продолжаем обработку
-            if ((uint32_t)bad_chunk_pos + packet_size > sizeof(buf_for_bad_chank)) {
-                // Переполнение буфера — сбрасываем состояние и возвращаем ошибку
-                bad_chunk_pos = 0;
-                packet_cnt_dab = 0;
-                pbuf_free(p);
-                return ERR_BUF;
-            }
+        if (raw_len && stream_ptr) {
+            uint16_t header_len = (uint16_t)(stream_ptr - rx.buf);
+            uint16_t candidate_len = header_len + raw_len;
 
-            memcpy(buf_for_bad_chank + bad_chunk_pos, payload, packet_size);
-            // Теперь общий указатель на данные — наш буфер
-            payload = buf_for_bad_chank;
-            packet_size = bad_chunk_pos + packet_size;
-
-            // Сброс состояния сборки
-            bad_chunk_pos = 0;
-            packet_cnt_dab = 0;
-            // Не освобождаем p тут — освободим в конце как обычно
+            if (candidate_len > rx.expected_len && candidate_len <= RX_BUF_SIZE)
+                rx.expected_len = candidate_len; /* берём самое большое */
         }
     }
 
-    // дальше — обычная обработка целого чанка
-    packetNow = parser_num((uint8_t*)payload, packet_size, "chunkIndex");
-    packetTotal = parser_num((uint8_t*)payload, packet_size, "totalChunks");
-    uint16_t BinDataLength = parser_num((uint8_t*)payload, packet_size, "rawDataLength");
-    
-    
-    
-    // Получаем указатель на бинарные данные в пакете
-    uint8_t *packetData = (uint8_t *)parser((uint8_t*)payload, packet_size, "stream");
-    
-    packet_cnt++;
-    
-    if (packetNow == (packetTotal-1))
-    {
-      crc_os = 
-      ((uint32_t)packetData[BinDataLength-4] << 24) |  
-      ((uint32_t)packetData[BinDataLength-3] << 16) |  
-      ((uint32_t)packetData[BinDataLength-2] << 8)  |  
-      ((uint32_t)packetData[BinDataLength-1]); 
-      packetData[BinDataLength-4] = 0xFF;
-      packetData[BinDataLength-1] = 0xFF;
-      packetData[BinDataLength-2] = 0xFF;
-      packetData[BinDataLength-3] = 0xFF;
-    }
-    
-    if (Flash_WritePacket(packetData, BinDataLength) != HAL_OK)
-    {
+    /* ---------- 3. чанк ещё не собран — ждём ---------- */
+    if (rx.expected_len == 0 || rx.len < rx.expected_len) {
+        httpd_post_data_recved(connection, packet_size);
         pbuf_free(p);
+        return ERR_OK;
+    }
+
+    /* ---------- 4. чанк полный, работаем ---------- */
+    uint8_t *chunk     = rx.buf;
+    uint16_t chunk_size = rx.len;        
+
+    uint16_t packetNow = parser_num(chunk, chunk_size, "chunkIndex");
+    uint16_t packetTotal = parser_num(chunk, chunk_size, "totalChunks");
+    uint16_t BinDataLength = parser_num(chunk, chunk_size, "rawDataLength");
+    uint8_t *packetData = (uint8_t *)parser(chunk, chunk_size, "stream");
+
+    if (packetNow == packetTotal - 1) {     /* последний чанк — тащим CRC */
+        crc_os =
+            ((uint32_t)packetData[BinDataLength-4] << 24) |
+            ((uint32_t)packetData[BinDataLength-3] << 16) |
+            ((uint32_t)packetData[BinDataLength-2] << 8) |
+             (uint32_t)packetData[BinDataLength-1];
+        memset(&packetData[BinDataLength-4], 0xFF, 4);
+    }
+
+    if (Flash_WritePacket(packetData, BinDataLength) != HAL_OK) {
         boot_flag_new = 1;
-        WriteFlash(0, 0);
-        return ERR_BUF; 
+        WriteFlash((FlashDataType)0, 0);
+        rx.len = rx.expected_len = 0;
+        return ERR_BUF;
+    }
+
+    if (packetNow == packetTotal - 1) {
+        log_ready = 1;
+        boot_flag_new = 1;
+        WriteFlash((FlashDataType)0, 0);
     }
 
     httpd_post_data_recved(connection, packet_size);
     pbuf_free(p);
-    
-    if(packetNow == (packetTotal-1))
-    {
-      boot_flag_new = 1;
-      WriteFlash(0, 0);
-    }
 
+    /* ---------- 5. обнуляем буфер, ждём следующий ----------- */
+    rx.len = 0;
+    rx.expected_len = 0;
     return ERR_OK;
+  /*
+  log_ready = 0;
+  static uint16_t packet_cnt = 0;
+  static uint16_t packet_cnt_dab = 0; // флаг: собираем ли недочанк
+  static uint16_t bad_chunk_pos = 0;  // куда дописывать в buf_for_bad_chank
+ 
+  // Извлечение данных из pbuf
+  uint16_t packet_size = p->tot_len; // Общий размер данных пакета
+  uint8_t *payload = (uint8_t *)p->payload; // указатель на полезные данные
+  
+  uint16_t packetNow = parser_num((uint8_t*)payload, packet_size, "chunkIndex");
+  uint16_t packetTotal = parser_num((uint8_t*)payload, packet_size, "totalChunks");
+  
+  // Если пришёл маленький фрагмент — собираем его
+  if ((packet_size < 1200) && (packetNow != (packetTotal-1)))
+  {
+    if (!packet_cnt_dab) 
+    {
+      // часть чанка: копируем в буфер и запоминаем позицию
+      if (packet_size > sizeof(buf_for_bad_chank)) {
+        // Слишком большой кусок для буфера — ошибка
+        pbuf_free(p);
+        return ERR_BUF;
+      }
+      memcpy(buf_for_bad_chank, payload, packet_size);
+      bad_chunk_pos = packet_size;
+      packet_cnt_dab = 1;
+      
+      // Сообщаем стеку, что данные приняты и ждём следующий вызов
+      httpd_post_data_recved(connection, packet_size);
+      pbuf_free(p);
+      return ERR_OK;
+    } else {
+      // Второй фрагмент: доклеиваем чанк и дальше продолжаем обработку
+      if ((uint32_t)bad_chunk_pos + packet_size > sizeof(buf_for_bad_chank)) {
+        // Переполнение буфера — сбрасываем состояние и возвращаем ошибку
+        bad_chunk_pos = 0;
+        packet_cnt_dab = 0;
+        pbuf_free(p);
+        return ERR_BUF;
+      }
+      
+      memcpy(buf_for_bad_chank + bad_chunk_pos, payload, packet_size);
+      // Теперь общий указатель на данные — наш буфер
+      payload = buf_for_bad_chank;
+      packet_size = bad_chunk_pos + packet_size;
+      
+      // Сброс состояния сборки
+      bad_chunk_pos = 0;
+      packet_cnt_dab = 0;
+      // Не освобождаем p тут — освободим в конце как обычно
+    }
+  }
+  
+  // дальше — обычная обработка целого чанка
+  packetNow = parser_num((uint8_t*)payload, packet_size, "chunkIndex");
+  packetTotal = parser_num((uint8_t*)payload, packet_size, "totalChunks");
+  uint16_t BinDataLength = parser_num((uint8_t*)payload, packet_size, "rawDataLength");
+  
+  // Получаем указатель на бинарные данные в пакете
+  uint8_t *packetData = parser((uint8_t*)payload, packet_size, "stream");
+  
+  packet_cnt++;
+  
+  if (packetNow == (packetTotal-1))
+  {
+    crc_os = 
+      ((uint32_t)packetData[BinDataLength-4] << 24) |  
+        ((uint32_t)packetData[BinDataLength-3] << 16) |  
+          ((uint32_t)packetData[BinDataLength-2] << 8)  |  
+            ((uint32_t)packetData[BinDataLength-1]); 
+    packetData[BinDataLength-4] = 0xFF;
+    packetData[BinDataLength-1] = 0xFF;
+    packetData[BinDataLength-2] = 0xFF;
+    packetData[BinDataLength-3] = 0xFF;
+  }
+  
+  if (Flash_WritePacket(packetData, BinDataLength) != HAL_OK)
+  {
+    pbuf_free(p);
+    boot_flag_new = 1;
+    WriteFlash((FlashDataType)0, 0);
+    return ERR_BUF; 
+  }
+  
+  httpd_post_data_recved(connection, packet_size);
+  pbuf_free(p);
+  
+  if(packetNow == (packetTotal-1))
+  {
+    boot_flag_new = 1;
+    WriteFlash((FlashDataType)0, 0);
+  }
+  
+  return ERR_OK;
+*/
 }
-
-
-
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
                        u16_t http_request_len, int content_len, char *response_uri,
@@ -3136,29 +2922,23 @@ err_t httpd_post_begin(void *connection, const char *uri, const char *http_reque
 
 void httpd_post_finished(void *connection, char *response_uri, u16_t response_uri_len) 
 {
-
-    const char *success_message = "/update.shtml"; // Путь к странице успешного ответа
-    size_t message_len = strlen(success_message);
-    
-    strncpy(response_uri, success_message, response_uri_len - 1);
-    response_uri[response_uri_len - 1] = '\0';
-    /*
-      if (xSemaphoreTake(xPacketSaved, portMAX_DELAY) == pdTRUE)
-  {
-  }
-    */
+  const char *success_message = "/update.shtml"; // Путь к странице успешного ответа
+  size_t message_len = strlen(success_message);
+  
+  strncpy(response_uri, success_message, response_uri_len - 1);
+  response_uri[response_uri_len - 1] = '\0';
 }
 
-void CRC_Config(void) 
+void CRC_Config(void)
 {
-    // Указываем базовый адрес 
-    hcrc.Instance = CRC;
-
-    // Вызываем инициализацию HAL
-    if (HAL_CRC_Init(&hcrc) != HAL_OK) {
-        // Если что-то пошло не так, можно добавить обработку ошибки
-        while (1);
-    }
+  // Указываем базовый адрес 
+  hcrc.Instance = CRC;
+  
+  // Вызываем инициализацию HAL
+  if (HAL_CRC_Init(&hcrc) != HAL_OK) {
+    // Если что-то пошло не так, можно добавить обработку ошибки
+    while (1);
+  }
 }
 
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address) 
@@ -3189,226 +2969,129 @@ uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address)
 
 
 
-
-static inline void StartRelayReleaseTimer(uint32_t delayMs)
-{
-    /*  Сохраняем новое значение, чтобы его могли увидеть другие задачи  */
-    gRelayReleaseTimeoutMs = delayMs;
-
-    /*  Меняем период и сразу стартуем таймер.
-        Если вызываете из обычной задачи – используйте xTimerChangePeriod(),
-        из ISR – xTimerChangePeriodFromISR().                            */
-    xTimerChangePeriod(xRelayReleaseTimer,
-                       pdMS_TO_TICKS(gRelayReleaseTimeoutMs),
-                       0);                     // время ожидания в ticks
-    /* xTimerChangePeriod() сам переводит таймер в состояние Active,
-       так что отдельный xTimerStart() не нужен.                         */
-}
-
-
-static void vRelayReleaseCallback(TimerHandle_t xTimer)
-{
-
-
-    /* 1) синхронизируем программное состояние                           */
-    last_position  = 1;
-    REGISTERS[2]   = 1;          /* “реле включено”                       */
-
-    /* 2) снимаем паузу –  следующие решения можно принимать             */
-    protection_pause = 0;
-    adc_lock = 0;  //Разрешаем замеры
-    
-    
-    
-    /* 3) поднимаем реле                                                 */
-    HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
-     for (volatile uint32_t i = 0; i < 100; ++i) {
-        __NOP();               
-    }
-   
-    
-    //4) явно запускаем ADC
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
-}
-
-
-
 static void vTestBlockReleaseCb(TimerHandle_t xTimer)
 {
-    button_ivent_block = 0;    // снова разрешаем генерацию TEST-события
+  button_block = nBLOCK_BUTTON;
 }
-
-
-
 
 //---------------------------------------------------------------------------------
 
 //--------------------------RMS--BY--MACROS----------------------------------------
-float calculate_rms_A_macros(uint16_t rms)
-{
-    float I_s = rms * 0.0000466f;
-
-    float XC_phase_A = 1.0f / (OMEGA * (C_phase_A * 1e-6f));
 
 
-    float R_eq_phase_A = ((R_leak_A * 1e6f) * XC_phase_A) /
-                         ((R_leak_A * 1e6f) + XC_phase_A);
-
-    float up_formula = 2 * I_s * COS30 * MULT_UP;
-
-    float down_formula = MULT_DOWN * R_eq_phase_A * SQ3;
-
-    float result = (up_formula / down_formula) * 1000.0f;
-    return result;
-}
-
-float calculate_rms_B_macros(uint16_t rms)
-{
-    float I_s = rms * 0.0000466f;
-
-    float XC_phase_B = 1.0f / (OMEGA * (C_phase_B * 1e-6f));
-
-
-    float R_eq_phase_B = ((R_leak_B * 1e6f) * XC_phase_B) /
-                         ((R_leak_B * 1e6f) + XC_phase_B);
-
-    float up_formula = 2 * I_s * COS30 * MULT_UP;
-
-    float down_formula = MULT_DOWN * R_eq_phase_B * SQ3;
-
-    float result = (up_formula / down_formula) * 1000.0f;
-    return result;
-}
-
-
-float calculate_rms_C_macros(uint16_t rms)
-{
-    float I_s = rms * 0.0000466f;
-
-    float XC_phase_C = 1.0f / (OMEGA * (C_phase_C * 1e-6f));
-
-
-    float R_eq_phase_C = ((R_leak_C * 1e6f) * XC_phase_C) /
-                         ((R_leak_C * 1e6f) + XC_phase_C);
-
-    float up_formula = 2 * I_s * COS30 * MULT_UP;
-
-    float down_formula = MULT_DOWN * R_eq_phase_C * SQ3;
-
-    float result = (up_formula / down_formula) * 1000.0f;
-    return result;
-}
 
 //--------------------------------------------------------------------------------------Positive Leakage Trend Analysis
 
 //------------------------------------
 void initBuffer10Min(CircularBuffer10Min *buffer) {
-    for(int i = 0; i < MINUTE_10_SIZE; i++) buffer->arr[i] = 0;
-    buffer->index = 0;
-    buffer->sum = 0;
+  for (uint8_t i = 0; i < MINUTE_10_SIZE; i++) {
+      buffer->arr[i] = 0;
+  }
+  buffer->index = 0;
+  buffer->sum = 0;
 }
+
 void initBuffer1Hour(CircularBuffer1Hour *buffer) {
-    for(int i = 0; i < HOUR_1_SIZE; i++) buffer->arr[i] = 0;
-    buffer->index = 0;
-    buffer->sum = 0;
+  for (uint8_t i = 0; i < HOUR_1_SIZE; i++) {
+    buffer->arr[i] = 0;
+  }
+  buffer->index = 0;
+  buffer->sum = 0;
 }
+
 void initBuffer2Day(CircularBuffer2Day *buffer) {
-    for(int i = 0; i < DAY_2_SIZE; i++) buffer->arr[i] = 0;
-    buffer->index = 0;
-    buffer->sum = 0;
+  for (uint8_t i = 0; i < DAY_2_SIZE; i++) { 
+    buffer->arr[i] = 0;
+  }
+  buffer->index = 0;
+  buffer->sum = 0;
 }
 //-----------------------------------------
 
 //---------------------------------------------
 
 void addValue10Min(CircularBuffer10Min *buffer, uint16_t value) {
-    // Вычитаем старое значение из суммы
-    buffer->sum -= buffer->arr[buffer->index];
-    // Добавляем новое значение
-    buffer->arr[buffer->index] = value;
-    buffer->sum += value;
-    // Сдвигаем индекс
-    buffer->index = (buffer->index + 1) % MINUTE_10_SIZE;
+  // Вычитаем старое значение из суммы
+  buffer->sum -= buffer->arr[buffer->index];
+  // Добавляем новое значение
+  buffer->arr[buffer->index] = value;
+  buffer->sum += value;
+  // Сдвигаем индекс
+  buffer->index = (buffer->index + 1) % MINUTE_10_SIZE;
 }
 
 void addValue1Hour(CircularBuffer1Hour *buffer, uint16_t value) {
-    buffer->sum -= buffer->arr[buffer->index];
-    buffer->arr[buffer->index] = value;
-    buffer->sum += value;
-    buffer->index = (buffer->index + 1) % HOUR_1_SIZE;
+  buffer->sum -= buffer->arr[buffer->index];
+  buffer->arr[buffer->index] = value;
+  buffer->sum += value;
+  buffer->index = (buffer->index + 1) % HOUR_1_SIZE;
 }
 
 void addValue2Day(CircularBuffer2Day *buffer, uint16_t value) {
-    buffer->sum -= buffer->arr[buffer->index];
-    buffer->arr[buffer->index] = value;
-    buffer->sum += value;
-    buffer->index = (buffer->index + 1) % DAY_2_SIZE;
+  buffer->sum -= buffer->arr[buffer->index];
+  buffer->arr[buffer->index] = value;
+  buffer->sum += value;
+  buffer->index = (buffer->index + 1) % DAY_2_SIZE;
 }
 
 void RTC_Init(void) 
-{
- 
+{  
+  __HAL_RCC_PWR_CLK_ENABLE();
+  HAL_PWR_EnableBkUpAccess();
   
-    __HAL_RCC_PWR_CLK_ENABLE();
-    HAL_PWR_EnableBkUpAccess();
-
-    __HAL_RCC_BACKUPRESET_FORCE();
-    __HAL_RCC_BACKUPRESET_RELEASE();
-
-
-    __HAL_RCC_LSI_ENABLE();
-    while (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY) == RESET) {}
-
-    __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSI);
-    
-    __HAL_RCC_RTC_ENABLE();
-
-    
-    HAL_Delay(100);
+  __HAL_RCC_BACKUPRESET_FORCE();
+  __HAL_RCC_BACKUPRESET_RELEASE();
   
-    RTC_TimeTypeDef sTime = {0};
-    RTC_DateTypeDef sDate = {0};
-    
-    /** Инициализация RTC с использованием LSI**/
-    hrtc.Instance = RTC;
-    hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
-    hrtc.Init.AsynchPrediv = 127;
-    hrtc.Init.SynchPrediv = 255;
-    hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
-    hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
-    hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
-    
-    HAL_StatusTypeDef rtc_status;
-    rtc_status = HAL_RTC_Init(&hrtc);
-    
-    if (rtc_status != HAL_OK) {
-        // Обработка ошибки инициализации
-        Error_Handler();
-    }
-
-    /** Установка времени: 00:00:00 **/
-    sTime.Hours = 0;
-    sTime.Minutes = 0;
-    sTime.Seconds = 0;
-    sTime.TimeFormat = RTC_HOURFORMAT12_AM;
-    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
-        Error_Handler();
-    }
-
-    /** Установка даты: 01.01.2025 **/
-    sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
-    sDate.Month = RTC_MONTH_JANUARY;
-    sDate.Date = 1;
-    sDate.Year = 25; // 2025 год (HAL использует 2 последних цифры)
-    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
-        Error_Handler();
-    }
+  
+  __HAL_RCC_LSI_ENABLE();
+  while (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY) == RESET) {}
+  
+  __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSI);
+  
+  __HAL_RCC_RTC_ENABLE();
+  
+  //HAL_Delay(100);
+  
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+  
+  /** Инициализация RTC с использованием LSI**/
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  
+  HAL_StatusTypeDef rtc_status;
+  rtc_status = HAL_RTC_Init(&hrtc);
+  
+  if (rtc_status != HAL_OK) {
+    // Обработка ошибки инициализации
+    Error_Handler();
+  }
+  
+  /** Установка времени: 00:00:00 **/
+  sTime.Hours = 0;
+  sTime.Minutes = 0;
+  sTime.Seconds = 0;
+  sTime.TimeFormat = RTC_HOURFORMAT12_AM;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
+    Error_Handler();
+  }
+  
+  /** Установка даты: 01.01.2025 **/
+  sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 1;
+  sDate.Year = 25; // 2025 год (HAL использует 2 последних цифры)
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
+    Error_Handler();
+  }
 }
-
-
-
 
 uint16_t getAverage10Min(CircularBuffer10Min *buffer) {
     return (uint16_t)buffer->sum / MINUTE_10_SIZE;
@@ -3424,48 +3107,43 @@ uint16_t getAverage2Day(CircularBuffer2Day *buffer) {
 //----------------------------------------------RTC-SECTION--------------------
 void save_time_to_rtc(uint8_t *arr)
 {
-
-    uint16_t mask = (1 << 2);  
-    REGISTERS[4] &= ~mask;
-    
-      uint8_t day   = (arr[0] - '0') * 10 + (arr[1] - '0');
-      uint8_t month = (arr[3] - '0') * 10 + (arr[4] - '0');
-      uint16_t year = (arr[6] - '0') * 1000 + (arr[7] - '0') * 100 +
-                      (arr[8] - '0') * 10   + (arr[9] - '0');
-      uint8_t hour  = (arr[11] - '0') * 10 + (arr[12] - '0');
-      uint8_t minute = (arr[14] - '0') * 10 + (arr[15] - '0');
-      uint8_t second = (arr[17] - '0') * 10 + (arr[18] - '0');
-
-      // Настройка времени RTC
-      RTC_TimeTypeDef sTime = {0};
-      sTime.Hours = hour;
-      sTime.Minutes = minute;
-      sTime.Seconds = second;
-      sTime.TimeFormat = RTC_HOURFORMAT12_AM;
-      sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-      sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-
-      if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
-      {
-          Error_Handler();
-      }
-
-      // Настройка даты RTC
-      RTC_DateTypeDef sDate = {0};
-      sDate.Date = day;
-      sDate.Month = month; 
-      sDate.Year = year % 100;  // HAL использует две последние цифры года
-      sDate.WeekDay = RTC_WEEKDAY_SUNDAY;
-
-      if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
-      {
-          Error_Handler();
-      }
-    
-    
-
+  uint16_t mask = (1 << 2);  
+  REGISTERS[4] &= ~mask;
+  
+  uint8_t day   = (arr[0] - '0') * 10 + (arr[1] - '0');
+  uint8_t month = (arr[3] - '0') * 10 + (arr[4] - '0');
+  uint16_t year = (arr[6] - '0') * 1000 + (arr[7] - '0') * 100 +
+    (arr[8] - '0') * 10   + (arr[9] - '0');
+  uint8_t hour  = (arr[11] - '0') * 10 + (arr[12] - '0');
+  uint8_t minute = (arr[14] - '0') * 10 + (arr[15] - '0');
+  uint8_t second = (arr[17] - '0') * 10 + (arr[18] - '0');
+  
+  // Настройка времени RTC
+  RTC_TimeTypeDef sTime = {0};
+  sTime.Hours = hour;
+  sTime.Minutes = minute;
+  sTime.Seconds = second;
+  sTime.TimeFormat = RTC_HOURFORMAT12_AM;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  
+  // Настройка даты RTC
+  RTC_DateTypeDef sDate = {0};
+  sDate.Date = day;
+  sDate.Month = month; 
+  sDate.Year = year % 100;  // HAL использует две последние цифры года
+  sDate.WeekDay = RTC_WEEKDAY_SUNDAY;
+  
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }  
 }
-
 
 void get_current_timestamp(uint8_t *timestamp)
 {
@@ -3483,20 +3161,18 @@ void get_current_timestamp(uint8_t *timestamp)
     timestamp[5] = sDate.Year;
 }
 
-
-
 //------------------------------------------------LOG-SECTION-------------------
 void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
 {
-
+  
   /* вынесена в шапку
   
   typedef struct {
-    uint8_t timestamp[6];  // ss:mm:hh:dd:mm:yy (временная метка)
-    uint8_t event_code;    // код события
-    uint8_t data[5];       //поле данных
-  } LogEntry; 
-                           //12 байт
+  uint8_t timestamp[6];  // ss:mm:hh:dd:mm:yy (временная метка)
+  uint8_t event_code;    // код события
+  uint8_t data[5];       //поле данных
+} LogEntry; 
+  //12 байт
   */
   
   //код события (основные)
@@ -3504,7 +3180,7 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
   //0x31 - ТЕСТ
   //0x32 - Предупреждение
   //0x33 - сработала защита
-
+  
   
   
   //код события (настройки)
@@ -3528,335 +3204,325 @@ void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
   //0x19 - WARNING_VALUE (uint8_t пороговое значение тока)
   //0x20 - Аппаратная защита (0/1)
   
-  if(log_ready)
-  {
+  if (log_ready) {
+    uint32_t startAddress = log_ptr;
+    uint8_t final_data[12] = {0};
 
-  uint32_t startAddress = log_ptr;
-  uint8_t final_data[12] = {0};
-    
-    
-  LogEntry frame;
-  
+    LogEntry frame = {0};
     
     while ((log_ptr + sizeof(LogEntry)) >= LOG_END_ADDR)
     {
-       Swipe_Log_Sector();
-       startAddress = log_ptr;
+      Swipe_Log_Sector();
+      startAddress = log_ptr;
     }
-
     
-    if(startAddress < 0x08120000)
+    if (startAddress < 0x08120000) {
       return;
-  
+    }
+    
     get_current_timestamp(frame.timestamp); 
     
     frame.event_code = code;
     
-    
     memset(frame.data, 0, sizeof(frame.data)); // Заполняем массив данных нулями
     memcpy(frame.data, log_data, copy_len);
     
-    
     memcpy(final_data, &frame, sizeof(frame));
     HAL_FLASH_Unlock();
-
-      
-      for (uint32_t i = 0; i < sizeof(LogEntry); i++) {
-          if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, final_data[i]) != HAL_OK) {
-              HAL_FLASH_Lock();
-              return;
-          }
+    
+    for (uint32_t i = 0; i < sizeof(LogEntry); i++) {
+      if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, startAddress + i, final_data[i]) != HAL_OK) {
+        HAL_FLASH_Lock();
+        return;
       }
-
-     HAL_FLASH_Lock();
-     
-     log_ptr += sizeof(LogEntry);
+    }
+    
+    HAL_FLASH_Lock();
+    
+    log_ptr += sizeof(LogEntry);
   }
 }
-
 
 static uint8_t flash_read_byte(uint32_t address)
 {
     return *((volatile uint8_t*)address);
 }
 
-
 static void flash_write_byte(uint32_t address, uint8_t value)
 {
-    taskENTER_CRITICAL();
-    HAL_FLASH_Unlock();
-
-    if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, address, value) != HAL_OK)
-    {
-        HAL_FLASH_Lock();
-        taskEXIT_CRITICAL();
-        return;
-    }
-
+  taskENTER_CRITICAL();
+  HAL_FLASH_Unlock();
+  
+  if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, address, value) != HAL_OK) {
     HAL_FLASH_Lock();
     taskEXIT_CRITICAL();
+    return;
+  }
+  
+  HAL_FLASH_Lock();
+  taskEXIT_CRITICAL();
 }
-
-
 
 uint32_t find_next_free_log_address(void)
 {
-
-    uint32_t addr = LOG_END_ADDR - 1;
-
-    // 1. Ищем «последний занятый байт», т.е. первый не 0xFF с конца.
-    //    Если таких нет, значит память пуста.
-    while (1)
-    {
-        // Если ушли за начало лога, значит вся область пуста.
-        if (addr < LOG_START_ADDR)
-        {
-            log_ready = 1;
-            // Нет записанных данных
-            return LOG_START_ADDR; 
-        }
-
-        if (flash_read_byte(addr) != 0xFF)
-        {
-            // Нашли байт, который НЕ равен 0xFF – это и будет последний занятый байт.
-            break;
-        }
-
-        addr--;
+  uint32_t addr = LOG_END_ADDR - 1;
+  
+  // 1. Ищем «последний занятый байт», т.е. первый не 0xFF с конца.
+  //    Если таких нет, значит память пуста.
+  while (1) {
+    // Если ушли за начало лога, значит вся область пуста.
+    if (addr < LOG_START_ADDR) {
+      log_ready = 1;
+      // Нет записанных данных
+      return LOG_START_ADDR; 
     }
-
-    // 2. Подсчитываем, сколько байт всего занято
-    //    (LOG_START_ADDR ... addr включительно).
-    //    Например, если addr = LOG_START_ADDR, то размер = 1.
-    uint32_t used_size = (addr - LOG_START_ADDR) + 1; 
-
-    log_ready = 1;
     
-    // 3. Проверяем кратность размеру записи (12 байт).
-    uint32_t remainder = used_size % LOG_ENTRY_SIZE;
-    if (remainder == 0)
-    {
-        // 3.1. Если всё чётко по границам 12 байт, 
-        //      то свободный адрес – сразу за последним занятым байтом.
-      if((LOG_START_ADDR + used_size) < LOG_END_ADDR)
-      {
-        return LOG_START_ADDR + used_size; 
-      }
-      else
-      {
-        return 0xFF; //заполнено все
-      }
+    if (flash_read_byte(addr) != 0xFF) {
+      // Нашли байт, который НЕ равен 0xFF – это и будет последний занятый байт.
+      break;
     }
-    else
-    {
-        // 3.2. Иначе — нужно «дозаписать» остаток до ближайших 12 байт символами 0xF0,
-        //      чтобы при следующем чтении было понятно, что эта запись недействительна.
-
-        // Адрес начала «обрывка». 
-        // Текущее «начало» последней записи по границе 12 байт:
-        // Например, если used_size=25, remainder=1, тогда последняя корректная граница – 24.
-        uint32_t partial_start = (LOG_START_ADDR + used_size) - remainder; 
-        // Верхняя граница, которую мы зальём 0xF0, чтобы закрыть 12-байтную запись:
-        uint32_t partial_end   = partial_start + LOG_ENTRY_SIZE - 1; 
-        if (partial_end >= LOG_END_ADDR) 
-        {
-            // На всякий случай проверяем, чтобы не выйти за пределы.
-            return 0xFF;
-        }
-
-        // Заполняем нужный диапазон 0xF0, превращая остаток в "невалидную запись".
-        for (uint32_t fill_addr = partial_start; fill_addr <= partial_end; fill_addr++)
-        {
-            flash_write_byte(fill_addr, 0xF0);
-        }
-
-        // Теперь свободный адрес — сразу за этой 12-байтной «фейковой» записью.
-        return (partial_end + 1);
+    addr--;
+  }
+  
+  // 2. Подсчитываем, сколько байт всего занято
+  //    (LOG_START_ADDR ... addr включительно).
+  //    Например, если addr = LOG_START_ADDR, то размер = 1.
+  uint32_t used_size = (addr - LOG_START_ADDR) + 1; 
+  
+  log_ready = 1;
+  
+  // 3. Проверяем кратность размеру записи (12 байт).
+  uint32_t remainder = used_size % LOG_ENTRY_SIZE;
+  if (remainder == 0) {
+    // 3.1. Если всё чётко по границам 12 байт, 
+    //      то свободный адрес – сразу за последним занятым байтом.
+    if ((LOG_START_ADDR + used_size) < LOG_END_ADDR) {
+      return LOG_START_ADDR + used_size; 
+    } else {
+      return 0xFF; //заполнено все
     }
+  } else {
+    // 3.2. Иначе — нужно «дозаписать» остаток до ближайших 12 байт символами 0xF0,
+    //      чтобы при следующем чтении было понятно, что эта запись недействительна.
+    
+    // Адрес начала «обрывка». 
+    // Текущее «начало» последней записи по границе 12 байт:
+    // Например, если used_size=25, remainder=1, тогда последняя корректная граница – 24.
+    uint32_t partial_start = (LOG_START_ADDR + used_size) - remainder; 
+    // Верхняя граница, которую мы зальём 0xF0, чтобы закрыть 12-байтную запись:
+    uint32_t partial_end   = partial_start + LOG_ENTRY_SIZE - 1; 
+    if (partial_end >= LOG_END_ADDR) {
+      // На всякий случай проверяем, чтобы не выйти за пределы.
+      return 0xFF;
+    }
+    
+    // Заполняем нужный диапазон 0xF0, превращая остаток в "невалидную запись".
+    for (uint32_t fill_addr = partial_start; fill_addr <= partial_end; fill_addr++) {
+      flash_write_byte(fill_addr, 0xF0);
+    }
+    
+    // Теперь свободный адрес — сразу за этой 12-байтной «фейковой» записью.
+    return (partial_end + 1);
+  }
 }
-   
-
-
 
 __attribute__((section(".ramfunc")))
 void Swipe_Log_Sector()
 {
-  if(!flash_block)
-  {
-  log_ready = 0;
-  log_sector_active = (log_sector_active % 7) + 1;
-  __disable_irq();
- 
-  __HAL_FLASH_DATA_CACHE_DISABLE();
-  __HAL_FLASH_DATA_CACHE_RESET();
-  
-  
-  taskENTER_CRITICAL();
-  HAL_FLASH_Unlock();
+  if (!flash_block) {
+    uint32_t sector_error = 0;
+    FLASH_EraseInitTypeDef FLASH_EraseInitStruct;
+    FLASH_EraseInitStruct.TypeErase = FLASH_TYPEERASE_SECTORS;    
+    FLASH_EraseInitStruct.NbSectors = 1;
+    FLASH_EraseInitStruct.VoltageRange = FLASH_VOLTAGE_RANGE_3;
     
-  switch (log_sector_active){
-        
-      case 1:
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP|FLASH_FLAG_OPERR|FLASH_FLAG_WRPERR|
+                           FLASH_FLAG_PGAERR|FLASH_FLAG_PGPERR|FLASH_FLAG_PGSERR);
+  
+    log_ready = 0;
+    log_sector_active = (log_sector_active % 7) + 1;
+    __disable_irq();
+    
+    __HAL_FLASH_DATA_CACHE_DISABLE();
+    __HAL_FLASH_DATA_CACHE_RESET();
+    
+    taskENTER_CRITICAL();
+    HAL_FLASH_Unlock();
+    
+    switch (log_sector_active) {
+      case 1: {
         LOG_START_ADDR = 0x08120000; 
         log_ptr = 0x08120000;
         LOG_END_ADDR = 0x0813FFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_17, FLASH_VOLTAGE_RANGE_3);
+        FLASH_EraseInitStruct.Sector = FLASH_SECTOR_17;
+        HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error);
+        //FLASH_Erase_Sector(FLASH_SECTOR_17, FLASH_VOLTAGE_RANGE_3);
         break;
-      case 2: 
+      }
+      
+      case 2: { 
         LOG_START_ADDR = 0x08140000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x0815FFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_18, FLASH_VOLTAGE_RANGE_3);
+        FLASH_EraseInitStruct.Sector = FLASH_SECTOR_18;
+        HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error);
+        //FLASH_Erase_Sector(FLASH_SECTOR_18, FLASH_VOLTAGE_RANGE_3);
         break;
-      case 3:
+      }
+      case 3: {
         LOG_START_ADDR = 0x08160000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x0817FFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_19, FLASH_VOLTAGE_RANGE_3);
+        FLASH_EraseInitStruct.Sector = FLASH_SECTOR_19;
+        HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error);
+        //FLASH_Erase_Sector(FLASH_SECTOR_19, FLASH_VOLTAGE_RANGE_3);
         break;
-      case 4:
+      }
+      case 4: {
         LOG_START_ADDR = 0x08180000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x0819FFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_20, FLASH_VOLTAGE_RANGE_3);
+        FLASH_EraseInitStruct.Sector = FLASH_SECTOR_20;
+        HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error);
+        //FLASH_Erase_Sector(FLASH_SECTOR_20, FLASH_VOLTAGE_RANGE_3);
         break;
-      case 5:
+      }
+      case 5:{
         LOG_START_ADDR = 0x081A0000;
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x081BFFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_21, FLASH_VOLTAGE_RANGE_3);
+        FLASH_EraseInitStruct.Sector = FLASH_SECTOR_21;
+        HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error);
+        //FLASH_Erase_Sector(FLASH_SECTOR_21, FLASH_VOLTAGE_RANGE_3);
         break;
-      case 6:
+      }
+      case 6:{
         LOG_START_ADDR = 0x081C0000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x081DFFFF;
-        FLASH_Erase_Sector(FLASH_SECTOR_22, FLASH_VOLTAGE_RANGE_3);
+        FLASH_EraseInitStruct.Sector = FLASH_SECTOR_22;
+        HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error);
+        //FLASH_Erase_Sector(FLASH_SECTOR_22, FLASH_VOLTAGE_RANGE_3);
         break;
-      case 7:
+      }
+      case 7:{
         LOG_START_ADDR = 0x081E0000; 
         log_ptr = LOG_START_ADDR;
         LOG_END_ADDR = 0x081FFFF8;
-        FLASH_Erase_Sector(FLASH_SECTOR_23, FLASH_VOLTAGE_RANGE_3);
-        break;      
+        FLASH_EraseInitStruct.Sector = FLASH_SECTOR_23;
+        HAL_FLASHEx_Erase(&FLASH_EraseInitStruct, &sector_error);
+        //FLASH_Erase_Sector(FLASH_SECTOR_23, FLASH_VOLTAGE_RANGE_3);
+        break;
+      }
     }
-  HAL_FLASH_Lock();
-  taskEXIT_CRITICAL();
-  
-  __HAL_FLASH_DATA_CACHE_ENABLE();
-  __enable_irq();
-  
-  
-  neead_write_flash = 1;
-  
-  //WriteFlash(0,0);
-  log_ready = 1;
+    HAL_FLASH_Lock();
+    taskEXIT_CRITICAL();
+    
+    __HAL_FLASH_DATA_CACHE_ENABLE();
+    __enable_irq();
+    
+    neead_write_flash = 1;
+    
+    //WriteFlash(0,0);
+    log_ready = 1;
   }
 }
 
-
-
 uint8_t save_time_unix(uint64_t timestamp) 
 {
-
-
-    uint32_t sec    = timestamp % 60;
-    uint32_t minute = (timestamp / 60) % 60;
-    uint32_t hour   = (timestamp / 3600) % 24;
-    uint32_t days   = timestamp / 86400UL;
-
-    int year = 1970;
-    while (1) {
-        int daysInYear = ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ? 366 : 365);
-        if (days >= (uint32_t)daysInYear) {
-            days -= daysInYear;
-            year++;
-        } else break;
-    }
-
-    int month = 1;
-    int daysInMonth[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
-    if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) daysInMonth[1] = 29;
-
-    while (days >= (uint32_t)daysInMonth[month - 1]) {
-        days -= daysInMonth[month - 1];
-        month++;
-        if (month > 12) { month = 12; break; } // safety
-    }
-    int day = days + 1;
-
-    // подготовка структуры HAL
-    RTC_TimeTypeDef sTime = {0};
-    sTime.Hours = hour;
-    sTime.Minutes = minute;
-    sTime.Seconds = sec;
-    sTime.TimeFormat = RTC_HOURFORMAT_24;
-    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-
-    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
-        return 1;
-    }
-
-    RTC_DateTypeDef sDate = {0};
-    sDate.Date = day;
-    sDate.Month = month;
-    sDate.Year = year % 100;
-    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
-        return 1;
-    }
-
-    return 0; // success
+  uint32_t sec    = timestamp % 60;
+  uint32_t minute = (timestamp / 60) % 60;
+  uint32_t hour   = (timestamp / 3600) % 24;
+  uint32_t days   = timestamp / 86400UL;
+  
+  int year = 1970;
+  while (1) {
+    int daysInYear = ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ? 366 : 365);
+    if (days >= (uint32_t)daysInYear) {
+      days -= daysInYear;
+      year++;
+    } else break;
+  }
+  
+  int month = 1;
+  int daysInMonth[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) daysInMonth[1] = 29;
+  
+  while (days >= (uint32_t)daysInMonth[month - 1]) {
+    days -= daysInMonth[month - 1];
+    month++;
+    if (month > 12) { month = 12; break; } // safety
+  }
+  int day = days + 1;
+  
+  // подготовка структуры HAL
+  RTC_TimeTypeDef sTime = {0};
+  sTime.Hours = hour;
+  sTime.Minutes = minute;
+  sTime.Seconds = sec;
+  sTime.TimeFormat = RTC_HOURFORMAT_24;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
+    return 1;
+  }
+  
+  RTC_DateTypeDef sDate = {0};
+  sDate.Date = day;
+  sDate.Month = month;
+  sDate.Year = year % 100;
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
+    return 1;
+  }
+  
+  return 0; // success
 }
-
 
 void apply_time_from_registers(void)
 {
-    uint16_t r5, r6, r7, r8;
-    // критическая секция — вариант если baremetal:
+  uint16_t r5, r6, r7, r8;
+  // критическая секция — вариант если baremetal:
+  __disable_irq();
+  r5 = REGISTERS[5];
+  r6 = REGISTERS[6];
+  r7 = REGISTERS[7];
+  r8 = REGISTERS[8];
+  __enable_irq();
+  
+  // собираем 64-бит (предполагаем: REGISTERS[5] = MSW)
+  uint64_t timestamp = ((uint64_t)r5 << 48) | ((uint64_t)r6 << 32) | ((uint64_t)r7 << 16) | (uint64_t)r8;
+  
+  if (timestamp == 0) {
+    // некорректно — отбиваемся, очищаем APPLY и не ставим SET
+    // атомарно очистим флаг APPLY
     __disable_irq();
-    r5 = REGISTERS[5];
-    r6 = REGISTERS[6];
-    r7 = REGISTERS[7];
-    r8 = REGISTERS[8];
-    __enable_irq();
-
-    // собираем 64-бит (предполагаем: REGISTERS[5] = MSW)
-    uint64_t timestamp = ((uint64_t)r5 << 48) | ((uint64_t)r6 << 32) | ((uint64_t)r7 << 16) | (uint64_t)r8;
-
-    if (timestamp == 0) {
-        // некорректно — отбиваемся, очищаем APPLY и не ставим SET
-        // атомарно очистим флаг APPLY
-        __disable_irq();
-        REGISTERS[4] &= ~TIME_FLAG_APPLY;
-        __enable_irq();
-        return;
-    }
-
-    uint8_t res = save_time_unix(timestamp);
-    __disable_irq();
-    // очистим APPLY
     REGISTERS[4] &= ~TIME_FLAG_APPLY;
-    if (res == 0) 
-    {     
-        REGISTERS[4] &= ~TIME_FLAG_SET;
-        REGISTERS[5] = 0;
-        REGISTERS[6] = 0;
-        REGISTERS[7] = 0;
-        REGISTERS[8] = 0;
-    } 
-    else 
-    {
-        REGISTERS[4] |= TIME_FLAG_SET;
-        REGISTERS[5] = 0;
-        REGISTERS[6] = 0;
-        REGISTERS[7] = 0;
-        REGISTERS[8] = 0;
-    }
     __enable_irq();
+    return;
+  }
+  
+  uint8_t res = save_time_unix(timestamp);
+  __disable_irq();
+  // очистим APPLY
+  REGISTERS[4] &= ~TIME_FLAG_APPLY;
+  if (res == 0) 
+  {     
+    REGISTERS[4] &= ~TIME_FLAG_SET;
+    REGISTERS[5] = 0;
+    REGISTERS[6] = 0;
+    REGISTERS[7] = 0;
+    REGISTERS[8] = 0;
+  } 
+  else 
+  {
+    REGISTERS[4] |= TIME_FLAG_SET;
+    REGISTERS[5] = 0;
+    REGISTERS[6] = 0;
+    REGISTERS[7] = 0;
+    REGISTERS[8] = 0;
+  }
+  __enable_irq();
 }
 
-
-
-
 /* USER CODE END Application */
-

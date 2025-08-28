@@ -67,7 +67,11 @@ void MX_GPIO_Init(void)
   //HAL_GPIO_WritePin(GPIOA, RELAY_CONTROL_Pin|Checking_for_leaks_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(GPIOA, Checking_for_leaks_Pin, GPIO_PIN_RESET);
 
-  HAL_GPIO_WritePin(GPIOA, RELAY_CONTROL_Pin, GPIO_PIN_SET);
+#if OUT == 0
+  HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_RESET);
+#else
+  HAL_GPIO_WritePin(RELAY_CONTROL_PORT, RELAY_CONTROL_PIN, GPIO_PIN_SET);
+#endif
   
   /*Configure GPIO pins : PAPin PAPin PAPin */
   GPIO_InitStruct.Pin = Fixing_the_leak_Pin|PA12_Pin|RS485_1_ON_Pin;
@@ -84,8 +88,9 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PtPin */
   GPIO_InitStruct.Pin = INT_LAN8710_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(INT_LAN8710_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PEPin PEPin PEPin */
@@ -123,7 +128,7 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PAPin PAPin */
-  GPIO_InitStruct.Pin = RELAY_CONTROL_Pin|Checking_for_leaks_Pin;
+  GPIO_InitStruct.Pin = RELAY_CONTROL_PIN|Checking_for_leaks_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
