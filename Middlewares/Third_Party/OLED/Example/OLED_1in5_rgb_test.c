@@ -262,7 +262,7 @@ void OLED_1in5_rgb_run() {
       uint16_t mA = REGISTERS[1];
       char buffer[10] = {0};
       sprintf(buffer, "%u/%umA", mA, WARNING_VALUE);
-      Paint_DrawString_EN(28, 25, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
+      Paint_DrawString_EN(40, 43, buffer, &Courier12R, BLACK, YELLOW );
       //Paint_DrawString_EN(40, 45, "! ВНИМАНИЕ !", &Courier12R, BLACK, RED);
       //Paint_DrawString_EN(20, 58, "СРАБОТАЛА ЗАЩИТА", &Courier12R, BLACK, RED);
       
@@ -334,7 +334,7 @@ void OLED_1in5_rgb_run() {
       }
       
       
-      Paint_DrawString_EN(37, 51, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
+      Paint_DrawString_EN(44, 51, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
       sprintf(cStr, "V.%d.%d.%d",  SOFTWARE_VERSION[0], SOFTWARE_VERSION[1], SOFTWARE_VERSION[2]);
       Paint_DrawString_EN(67, 98, cStr, &Courier12R, WHITE, BACKGROUND_COLOR);
       
@@ -364,7 +364,7 @@ void OLED_1in5_rgb_run() {
       uint16_t mA = REGISTERS[1];
       char buffer[10] = {0};
       sprintf(buffer, "%u/%umA", mA, TARGET_VALUE);
-      Paint_DrawString_EN(32, 25, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
+      Paint_DrawString_EN(40, 43, buffer, &Courier12R, BLACK, RED );
       
       
       

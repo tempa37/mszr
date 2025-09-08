@@ -4,7 +4,8 @@
 #include "cmsis_os.h"
 
 extern void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len);
-
+extern void timerStart(void);
+extern void timerCreate(void);
 extern osMutexId_t RelayMutexHandle;
 extern osThreadId_t HighPriorityTaskHandle;
 
@@ -45,7 +46,7 @@ int32_t code_time[6] = {0};
 
 uint16_t adcBuffer[ADC_BUF] = {0};
 uint8_t adc_ready = 0;     //Говорит о том, что данные с ADC готовы
-extern volatile uint8_t relay_pause;
+
 
 
 
@@ -130,6 +131,8 @@ void HighPriorityTask(void *argument) {
   uint32_t notification = 0;
   
   uint8_t log_value = 0;
+
+  timerCreate();
   
   while (1) {   //--------------------------------------------------------------------------------------------
     
@@ -174,6 +177,7 @@ void HighPriorityTask(void *argument) {
       max_leak_val = (uint16_t) fmaxf(fmaxf(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
       
       REGISTERS[1] = max_leak_val;
+      //REGISTERS[1] = 34;
 #else
       
 #define A3_Q20   ( 10)         //  0.00001 * 2^20
@@ -231,7 +235,7 @@ void HighPriorityTask(void *argument) {
           }
           
           if (!start) {
-            relay_pause = 1;
+            timerStart();
             taskENTER_CRITICAL();
             log_value = (uint8_t)REGISTERS[1];
             write_to_log(0x33, &log_value, 1);

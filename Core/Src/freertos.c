@@ -409,7 +409,8 @@ void addValue2Day(CircularBuffer2Day *buffer, uint16_t value);
 uint16_t getAverage10Min(CircularBuffer10Min *buffer);
 uint16_t getAverage1Hour(CircularBuffer1Hour *buffer);
 uint16_t getAverage2Day(CircularBuffer2Day *buffer);
-
+void timerCreate(void);
+void timerStart(void);
 
 static void vTestBlockReleaseCb(TimerHandle_t xTimer);
 
@@ -680,11 +681,8 @@ void StartDefaultTask(void *argument)
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
   load_flags_from_flash();
   
-  //osDelay(100);
-  
   RTC_Init();
   xSemaphoreGive(xPacketSaved);
-  
   /**Блок начальной иициализации**/
   
   /* Infinite loop */
@@ -901,12 +899,7 @@ void StartTask02(void *argument)
       restart = 0;
     }
     
-    
-    if(relay_pause) //индикация молния (была сработка н более 10мин назад)
-    {
-      //xTimerStop (xRelayFlagTimer, 0);          // на случай, если уже тикает
-      xTimerStart(xRelayFlagTimer, 0);  
-    }
+   
     
     
     
@@ -2984,11 +2977,6 @@ static void vTestBlockReleaseCb(TimerHandle_t xTimer)
   button_block = nBLOCK_BUTTON;
 }
 
-static void vRelayFlagCallback(TimerHandle_t xTimer)
-{
-   relay_pause = 0;
-}
-
 //---------------------------------------------------------------------------------
 
 //--------------------------RMS--BY--MACROS----------------------------------------
@@ -3541,5 +3529,30 @@ void apply_time_from_registers(void)
 }
 
 
+void timerCreate(void)
+{
+/* 10-минутный однократный таймер для флага реле */
+    xRelayFlagTimer = xTimerCreate("RelFlag",
+                                   pdMS_TO_TICKS(600000),   // 10 мин
+                                   pdFALSE,                 // одноразовый
+                                   NULL,                    // id не нужен
+                                   vRelayFlagCallback);      // <<< наш коллбэк
+    configASSERT(xRelayFlagTimer);
+}
+
+void timerStart(void)
+{
+    relay_pause = 1;//индикация молния (была сработка н более 10мин назад)
+    
+    xTimerStop (xRelayFlagTimer, 0);          // на случай, если уже тикает
+    xTimerStart(xRelayFlagTimer, 0);  
+}
+
+
+
+void vRelayFlagCallback(TimerHandle_t xTimer)
+{
+   relay_pause = 0;
+}
 
 /* USER CODE END Application */
