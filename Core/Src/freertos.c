@@ -2349,9 +2349,7 @@ void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn)
   netbuf_ref(response_buf, data, len); 
   if (newconn != NULL && netconn_err(newconn) == ERR_OK) {
     err_t xRes = netconn_write(newconn, data, len, NETCONN_COPY); 
-    //if (xRes != ERR_OK) {
-    //  osDelay(10);
-    //}
+
   }
   netbuf_delete(response_buf); 
 }

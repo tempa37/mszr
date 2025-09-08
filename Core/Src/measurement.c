@@ -128,7 +128,7 @@ void HighPriorityTask(void *argument) {
   
   uint8_t log_value = 0;
   
-  while (1) {
+  while (1) {   //--------------------------------------------------------------------------------------------
     
     notification = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     

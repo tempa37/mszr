@@ -61,6 +61,14 @@ uint8_t OLED = 1;
 
 extern UBaseType_t WM_OLED;
 
+
+
+extern uint8_t TARGET_VALUE;
+extern uint8_t WARNING_VALUE;
+
+
+
+
 void OLED_1in5_rgb_run() {
   TimerHandle_t myTimer = xTimerCreate("OneShotTimer", pdMS_TO_TICKS(TIME_RESET_OLED), pdFALSE,(void *) 0, OLED_TimerCallback);
   //
@@ -250,6 +258,10 @@ void OLED_1in5_rgb_run() {
       
       Fill_YELLOW();
       
+      uint16_t mA = REGISTERS[1];
+      char buffer[10] = {0};
+      sprintf(buffer, "%u/%umA", mA, WARNING_VALUE);
+      Paint_DrawString_EN(28, 25, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
       //Paint_DrawString_EN(40, 45, "! ВНИМАНИЕ !", &Courier12R, BLACK, RED);
       //Paint_DrawString_EN(20, 58, "СРАБОТАЛА ЗАЩИТА", &Courier12R, BLACK, RED);
       
@@ -315,6 +327,9 @@ void OLED_1in5_rgb_run() {
         Paint_DrawString_EN(20, 98, "RS485", &Courier12R, RED, BACKGROUND_COLOR);
       }
       
+      
+      Paint_DrawString_EN(60, 35, "$", &Courier12R, YELLOW, BACKGROUND_COLOR );
+      
       Paint_DrawString_EN(37, 51, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
       sprintf(cStr, "V.%d.%d.%d",  SOFTWARE_VERSION[0], SOFTWARE_VERSION[1], SOFTWARE_VERSION[2]);
       Paint_DrawString_EN(67, 98, cStr, &Courier12R, WHITE, BACKGROUND_COLOR);
@@ -340,6 +355,14 @@ void OLED_1in5_rgb_run() {
       
       //Paint_DrawString_EN(40, 45, "! ВНИМАНИЕ !", &Courier12R, BLACK, RED);
       //Paint_DrawString_EN(20, 58, "СРАБОТАЛА ЗАЩИТА", &Courier12R, BLACK, RED);
+      
+      
+      uint16_t mA = REGISTERS[1];
+      char buffer[10] = {0};
+      sprintf(buffer, "%u/%umA", mA, TARGET_VALUE);
+      Paint_DrawString_EN(32, 25, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
+      
+      
       
       Paint_DrawString_EN(4, 10, "! ВНИМАНИЕ !", &Courier16R, BLACK, RED);
       Paint_DrawString_EN(17, 60, "СРАБОТАЛА", &Courier16R, BLACK, RED);
