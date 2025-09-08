@@ -45,6 +45,9 @@ int32_t code_time[6] = {0};
 
 uint16_t adcBuffer[ADC_BUF] = {0};
 uint8_t adc_ready = 0;     //Говорит о том, что данные с ADC готовы
+extern volatile uint8_t relay_pause;
+
+
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc) {
   if (hadc->Instance == ADC1) {
@@ -228,6 +231,7 @@ void HighPriorityTask(void *argument) {
           }
           
           if (!start) {
+            relay_pause = 1;
             taskENTER_CRITICAL();
             log_value = (uint8_t)REGISTERS[1];
             write_to_log(0x33, &log_value, 1);

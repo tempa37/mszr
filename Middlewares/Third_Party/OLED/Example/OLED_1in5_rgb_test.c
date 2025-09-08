@@ -37,6 +37,7 @@ extern uint8_t SOFTWARE_VERSION[3];
 extern uint32_t usart_speed;
 extern char uartStopBits[];
 extern char uartPARITY[];
+extern volatile uint8_t relay_pause; 
 
 void Fill_YELLOW();
 void Fill_RED();
@@ -327,8 +328,11 @@ void OLED_1in5_rgb_run() {
         Paint_DrawString_EN(20, 98, "RS485", &Courier12R, RED, BACKGROUND_COLOR);
       }
       
-      
+      if(relay_pause)
+      {
       Paint_DrawString_EN(60, 35, "$", &Courier12R, YELLOW, BACKGROUND_COLOR );
+      }
+      
       
       Paint_DrawString_EN(37, 51, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
       sprintf(cStr, "V.%d.%d.%d",  SOFTWARE_VERSION[0], SOFTWARE_VERSION[1], SOFTWARE_VERSION[2]);

@@ -87,6 +87,8 @@ volatile uint8_t log_ready = 0;     //можно ли сейчас писать 
 
 static TimerHandle_t xTestBlockTimer = NULL;    //Не дает бесконечно зажимать тест
                                                 //      (перегрев)
+TimerHandle_t xRelayFlagTimer = NULL;    //индикация срабатывания (10мин)
+void vRelayFlagCallback(TimerHandle_t xTimer);
 
 volatile uint8_t button_event = 0;       //событие кнопки ТЕСТ получено
 volatile uint8_t button_block = 0; // блок повторных срабатываний
@@ -158,7 +160,7 @@ static uint32_t next_free_addr = 0;
 //---------------------------------------------------------------------------------------------------
 extern volatile uint8_t theme;
 
-
+volatile uint8_t relay_pause = 0; 
 volatile uint8_t protection_pause = 0;   // дефолштная пауза
 volatile uint16_t relay_timeout = 250;  // пауза после срабатывания
 
@@ -898,6 +900,16 @@ void StartTask02(void *argument)
       startMyTimer_RESET(25000);
       restart = 0;
     }
+    
+    
+    if(relay_pause) //индикация молния (была сработка н более 10мин назад)
+    {
+      //xTimerStop (xRelayFlagTimer, 0);          // на случай, если уже тикает
+      xTimerStart(xRelayFlagTimer, 0);  
+    }
+    
+    
+    
     
     if (REGISTERS[4] & TIME_FLAG_APPLY) {
       // Бит TIME_FLAG_APPLY (3-й бит) установлен
@@ -2972,6 +2984,11 @@ static void vTestBlockReleaseCb(TimerHandle_t xTimer)
   button_block = nBLOCK_BUTTON;
 }
 
+static void vRelayFlagCallback(TimerHandle_t xTimer)
+{
+   relay_pause = 0;
+}
+
 //---------------------------------------------------------------------------------
 
 //--------------------------RMS--BY--MACROS----------------------------------------
@@ -3522,5 +3539,7 @@ void apply_time_from_registers(void)
   }
   __enable_irq();
 }
+
+
 
 /* USER CODE END Application */
