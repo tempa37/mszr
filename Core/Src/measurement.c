@@ -190,17 +190,17 @@ void HighPriorityTask(void *argument) {
       x = (x < 0) ? 0 : x;    
       
       int64_t acc = A3_Q20;             
-      acc = acc * x;                     
-      acc += A2_Q20;                    
-      acc = acc * x;                  
-      acc += A1_Q20;                    
-      acc = acc * x;                     
-      acc += A0_Q20;                     
+      acc = acc * x;
+      acc += A2_Q20;
+      acc = acc * x;
+      acc += A1_Q20;
+      acc = acc * x;
+      acc += A0_Q20;
       
       uint32_t y = (uint32_t)(acc >> Q);   
       osMutexWait(RelayMutexHandle, osWaitForever);
-      //REGISTERS[1] = (y > 65535U) ? 65535U : (uint16_t)y;
-      REGISTERS[1] = 34;
+      REGISTERS[1] = (y > 65535U) ? 65535U : (uint16_t)y;
+      //REGISTERS[1] = 9;
       osMutexRelease(RelayMutexHandle);
 #endif
 

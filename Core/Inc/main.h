@@ -56,7 +56,7 @@ void Error_Handler(void);
 
 #define OUT 0
 
-#define ALGORITHM_COS 1
+#define ALGORITHM_COS 0
 
 #define TEST_TIME 0
 #define DEBUG 0

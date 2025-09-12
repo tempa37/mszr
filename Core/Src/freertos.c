@@ -395,6 +395,7 @@ void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
 void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len);
+static uint8_t RTC_IsTimeValid(void);
 void save_time_to_rtc(uint8_t* arr);
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
 void CRC_Config(void);
@@ -679,7 +680,7 @@ void StartDefaultTask(void *argument)
   CGI_TAB[2] = LOG_CGI;
   http_set_cgi_handlers(CGI_TAB, 3);
   
-  REGISTERS[4] |= 0x04; 
+
   REGISTERS[0] = soft_ver_modbus;
   HAL_UARTEx_ReceiveToIdle_DMA(&huart3, rxBuffer, sizeof(rxBuffer));
   load_flags_from_flash();
@@ -1170,10 +1171,6 @@ void StartTask04(void *argument)
       
       /* 3. Логирование события TEST */
       taskENTER_CRITICAL();
-      
-      //log_value = 0;
-      //write_to_log(0x31, &log_value, 1);
-      
       uint16_t current = REGISTERS[1];
       write_to_log(0x31, (uint8_t *)&current, sizeof(current)); 
       taskEXIT_CRITICAL();
@@ -3048,13 +3045,19 @@ void addValue2Day(CircularBuffer2Day *buffer, uint16_t value) {
   buffer->index = (buffer->index + 1) % DAY_2_SIZE;
 }
 
+
+static uint8_t RTC_IsTimeValid(void)
+{
+    return ((RTC->ISR & RTC_ISR_INITS) != 0);   // 1 → дата/время уже заданы
+}
+
 void RTC_Init(void) 
 {  
   __HAL_RCC_PWR_CLK_ENABLE();
   HAL_PWR_EnableBkUpAccess();
   
-  __HAL_RCC_BACKUPRESET_FORCE();
-  __HAL_RCC_BACKUPRESET_RELEASE();
+  //__HAL_RCC_BACKUPRESET_FORCE();
+  //__HAL_RCC_BACKUPRESET_RELEASE();
   
   
   __HAL_RCC_LSI_ENABLE();
@@ -3069,6 +3072,7 @@ void RTC_Init(void)
   RTC_TimeTypeDef sTime = {0};
   RTC_DateTypeDef sDate = {0};
   
+
   /** Инициализация RTC с использованием LSI**/
   hrtc.Instance = RTC;
   hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
@@ -3085,26 +3089,30 @@ void RTC_Init(void)
     // Обработка ошибки инициализации
     Error_Handler();
   }
-  
-  /** Установка времени: 00:00:00 **/
-  sTime.Hours = 0;
-  sTime.Minutes = 0;
-  sTime.Seconds = 0;
-  sTime.TimeFormat = RTC_HOURFORMAT12_AM;
-  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
-    Error_Handler();
-  }
-  
-  /** Установка даты: 01.01.2025 **/
-  sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
-  sDate.Month = RTC_MONTH_JANUARY;
-  sDate.Date = 1;
-  sDate.Year = 25; // 2025 год (HAL использует 2 последних цифры)
-  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
-    Error_Handler();
-  }
+        
+    if (!RTC_IsTimeValid())          // <--- проверка
+    {
+        REGISTERS[4] |= 0x04; 
+        /** Установка времени: 00:00:00 **/
+        sTime.Hours = 0;
+        sTime.Minutes = 0;
+        sTime.Seconds = 0;
+        sTime.TimeFormat = RTC_HOURFORMAT12_AM;
+        sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+        sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+        if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
+          Error_Handler();
+        }
+        
+        /** Установка даты: 01.01.2025 **/
+        sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
+        sDate.Month = RTC_MONTH_JANUARY;
+        sDate.Date = 1;
+        sDate.Year = 25; // 2025 год (HAL использует 2 последних цифры)
+        if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
+          Error_Handler();
+        }
+    }
 }
 
 uint16_t getAverage10Min(CircularBuffer10Min *buffer) {
@@ -3119,6 +3127,9 @@ uint16_t getAverage2Day(CircularBuffer2Day *buffer) {
     return (uint16_t)buffer->sum / DAY_2_SIZE;
 }
 //----------------------------------------------RTC-SECTION--------------------
+
+
+
 void save_time_to_rtc(uint8_t *arr)
 {
   uint16_t mask = (1 << 2);  
@@ -3553,7 +3564,7 @@ void timerCreate(void)
 
 void timerStart(void)
 {
-    relay_pause = 1;//индикация молния (была сработка н более 10мин назад)
+    relay_pause = 1;//индикация молния (была сработка не более 10мин назад)
     
     xTimerStop (xRelayFlagTimer, 0);          // на случай, если уже тикает
     xTimerStart(xRelayFlagTimer, 0);  
@@ -3568,18 +3579,19 @@ void vRelayFlagCallback(TimerHandle_t xTimer)
 
 void timerStartCreate(void)
 {
-/* 10-минутный однократный таймер для флага реле */
+  /* 30 мс таймер для отложенного старта измерений adc */
     xStartADCtimer = xTimerCreate("StartADC",
-                                   pdMS_TO_TICKS(30),   // 10 мин
+                                   pdMS_TO_TICKS(30),   // 30 мс
                                    pdFALSE,                 // одноразовый
                                    NULL,                    // id не нужен
                                    vStartADCtimerCallback);      // <<< наш коллбэк
     configASSERT(xStartADCtimer);
+    xTimerStart(xStartADCtimer, 0);
 }
 
 void vStartADCtimerCallback(TimerHandle_t xTimer)
 {
-   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUF);
+   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUF);   
 }
 
 /* USER CODE END Application */
