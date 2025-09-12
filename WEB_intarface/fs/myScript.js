@@ -775,7 +775,7 @@ var sortButton = document.getElementById("field213");
             break;
           case 0x31:
             eventText = "ТЕСТ";
-            description = "Тестовое событие";
+            description = `Тестовое событие (${parseInt(data[0])} mA)`;
             break;
           case 0x32:
             eventText = "Предупреждение";

@@ -199,7 +199,8 @@ void HighPriorityTask(void *argument) {
       
       uint32_t y = (uint32_t)(acc >> Q);   
       osMutexWait(RelayMutexHandle, osWaitForever);
-      REGISTERS[1] = (y > 65535U) ? 65535U : (uint16_t)y;
+      //REGISTERS[1] = (y > 65535U) ? 65535U : (uint16_t)y;
+      REGISTERS[1] = 34;
       osMutexRelease(RelayMutexHandle);
 #endif
 

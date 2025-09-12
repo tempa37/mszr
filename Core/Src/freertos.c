@@ -88,6 +88,7 @@ volatile uint8_t log_ready = 0;     //можно ли сейчас писать 
 static TimerHandle_t xTestBlockTimer = NULL;    //Не дает бесконечно зажимать тест
                                                 //      (перегрев)
 TimerHandle_t xRelayFlagTimer = NULL;    //индикация срабатывания (10мин)
+TimerHandle_t xStartADCtimer = NULL;    //задержка старта измерений
 void vRelayFlagCallback(TimerHandle_t xTimer);
 
 volatile uint8_t button_event = 0;       //событие кнопки ТЕСТ получено
@@ -412,6 +413,8 @@ uint16_t getAverage2Day(CircularBuffer2Day *buffer);
 void timerCreate(void);
 void timerStart(void);
 
+void timerStartCreate(void);
+void vStartADCtimerCallback(TimerHandle_t xTimer);
 static void vTestBlockReleaseCb(TimerHandle_t xTimer);
 
 err_t httpd_post_begin(void *connection, const char *uri, const char *http_request,
@@ -767,7 +770,8 @@ void StartTask02(void *argument)
   
   HAL_GPIO_WritePin(UART1_RE_DE_GPIO_Port, UART1_RE_DE_Pin, GPIO_PIN_RESET);
   
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUF);
+  //HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUF);
+  timerStartCreate();
   
   CircularBuffer10Min buffer10;
   CircularBuffer1Hour buffer1Hour;
@@ -1163,15 +1167,22 @@ void StartTask04(void *argument)
       /* 2. Сам тест */
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
       osDelay(1000);
-      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);      
-      osDelay(100);  
-      test_leak = 0;
       
       /* 3. Логирование события TEST */
       taskENTER_CRITICAL();
-      log_value = 0;
-      write_to_log(0x31, &log_value, 1);
+      
+      //log_value = 0;
+      //write_to_log(0x31, &log_value, 1);
+      
+      uint16_t current = REGISTERS[1];
+      write_to_log(0x31, (uint8_t *)&current, sizeof(current)); 
       taskEXIT_CRITICAL();
+      
+      
+      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);      
+      osDelay(100);  
+      test_leak = 0;
+     
       
       /* 5. Блокируем повторное нажатие */
       button_event = EVENT_RESET;
@@ -3553,6 +3564,22 @@ void timerStart(void)
 void vRelayFlagCallback(TimerHandle_t xTimer)
 {
    relay_pause = 0;
+}
+
+void timerStartCreate(void)
+{
+/* 10-минутный однократный таймер для флага реле */
+    xStartADCtimer = xTimerCreate("StartADC",
+                                   pdMS_TO_TICKS(30),   // 10 мин
+                                   pdFALSE,                 // одноразовый
+                                   NULL,                    // id не нужен
+                                   vStartADCtimerCallback);      // <<< наш коллбэк
+    configASSERT(xStartADCtimer);
+}
+
+void vStartADCtimerCallback(TimerHandle_t xTimer)
+{
+   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUF);
 }
 
 /* USER CODE END Application */
