@@ -3,7 +3,7 @@
 #include "math.h"
 #include "cmsis_os.h"
 
-extern void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len);
+extern void write_to_log(log_code code, uint8_t log_data[], uint16_t copy_len);
 extern void timerStart(void);
 extern void timerCreate(void);
 extern osMutexId_t RelayMutexHandle;
@@ -32,9 +32,12 @@ extern uint8_t TARGET_VALUE_DEF;
 extern uint8_t WARNING_VALUE;
 extern uint8_t WARNING_VALUE_DEF;
 
-static uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
+#if ALGORITHM_COS == 1
 static float calculate_rms(uint16_t rms, float C_phase, float R_leak);
+#endif
+
 static void vRelayReleaseCallback(void *argument);
+static uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 
 static osTimerId_t xRelayReleaseTimer = NULL;
 volatile uint8_t adc_full_buf = 0;
@@ -46,9 +49,6 @@ int32_t code_time[6] = {0};
 
 uint16_t adcBuffer[ADC_BUF] = {0};
 uint8_t adc_ready = 0;     //Говорит о том, что данные с ADC готовы
-
-
-
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc) {
   if (hadc->Instance == ADC1) {
@@ -80,6 +80,7 @@ static uint16_t adc_get_rms(uint16_t *arr, uint16_t length) {
   return (uint16_t)sqrtf(sum_sq / (float)cnt);
 }
 
+#if ALGORITHM_COS == 1
 static float calculate_rms(uint16_t rms, float C_phase, float R_leak) {
   float I_s = rms * 0.0000466f;
   
@@ -95,6 +96,7 @@ static float calculate_rms(uint16_t rms, float C_phase, float R_leak) {
   
   return (up_formula / down_formula) * 1000.0f;
 }
+#endif
 
 static void vRelayReleaseCallback(void *argument) {
   // 1) синхронизируем программное состояние
@@ -116,6 +118,22 @@ static void vRelayReleaseCallback(void *argument) {
   protection_pause = 0;
 }
 
+
+uint16_t count_bits_set_parallel(uint64_t x) {
+  // put count of each 2 bits into those 2 bits
+  x -= (x >> 1) & 0x5555555555555555UL;
+  // put count of each 4 bits into those 4 bits
+  x = (x & 0x3333333333333333UL) + ((x >> 2) & 0x3333333333333333UL);
+  // put count of each 8 bits into those 8 bits
+  x = (x + (x >> 4)) & 0x0f0f0f0f0f0f0f0fUL;
+  // returns left 8 bits of x + (x<<8) + (x<<16) + (x<<24) + ...
+  return (x * 0x0101010101010101UL) >> 56;
+}
+
+uint32_t threshold_event;
+
+#define bitSet(value, bit) ((value) |= (1UL << (bit)))
+
 void HighPriorityTask(void *argument) {
   xRelayReleaseTimer = osTimerNew(vRelayReleaseCallback, osTimerOnce, (void *)0, NULL);
  
@@ -133,6 +151,12 @@ void HighPriorityTask(void *argument) {
   uint8_t log_value = 0;
 
   timerCreate();
+
+  uint8_t local_TARGET_VALUE = 25;
+  
+  uint8_t index = 0;
+  
+  uint8_t count_event = 0;
   
   while (1) {   //--------------------------------------------------------------------------------------------
     
@@ -177,7 +201,6 @@ void HighPriorityTask(void *argument) {
       max_leak_val = (uint16_t) fmaxf(fmaxf(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
       
       REGISTERS[1] = max_leak_val;
-      //REGISTERS[1] = 34;
 #else
       
 #define A3_Q20   ( 10)         //  0.00001 * 2^20
@@ -200,27 +223,43 @@ void HighPriorityTask(void *argument) {
       uint32_t y = (uint32_t)(acc >> Q);   
       osMutexWait(RelayMutexHandle, osWaitForever);
       REGISTERS[1] = (y > 65535U) ? 65535U : (uint16_t)y;
-      //REGISTERS[1] = 9;
       osMutexRelease(RelayMutexHandle);
 #endif
 
+      if (test_leak == 1) {
+          local_TARGET_VALUE = 25;
+      } else {
+          local_TARGET_VALUE = TARGET_VALUE;
+      }
+      
+      if ((REGISTERS[1] >= local_TARGET_VALUE) && reley_auto_protection) {
+        threshold_event |= (1 << index);
+        index = (index == 3) ? 0 : index + 1;
+      } else if ((REGISTERS[1] < local_TARGET_VALUE) && reley_auto_protection) {
+        threshold_event &= ~ (1 << index);
+        index = (index == 3) ? 0 : index + 1;
+      }
+      
+      count_event = count_bits_set_parallel(threshold_event);
+
       if ((!mode) && (protection_pause == 0)) {
-        if ((REGISTERS[1] >= TARGET_VALUE) && reley_auto_protection) {
+        if ((REGISTERS[1] >= local_TARGET_VALUE) /*count_event > 1*/ && reley_auto_protection) {
+          
           osMutexWait(RelayMutexHandle, osWaitForever);
           REGISTERS[2] = 0;
           last_position = 1;
           osMutexRelease(RelayMutexHandle);
-
+          
           if (relay_timeout != 0) {
             protection_pause = 1;
             osTimerStart(xRelayReleaseTimer, relay_timeout);
           }
-        } else if ((REGISTERS[1] < TARGET_VALUE) && reley_auto_protection) {
+        } else if ((REGISTERS[1] < local_TARGET_VALUE)/*count_event == 0*/ && reley_auto_protection) {
           osMutexWait(RelayMutexHandle, osWaitForever);
           REGISTERS[2] = 1;
           osMutexRelease(RelayMutexHandle);
         }
-        
+
         if ((REGISTERS[2] == 0) && (last_position != REGISTERS[2])) {
           
 #if OUT == 0
@@ -230,18 +269,25 @@ void HighPriorityTask(void *argument) {
 #endif
           theme = 2;
           
-          if (test_leak == 1) {
-            test_leak = 0;
+          if (test_leak == LEAK_TEST_ON) {
+            test_leak = LEAK_TEST_OFF;
             HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+
+            log_value = (uint8_t)REGISTERS[1];
+            taskENTER_CRITICAL();
+            write_to_log(E_TEST, (uint8_t *)&log_value, 1);
+            taskEXIT_CRITICAL();
           }
           
-          if (!start) {
+          if (!start && test_leak == LEAK_TEST_OFF) {
             timerStart();
-            taskENTER_CRITICAL();
+            
             log_value = (uint8_t)REGISTERS[1];
-            write_to_log(0x33, &log_value, 1);
-            log_value = 0x00;
-            write_to_log(0x05, &log_value, 1);
+            
+            taskENTER_CRITICAL();
+            write_to_log(E_PROTECTION_FW, &log_value, 1);
+            //log_value = 0x01;
+            //write_to_log(E_RELAY_CHANGE_STATE, &log_value, 1);
             taskEXIT_CRITICAL();
           }
           last_position = REGISTERS[2];
@@ -254,8 +300,10 @@ void HighPriorityTask(void *argument) {
 #endif
 
           last_position = REGISTERS[2];
-          log_value = 0x01;
-          write_to_log(0x05, &log_value, 1);
+          log_value = 0x00;
+          taskENTER_CRITICAL();
+          write_to_log(E_RELAY_CHANGE_STATE, &log_value, 1);
+          taskEXIT_CRITICAL();
           theme = 1;
         }    
       }

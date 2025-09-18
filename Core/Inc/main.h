@@ -84,6 +84,40 @@ typedef enum
   StartPhase
 } FlashDataType;
 
+typedef enum {
+  E_IP_ADDR = 2,	// 0x02
+  E_NETMASK,		// 0x03
+  E_GATEWAY,		// 0x04
+  E_RELAY_CHANGE_STATE,		// 0x05
+  
+  E_NEW_FW = 7,		// 0x07
+  
+  E_USART_SPEED = 9,	// 0x09
+  
+  E_USART_PARITIY = 16, // 0x10
+  E_USART_STOPBIT,	// 0x11
+  E_C_PHASE_A,		// 0x12
+  E_C_PHASE_B,		// 0x13
+  E_C_PHASE_C,		// 0x14
+  E_R_LEAK_A,		// 0x15
+  E_R_LEAK_B,		// 0x16
+  E_R_LEAK_C,		// 0x17
+  
+  E_TARGET_VALUE = 24,	// 0x18
+  E_WARNING_VALUE,	// 0x19
+  
+  E_PROTECTION_HW = 32, // 0x20
+
+  E_DELTA_I10 = 48,	// 0x30
+  E_TEST, 		// 0x31
+  E_WARNING, 		// 0x32 
+  E_PROTECTION_FW 	// 0x33
+} log_code;
+
+#define LEAK_TEST_ON 1
+#define LEAK_TEST_OFF 0
+
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

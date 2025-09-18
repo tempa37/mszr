@@ -1,0 +1,651 @@
+<style>
+		html {
+			background-color: #232323;	
+		}
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #232323;
+            color: #FFFFFF;
+            margin: 0;
+            padding: 0;
+        }
+		#chartCanvas {
+            border: 1px solid #444;
+            background-color: #333;
+			border-radius: 10px;
+		}
+        .header {
+			justify-content: center;
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background-color: #303030;
+            border-bottom: 2px solid #ffffff;
+        }
+       .logo {
+            margin-right: 20px;
+        }
+        .logo img {
+            height: 60px;
+        }
+        .organization-info {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+			margin-left: auto;
+			text-align: center;
+        }
+        .organization-info p {
+            margin: 0;
+            font-size: 24px;
+            color: #ffffff;
+        }
+        .container {
+			gap: 20px;
+            display: flex;
+            padding: 20px 20px 2px 20px;
+        }
+       .left-section {
+            flex: 1;
+            margin-right: 10px;
+            border: 2px solid #444;
+            height: 400px; 
+            background-color: #333;
+        }
+        .right-section {
+			position: relative;
+            flex: 1;
+            padding: 20px;
+            border: 2px solid #444;
+            background-color: #333;
+			border-radius: 10px;
+			box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+        }
+		.right-section2 {
+            padding: 20px;
+            border: 2px solid #444;
+            background-color: #333;
+			border-radius: 10px;
+			box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+			width: 46%;
+			position: absolute; /* фиксируем позиционирование */
+			right: 20px;
+        }
+		.right-section_admin {
+            padding: 20px;
+            border: 2px solid #444;
+            background-color: #333;
+			border-radius: 10px;
+			box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+			width: 40%;
+        }
+		.info-field {
+		  position: relative; /* обязательно для корректного позиционирования псевдоэлемента */
+		  margin-bottom: 20px;
+		}
+		
+		
+		.info-field::before { /*Доп слой над полями для организации кнопок в полях*/
+		  content: "";
+		  position: absolute;
+		  top: 0;
+		  left: 0;
+		  width: 100%;
+		  height: 100%;
+		  background: transparent;
+		  pointer-events: none; /* чтобы слой не мешал кликам по элементам ниже */
+		}
+		
+		
+		
+		
+		
+        .info-field label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ffffff;
+        }
+        .info-field input {
+            width: 97%;
+            padding: 10px;
+            background-color: #444;
+            border: none;
+            color: #ffffff;
+        } 
+        .submit-button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background-color: #555;
+            border: none;
+            color: #ffffff;
+            font-size: 16px;
+            cursor: pointer;
+			margin-bottom: 20px; 
+        }
+        .submit-button:hover {
+            background-color: #666;
+        }		
+		.modal {
+			display: none; 
+			position: fixed;
+			z-index: 1000;
+			left: 0;
+			top: 0;
+			width: 100%;
+			height: 100%;
+			opacity: 1;
+			background-color: rgba(0, 0, 0, 0.5); 
+			transition: opacity 0.3s ease-out;
+		}
+		.modal.active {
+			opacity: 1;
+		}
+		.modal-content {
+			background-color: #242323;
+			margin: 15% auto; 
+			padding: 20px;
+			border: 1px solid #888;
+			width: 30%; 
+			text-align: center;
+			border-radius: 10px;
+			transform: translateY(-20px);
+			transform: translateY(-20px);
+		}
+		.ok-button, .cancel-button {
+			padding: 10px 20px;
+			margin: 10px;
+			border: none;
+			cursor: pointer;
+			font-size: 16px;
+			border-radius: 5px;
+		}
+    .ok-button {
+      background-color: #555555;
+      color: white;
+    }
+    .cancel-button {
+      background-color: #777777;
+      color: white;
+    }
+    .ok-button:hover {
+      background-color: #666666;
+    }
+    .cancel-button:hover {
+      background-color: #888888;
+    }
+    .ok-button:active, .cancel-button:active {
+      background-color: #999999;
+      color: #333;
+    }
+		.left-section {
+			flex-wrap: wrap; /* Позволяет блокам переноситься на следующую строку */
+			justify-content: space-between; /* Распределение блоков по горизонтали */
+			display: flex;
+			flex-direction: column; /* Вертикальное размещение блоков */
+			justify-content: flex-start; /* Выравнивание сверху */
+			align-items: center;
+			background-color: #333;
+			padding: 20px;
+			border-radius: 10px;
+			box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+		}
+		.leakage-current {
+			text-align: center;
+		}
+		.leakage-current h2 {
+			font-size: 24px;
+			margin-bottom: 10px;
+			color: #ffffff;
+		}
+		.leakage-current p {
+			font-size: 20px;
+			font-weight: bold;
+			color: #007bff;
+		}
+		.leakage-current span {
+			color: #d9534f;
+		}
+		.info-section {
+			text-align: center; /* Центровка текста */
+			font-size: 20px;    /* Размер шрифта */
+			border: 2px solid #444; /* Рамка вокруг блока */
+			padding: 10px; /* Внутренние отступы */
+			border-radius: 5px; /* Закругленные углы */
+			margin: 0 auto; 
+			background-color: #333;
+			line-height: 1.5; 
+		}
+		.uptime-section {
+
+		width: 48%;
+		text-align: center;
+		font-size: 20px;
+		border: 2px solid #444;
+		padding: 10px;
+		border-radius: 8px;
+		margin-top: 10px;
+		background-color: #333;
+		color: #ffffff;
+		margin-bottom: 20px;
+		}
+
+		.uptime-section h2 {
+			font-size: 24px;
+			margin-bottom: 10px;
+			color: #ffffff;
+		}
+
+		.uptime-section p {
+			font-size: 20px;
+			font-weight: bold;
+			color: #779c6d; /* Зеленый цвет текста для выделения */
+		}
+		
+		.button-relay {
+			text-align: center;
+			font-size: 20px;
+			border: 2px solid #444;
+			padding: 20px;
+			border-radius: 5px;
+			margin-top: 20px;
+			background-color: #444;
+			color: #ffffff;
+			cursor: pointer;
+			transition: background-color 0.3s ease, color 0.3s ease;
+			    position: absolute;
+				top: 15%;
+				left: 75%;
+				transform: translate(-50%, -50%);
+		}
+		
+		
+		.button-relay:disabled {
+			background-color: #424242; /* Серый цвет */
+			color: #555555;
+			border-color: #666;
+			cursor: not-allowed;
+		}
+		
+		.button-test {
+			text-align: center;
+			font-size: 20px;
+			border: 2px solid #444;
+			padding: 20px;
+			border-radius: 5px;
+			margin-top: 20px;
+			background-color: #444;
+			color: #ffffff;
+			cursor: pointer;
+			transition: background-color 0.3s ease, color 0.3s ease;
+			    position: absolute;
+				top: 33%;
+				left: 75%;
+				transform: translate(-50%, -50%);
+		}
+
+		.button-relay:hover {
+			background-color: #555; /* Цвет кнопки при наведении */
+			color: #ffffff;
+		}
+		
+		.button-relay:disabled:hover {
+			background-color: #424242; /* такой же, как для обычного disabled */
+			color: #555555;
+			border-color: #666;
+			cursor: not-allowed;
+		}
+		
+		.input-group {
+		  display: flex;
+		  align-items: center;
+		}
+
+		.input-group input {
+		  flex: 1;            /* Поле ввода занимает всю оставшуюся ширину */
+		  margin-right: 10px;  /* Отступ между полем и кнопкой */
+		}
+		
+		
+		
+		.input-group {
+			   display: flex;               /* вместо inline-flex */
+				width: 98%; 
+			  border: 1px solid #555;       /* рамка вокруг «единого» поля */
+			  border-radius: 5px;           /* скруглённые углы */
+			  overflow: hidden;             /* обрезаем «лишнее», если что-то вылезет за границы */
+			  background-color: #444444;       /* общий тёмный фон */
+			}
+
+			/* Само поле ввода */
+			.input-group input {
+			  border: none;                 /* убираем стандартную рамку инпута */
+			  background-color: transparent;/* фон прозрачен, т.к. у нас общий фон .input-group */
+			  color: #fff;                  /* цвет текста */
+			  padding: 10px;
+			  width: 100%;                  /* займёт всю доступную ширину в группе */
+			  outline: none;                /* убираем подсветку при фокусе, если не нужна */
+			  font-size: 16px;
+			}
+
+			/* Кнопка в группе */
+			.time-btn {
+			  border: none;         
+			  background-color: #444;       /* можно оставить общий фон #333, но тогда «сольётся» с input */
+			  color: #fff;
+			  padding: 10px 15px;           /* немного отступов вокруг */
+			  cursor: pointer;
+			  display: flex;                /* чтобы иконка и текст располагались красиво */
+			  align-items: center;          /* выравниваем иконку и текст по центру по вертикали */
+			  font-size: 14px;             
+			  transition: background-color 0.3s ease;
+			}
+
+			.time-btn:hover {
+			  background-color: #555;       /* при наведении слегка осветлим */
+			}
+
+			.time-btn:active {
+			  background-color: #666;       /* при нажатии ещё темнее или светлее — на ваше усмотрение */
+}
+
+		
+		
+		
+		.icon {
+			margin-right: 5px;
+            width: 16px;
+            height: 16px;
+            margin-right: 5px;
+            fill: currentColor; /* иконка подстраивается под цвет текста */
+            stroke: #000000;
+        }
+
+		.button-relay:active {
+			background-color: #779c6d; /* Цвет кнопки при нажатии */
+			color: #333;
+		}
+		
+		.button-test:hover {
+			background-color: #555; /* Цвет кнопки при наведении */
+			color: #ffffff;
+		}
+
+		.button-test:active {
+			background-color: #779c6d; /* Цвет кнопки при нажатии */
+			color: #333;
+		}
+		
+		
+		
+.mac-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-family: Arial, sans-serif;
+	background-color: #333; /* Тёмный фон для соответствия стилю */
+    border: 2px solid #444; /* Граница для соответствия стилю */
+    border-radius: 5px; /* Закругленные углы */
+    padding: 10px; /* Внутренний отступ */
+    text-align: center; /* Центровка текста */
+    margin: 0 auto; /* Центровка блока */
+	margin-bottom: 20px;
+  }
+  .mac-label {
+    font-size: 1em;
+    font-weight: bold;
+	margin-bottom: 20px;
+  }
+  .mac-input {
+    display: inline-flex;
+    gap: 5px;
+	justify-content: center; 
+	margin-bottom: 20px;
+  }
+  .mac-input input {
+    width: 35px;
+    height: 30px;
+    text-align: center;
+    font-size: 1em;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #444444;
+	color: #FFFFFF;
+	margin-bottom: 20px;
+  }
+  .mac-input input:disabled {
+    color: #FFFFFF;
+    background-color: #444444;
+	 width: 80px;
+  }
+	.mac-input.no-fixed-width input:disabled {
+		color: #FFFFFF;
+		background-color: #444444;
+		width: 35px;
+	}
+  
+	  .container_admin {
+		display: flex;
+		align-items: center; /* Центровка по вертикали */
+		justify-content: center; /* Центровка по горизонтали */
+		display: flex;
+		padding: 20px;
+		margin-bottom: 20px;
+        }
+		
+		
+	.serial-input input {
+    width: 200px;
+    height: 30px;
+    text-align: center;
+    font-size: 1em;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background-color: #444444;
+	color: #FFFFFF;
+	margin-bottom: 20px;
+  }
+  
+.info-field {
+    margin-bottom: 10px;
+}
+label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+select {
+	 width: 99%;
+    background-color: #444444; /* Задаёт фон списка */
+    color: #FFFFFF; /* Цвет текста */
+    border: 1px solid #888888; /* Цвет рамки */
+    padding: 5px;
+    font-size: 16px;
+    border-radius: 5px; /* Скруглённые углы (по желанию) */
+}
+
+/* При наведении мыши на список */
+select:hover {
+    background-color: #5e5e5e; /* Цвет фона при наведении */
+}
+
+/* При открытии выпадающего списка */
+select:focus {
+    background-color: #5c5c5c; /* Фон при фокусе */
+    color: #FFFFFF; /* Текст при фокусе */
+    outline: none; /* Убирает стандартную обводку браузера */
+}
+
+
+.file-input {
+    display: none;
+}
+
+	.ver-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-family: Arial, sans-serif;
+    background-color: #333; /* Тёмный фон для соответствия стилю */
+    border: 2px solid #444; /* Граница для соответствия стилю */
+    border-radius: 5px; /* Закругленные углы */
+    padding: 10px; /* Внутренний отступ */
+    text-align: center; /* Центровка текста */
+    margin: 0 auto; /* Центровка блока */
+    margin-bottom: 20px;
+}
+
+.form-row {
+    display: flex;
+	justify-content: space-between; /* Распределение пространства между элементами */
+    align-items: center; /* Выравнивание по вертикали */
+	padding: 0 260px;
+
+}
+
+.update-btn {
+    padding: 5px 10px; /* Внутренний отступ кнопки */
+    font-size: 14px; /* Размер текста */
+    border: none; /* Убираем стандартную границу */
+    border-radius: 3px; /* Закругляем углы */
+    background-color: #555; /* Цвет фона кнопки */
+    color: white; /* Цвет текста кнопки */
+    cursor: pointer; /* Курсор при наведении */
+    transition: background-color 0.3s; /* Плавный переход */
+}
+
+.update-btn:hover {
+    background-color: #777; /* Цвет при наведении */
+}
+
+.edit-button-inline {
+	padding: 5px 10px; /* Внутренний отступ кнопки */
+    font-size: 14px; /* Размер текста */
+    border: none; /* Убираем стандартную границу */
+    border-radius: 3px; /* Закругляем углы */
+    background-color: #555; /* Цвет фона кнопки */
+    color: white; /* Цвет текста кнопки */
+    cursor: pointer; /* Курсор при наведении */
+    transition: background-color 0.3s; /* Плавный переход */
+		position: absolute;
+		top: 83.5%;
+		left: 70%;
+		transform: translate(-50%, -50%);
+}
+
+		.edit-button-inline:hover {
+			background-color: #777; /* Цвет при наведении */
+		}
+		#alertModal .modal-content {
+			max-width: 400px;
+			transform: translateY(-20px);
+			transition: transform 0.3s ease-out;
+		}
+		
+		
+		.modal.active .modal-content {
+		transform: translateY(0);
+		}
+		
+		
+		
+
+		
+		
+		
+.modal_time {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.5);
+  transition: opacity 0.3s ease-out;
+  justify-content: center;
+  align-items: center;
+}
+.modal.active {
+  opacity: 1;
+}
+.modal_time .modal-content {
+  background-color: #242323;
+  padding: 30px;
+  border: 1px solid #888;
+  width: 40%;
+  text-align: center;
+  border-radius: 15px;
+  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.modal_time .button-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  padding: 20px;
+}
+
+.action-button {
+  padding: 10px 20px;
+  margin: 0 10px;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  border-radius: 20px;
+  min-width: 100px;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.calendar-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+/* Шапка календаря */
+.calendar-header {
+  margin-bottom: 10px;
+}
+.calendar-header select {
+  padding: 5px;
+  margin: 0 5px;
+  background-color: #444;
+  color: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+/* Стилизация дней календаря */
+.calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  width: 100%;
+  max-width: 300px;
+}
+.calendar-days .day {
+  padding: 10px;
+  text-align: center;
+  background-color: #555;
+  border: 1px solid #444;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.calendar-days .day:hover {
+  background-color: #666;
+}
+.calendar-days .day.selected {
+  background-color: #779c6d;
+  color: #232323;
+}
+		
+    </style>
+	

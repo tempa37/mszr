@@ -9,14 +9,14 @@
 <body>
     <div class="header">
         <div class="uptime-section">
-            <h2>РУ380 - Реле утечки. Панель администратора</h2>
+            <h2>Микроконтроллерная система защиты рудничная МСЗР-380. Панель администратора</h2>
         </div>
     </div>
     <div class="container_admin">
         <div class="right-section_admin">
 		<form class="mac-form">
 		  <label class="mac-label">MAC Адрес:</label>
-		  <div class="mac-input">
+		  <div class="mac-input no-fixed-width">
 			<input type="text" value="00" disabled>
 			<span></span>
 			<input type="text" value="10" disabled>

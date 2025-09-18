@@ -119,9 +119,6 @@ uint8_t WARNING_VALUE_DEF = 20;
 #define FLASH_ADDRESS_WARNING_VALUE 0x0800C120
 #define FLASH_ADDRESS_RELAY_TIME 0x0800C130
 
-
-
-
 //------------------------------------------------------------------------------
 
 uint8_t USART_3_SPEED[10];   
@@ -129,15 +126,11 @@ uint8_t uartStopBits[10];
 char uartPARITY[10];  
 uint8_t output[200] = {0};
 
-
-
-
-
 volatile uint16_t neead_write_flash = 0; //Отложенная запись WriteFlash(0,0)
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {1, 1, 8};
-uint16_t soft_ver_modbus = 118;
+uint8_t SOFTWARE_VERSION[3] = {1, 1, 9};
+uint16_t soft_ver_modbus = 119;
 
 extern struct httpd_state *hs;
 
@@ -394,7 +387,10 @@ void load_values_from_flash(void);
 void send_ethernet(uint8_t *data, uint16_t len, struct netconn *newconn);
 uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
 void CleanupResources(struct netconn *nc, struct netconn *newconn, struct netbuf *buf);
-void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len);
+
+//void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len);
+void write_to_log(log_code code, uint8_t log_data[], uint16_t copy_len);
+
 static uint8_t RTC_IsTimeValid(void);
 void save_time_to_rtc(uint8_t* arr);
 uint32_t calculate_flash_crc(uint32_t start_address, uint32_t end_address);
@@ -786,6 +782,11 @@ void StartTask02(void *argument)
   static uint8_t lasttime_hour = 0;
   
   static uint8_t flag_1 = 0; // или bool flag_1 = false;
+  
+  static uint8_t value_was_changed = 1;
+  static uint8_t period = 0;
+  
+  uint8_t data = 0;
       
   while (1) {
     //---------------------------------ADC-and-Realay-logic-------------------------
@@ -816,14 +817,13 @@ void StartTask02(void *argument)
     }
     
     if (!start) {
-      static uint8_t value_was_changed = 1;
       //warning 2
       if (REGISTERS[1] >= WARNING_VALUE) {
         if (value_was_changed == 1) {
           REGISTERS[4] |= 0x02;
-          uint8_t data = REGISTERS[1];
+          data = REGISTERS[1];
           taskENTER_CRITICAL();
-          write_to_log(0x32, &data, 1);
+          write_to_log(E_WARNING, &data, 1);
           taskEXIT_CRITICAL();
           value_was_changed = 0;
         }
@@ -834,9 +834,9 @@ void StartTask02(void *argument)
       if (avg1h) {
         // Если мгновенный ток на 10% выше часового среднего и флаг не выставлен – записываем лог
         if ((REGISTERS[1] > (avg1h * 1.1f)) && (flag_1 == 0)) {
-          uint8_t data = REGISTERS[1];
+          data = REGISTERS[1];
           taskENTER_CRITICAL();
-          write_to_log(0x30, &data, 1);
+          write_to_log(E_DELTA_I10, &data, 1);
           flag_1 = 1;
           taskEXIT_CRITICAL();
         }
@@ -847,17 +847,16 @@ void StartTask02(void *argument)
       }
     }
 
-    if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2)) {     
-      static uint8_t period = 0;
+    if ((!(REGISTERS[4] & 0x01)) && (time.days >= 2)) {
       if (avg1h > avg2d) {   
         if (period != time.hours) {
           period = time.hours;
           uint16_t delta = (avg2d - avg1h);
           if (delta >= 5) {
             REGISTERS[4] |= 0x01;
-            uint8_t data = 0x02;
+            data = 0x02;
             taskENTER_CRITICAL();
-            write_to_log(0x32, &data, 1);
+            write_to_log(E_WARNING, &data, 1);
             taskEXIT_CRITICAL();
           }
         }
@@ -870,8 +869,8 @@ void StartTask02(void *argument)
       address = SECTOR_8_ADDRESS;
       uint32_t crc_stm = calculate_flash_crc(address, (next_free_addr-4));  
       if (crc_os == crc_stm) {
-        uint8_t data = 0x00;
-        write_to_log(0x07, &data, 1);
+        data = 0x00;
+        write_to_log(E_NEW_FW, &data, 1);
         crc_accepted = 1;
         sector_enabled = 2;
         WriteFlash((FlashDataType)0, 0);
@@ -880,8 +879,8 @@ void StartTask02(void *argument)
         startMyTimer_RESET(7000);
         next_free_addr = 0;
       } else if (crc_os != crc_stm) {
-        uint8_t data = 0xFF;
-        write_to_log(0x07, &data, 1);
+        data = 0xFF;
+        write_to_log(E_NEW_FW, &data, 1);
         crc_accepted = 0;
         sector_enabled = 2;
         WriteFlash((FlashDataType)0, 0);
@@ -903,11 +902,6 @@ void StartTask02(void *argument)
       startMyTimer_RESET(25000);
       restart = 0;
     }
-    
-   
-    
-    
-    
     
     if (REGISTERS[4] & TIME_FLAG_APPLY) {
       // Бит TIME_FLAG_APPLY (3-й бит) установлен
@@ -1137,7 +1131,9 @@ void StartTask04(void *argument)
 #endif
             
             log_value = 0;
-            write_to_log(0x05, &log_value, 1);
+            taskEXIT_CRITICAL();
+            write_to_log(E_RELAY_CHANGE_STATE, &log_value, 1);
+            taskEXIT_CRITICAL();
             last_position = 0;
           }
           break;
@@ -1156,7 +1152,9 @@ void StartTask04(void *argument)
             
             last_position = 1;
             log_value = 1;
-            write_to_log(0x05, &log_value, 1);
+            taskENTER_CRITICAL();
+            write_to_log(E_RELAY_CHANGE_STATE, &log_value, 1);
+            taskEXIT_CRITICAL();
           }
           break;
         }
@@ -1164,22 +1162,20 @@ void StartTask04(void *argument)
     }
     
     if ((button_event == EVENT_PRESSED) && (button_block == nBLOCK_BUTTON)) {
-      test_leak = 1;
-      /* 2. Сам тест */
+      test_leak = LEAK_TEST_ON;
+      // start TEST execution
       HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_SET);
       osDelay(1000);
       
-      /* 3. Логирование события TEST */
-      taskENTER_CRITICAL();
-      uint16_t current = REGISTERS[1];
-      write_to_log(0x31, (uint8_t *)&current, sizeof(current)); 
-      taskEXIT_CRITICAL();
-      
-      
-      HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);      
-      osDelay(100);  
-      test_leak = 0;
-     
+      if (test_leak == LEAK_TEST_ON) {
+        test_leak = LEAK_TEST_OFF;
+        HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
+        // Logging the TEST event
+        log_value = (uint8_t)REGISTERS[1];
+        taskENTER_CRITICAL();
+        write_to_log(E_TEST, (uint8_t *)&log_value, 1);
+        taskEXIT_CRITICAL();
+      }
       
       /* 5. Блокируем повторное нажатие */
       button_event = EVENT_RESET;
@@ -1776,7 +1772,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     memset(output, 0, sizeof(output));
     c_phase_a_flag = 0;
     C_phase_A = *((float *)FLASH_ADDRESS_C_PHASE_A);
-    write_to_log(0x12, (uint8_t *)&C_phase_A, sizeof(C_phase_A));
+    write_to_log(E_C_PHASE_A, (uint8_t *)&C_phase_A, sizeof(C_phase_A));
     taskEXIT_CRITICAL();
   }
   
@@ -1788,7 +1784,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     memset(output, 0, sizeof(output));
     r_leak_a_flag = 0;
     R_leak_A  = *((float *)FLASH_ADDRESS_R_LEAK_A);
-    write_to_log(0x15, (uint8_t *)&R_leak_A, sizeof(R_leak_A));
+    write_to_log(E_R_LEAK_A, (uint8_t *)&R_leak_A, sizeof(R_leak_A));
     taskEXIT_CRITICAL();
   }
   
@@ -1800,7 +1796,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     memset(output, 0, sizeof(output));
     c_phase_b_flag = 0;
     C_phase_B = *((float *)FLASH_ADDRESS_C_PHASE_B);
-    write_to_log(0x13, (uint8_t *)&C_phase_B, sizeof(C_phase_B));
+    write_to_log(E_C_PHASE_B, (uint8_t *)&C_phase_B, sizeof(C_phase_B));
     taskEXIT_CRITICAL();
   }
   
@@ -1812,7 +1808,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     memset(output, 0, sizeof(output));
     r_leak_b_flag = 0;
     R_leak_B  = *((float *)FLASH_ADDRESS_R_LEAK_B);
-    write_to_log(0x16, (uint8_t *)&R_leak_B, sizeof(R_leak_B));
+    write_to_log(E_R_LEAK_B, (uint8_t *)&R_leak_B, sizeof(R_leak_B));
     taskEXIT_CRITICAL();
   }
   
@@ -1824,7 +1820,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     memset(output, 0, sizeof(output));
     c_phase_c_flag = 0;
     C_phase_C = *((float *)FLASH_ADDRESS_C_PHASE_C);
-    write_to_log(0x14, (uint8_t *)&C_phase_C, sizeof(C_phase_C));
+    write_to_log(E_C_PHASE_C, (uint8_t *)&C_phase_C, sizeof(C_phase_C));
     taskEXIT_CRITICAL();
   }
   
@@ -1836,7 +1832,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     memset(output, 0, sizeof(output));
     r_leak_c_flag = 0;
     R_leak_C  = *((float *)FLASH_ADDRESS_R_LEAK_C);
-    write_to_log(0x17, (uint8_t *)&R_leak_C, sizeof(R_leak_C));
+    write_to_log(E_R_LEAK_C, (uint8_t *)&R_leak_C, sizeof(R_leak_C));
     taskEXIT_CRITICAL();
   }
   
@@ -1849,7 +1845,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     target_value_flag = 0;
     TARGET_VALUE = *((uint8_t *)FLASH_ADDRESS_TARGET_VALUE);
     
-    write_to_log(0x18, &TARGET_VALUE, 1);
+    write_to_log(E_TARGET_VALUE, &TARGET_VALUE, 1);
     taskEXIT_CRITICAL();
   }
   
@@ -1862,7 +1858,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     warning_value_flag = 0;
     WARNING_VALUE = *((uint8_t *)FLASH_ADDRESS_WARNING_VALUE);
     
-    write_to_log(0x19, &WARNING_VALUE, 1);
+    write_to_log(E_WARNING_VALUE, &WARNING_VALUE, 1);
     taskEXIT_CRITICAL();
   }
   
@@ -1892,7 +1888,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       ip_flag = 0; 
       ReadFlash(IP, IP_ADDRESS);
       
-      write_to_log(0x02, IP_ADDRESS, 4);
+      write_to_log(E_IP_ADDR, IP_ADDRESS, 4);
     }  
     if(mask_flag != 0)
     {
@@ -1902,7 +1898,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       mask_flag = 0;
       ReadFlash(NETMASK, NETMASK_ADDRESS);
       
-      write_to_log(0x03, NETMASK_ADDRESS, 4);
+      write_to_log(E_NETMASK, NETMASK_ADDRESS, 4);
     } 
     if(gateway_flag != 0)
     {
@@ -1912,7 +1908,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       gateway_flag = 0;   
       ReadFlash(GATEWAY, GATEWAY_ADDRESS);
       
-      write_to_log(0x04, GATEWAY_ADDRESS, 4);
+      write_to_log(E_GATEWAY, GATEWAY_ADDRESS, 4);
     }      
     if(speed_flag != 0)
     {
@@ -1922,7 +1918,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       speed_flag = 0;   
       ReadFlash(RS485SPEED, USART_3_SPEED);
       
-      write_to_log(0x09, USART_3_SPEED, 4);
+      write_to_log(E_USART_SPEED, USART_3_SPEED, 4);
     }
     if(paritiy_flag != 0)
     {
@@ -1931,7 +1927,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       paritiy_flag = 0;   
       ReadFlash(RS485PARITIY, (uint8_t*)uartPARITY);
       
-      write_to_log(0x10, (uint8_t*)uartPARITY, 4);
+      write_to_log(E_USART_PARITIY, (uint8_t*)uartPARITY, 4);
     }
     if(stopbit_flag != 0)
     {
@@ -1941,7 +1937,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       stopbit_flag = 0;   
       ReadFlash(RS485STOPBIT, uartStopBits);
       
-      write_to_log(0x11, uartStopBits, 1);
+      write_to_log(E_USART_STOPBIT, uartStopBits, 1);
     }
     
     taskEXIT_CRITICAL();
@@ -3045,7 +3041,6 @@ void addValue2Day(CircularBuffer2Day *buffer, uint16_t value) {
   buffer->index = (buffer->index + 1) % DAY_2_SIZE;
 }
 
-
 static uint8_t RTC_IsTimeValid(void)
 {
     return ((RTC->ISR & RTC_ISR_INITS) != 0);   // 1 → дата/время уже заданы
@@ -3072,7 +3067,7 @@ void RTC_Init(void)
   RTC_TimeTypeDef sTime = {0};
   RTC_DateTypeDef sDate = {0};
   
-
+  
   /** Инициализация RTC с использованием LSI**/
   hrtc.Instance = RTC;
   hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
@@ -3089,30 +3084,30 @@ void RTC_Init(void)
     // Обработка ошибки инициализации
     Error_Handler();
   }
-        
-    if (!RTC_IsTimeValid())          // <--- проверка
-    {
-        REGISTERS[4] |= 0x04; 
-        /** Установка времени: 00:00:00 **/
-        sTime.Hours = 0;
-        sTime.Minutes = 0;
-        sTime.Seconds = 0;
-        sTime.TimeFormat = RTC_HOURFORMAT12_AM;
-        sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
-        sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-        if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
-          Error_Handler();
-        }
-        
-        /** Установка даты: 01.01.2025 **/
-        sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
-        sDate.Month = RTC_MONTH_JANUARY;
-        sDate.Date = 1;
-        sDate.Year = 25; // 2025 год (HAL использует 2 последних цифры)
-        if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
-          Error_Handler();
-        }
+  
+  if (!RTC_IsTimeValid())          // <--- проверка
+  {
+    REGISTERS[4] |= 0x04; 
+    /** Установка времени: 00:00:00 **/
+    sTime.Hours = 0;
+    sTime.Minutes = 0;
+    sTime.Seconds = 0;
+    sTime.TimeFormat = RTC_HOURFORMAT12_AM;
+    sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+    sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+    if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
+      Error_Handler();
     }
+    
+    /** Установка даты: 01.01.2025 **/
+    sDate.WeekDay = RTC_WEEKDAY_WEDNESDAY;
+    sDate.Month = RTC_MONTH_JANUARY;
+    sDate.Date = 1;
+    sDate.Year = 25; // 2025 год (HAL использует 2 последних цифры)
+    if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
+      Error_Handler();
+    }
+  }
 }
 
 uint16_t getAverage10Min(CircularBuffer10Min *buffer) {
@@ -3187,7 +3182,7 @@ void get_current_timestamp(uint8_t *timestamp)
 }
 
 //------------------------------------------------LOG-SECTION-------------------
-void write_to_log(uint8_t code, uint8_t log_data[], uint16_t copy_len)
+void write_to_log(log_code code, uint8_t log_data[], uint16_t copy_len)
 {
   
   /* вынесена в шапку
@@ -3566,8 +3561,12 @@ void timerStart(void)
 {
     relay_pause = 1;//индикация молния (была сработка не более 10мин назад)
     
-    xTimerStop (xRelayFlagTimer, 0);          // на случай, если уже тикает
-    xTimerStart(xRelayFlagTimer, 0);  
+    //xTimerStop(xRelayFlagTimer, 0);          // на случай, если уже тикает
+    // #define xTimerStop( xTimer, xTicksToWait ) xTimerGenericCommand( ( xTimer ), tmrCOMMAND_STOP, 0U, NULL, ( xTicksToWait ) )
+    //xTimerStart(xRelayFlagTimer, 0);
+    // #define xTimerStart( xTimer, xTicksToWait ) xTimerGenericCommand( ( xTimer ), tmrCOMMAND_START, ( xTaskGetTickCount() ), NULL, ( xTicksToWait ) )
+    xTimerReset(xRelayFlagTimer, 0);
+    // #define xTimerReset( xTimer, xTicksToWait ) xTimerGenericCommand( ( xTimer ), tmrCOMMAND_RESET, ( xTaskGetTickCount() ), NULL, ( xTicksToWait ) )
 }
 
 
@@ -3579,9 +3578,9 @@ void vRelayFlagCallback(TimerHandle_t xTimer)
 
 void timerStartCreate(void)
 {
-  /* 30 мс таймер для отложенного старта измерений adc */
+  /* 20 мс таймер для отложенного старта измерений adc */
     xStartADCtimer = xTimerCreate("StartADC",
-                                   pdMS_TO_TICKS(30),   // 30 мс
+                                   pdMS_TO_TICKS(20),   // 20 мс
                                    pdFALSE,                 // одноразовый
                                    NULL,                    // id не нужен
                                    vStartADCtimerCallback);      // <<< наш коллбэк

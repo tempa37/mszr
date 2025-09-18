@@ -1149,6 +1149,11 @@
             <data>
                 <buildActions>
                     <buildAction>
+                        <cmdline>update.py</cmdline>
+                        <workingDirectory>$PROJ_DIR$</workingDirectory>
+                        <buildSequence>preCompile</buildSequence>
+                    </buildAction>
+                    <buildAction>
                         <cmdline>ielftool.exe $TARGET_PATH$ $TARGET_DIR$\$PROJ_FNAME$_$DATE$.hex --ihex</cmdline>
                         <workingDirectory>$PROJ_DIR$</workingDirectory>
                         <buildSequence>postLink</buildSequence>

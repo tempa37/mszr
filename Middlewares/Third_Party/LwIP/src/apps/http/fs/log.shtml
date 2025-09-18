@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Трансмаштомск</title>
+    <style>
+        html {
+            background-color: #232323;
+        }
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background-color: #232323;
+            color: #FFFFFF;
+            margin: 0;
+            padding: 0;
+        }
+        /* Шапка сайта */
+        .header {
+            justify-content: center;
+            display: flex;
+            align-items: center;
+            padding: 50px 15px;
+            background-color: #303030;
+            border-bottom: 2px solid #ffffff;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.5em;
+            text-align: center;
+        }
+
+        /* Обёртка для лога и его заголовка */
+        .logs-wrapper {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+			height: 700px;
+        }
+
+        /* Заголовок лога с кнопками */
+        .logs-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .logs-header h2 {
+            margin: 0;
+            font-size: 1.3em;
+        }
+        .logs-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .logs-buttons button {
+            background-color: #555;
+            color: #fff;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            display: flex;
+            align-items: center; /* Чтобы иконка и текст были по одной линии */
+            font-size: 14px;
+        }
+        .logs-buttons button:hover {
+            background-color: #666;
+        }
+        /* Общий стиль для иконок, чтобы они были небольшими и смещались от текста */
+        .icon {
+            width: 16px;
+            height: 16px;
+            margin-right: 5px;
+            fill: currentColor; /* иконка подстраивается под цвет текста */
+            stroke: #000000;
+        }
+
+        /* Контейнер со списком логов (прокрутка) */
+        .logs-container {
+            max-height: 670px;    /* задайте нужную высоту */
+            overflow-y: auto;     /* вертикальный скролл */
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+
+
+
+
+
+
+		/* Один блок лога */
+		.log-item {
+		  display: table;
+		  width: 98%;             /* Таблица на всю ширину контейнера */
+		  table-layout: fixed;     /* Равномерное распределение колонок */
+		  border: 1px solid #555;
+		  background-color: #333;
+		  border-radius: 10px;
+		  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+		  margin: 0 auto;
+		}
+
+		/* Стили полей внутри лога */
+		 .log-number,
+		 .log-date,
+		 .log-event,
+		 .log-description {
+		  display: table-cell;
+		  vertical-align: middle;
+		  padding: 10px 15px;
+		}
+
+		/* Пропорции можно изменить по желанию */
+		.log-number {
+		  font-weight: bold;
+		  width: 10%;              /* 10% под номер лога */
+		}
+
+		.log-date {
+		  width: 20%;              /* 20% под дату */
+		  color: #bbb;
+		  text-align: center;
+		}
+
+		.log-event {
+		  font-weight: bold;
+		  width: 30%;              /* 30% под событие */
+		}
+
+		.log-description {
+		  width: 40%;              /* 40% под описание */
+		  color: #ddd;
+		  overflow: hidden;
+		  text-overflow: ellipsis;
+		  white-space: nowrap;
+		}
+		
+		::-webkit-scrollbar {
+		  width: 12px;             /* ширина полосы */
+		}
+
+		/* Полоса заднего фона скролла */
+		::-webkit-scrollbar-track {
+		  background: #333;       /* цвет фона трека */
+		  border-radius: 4px;     /* скруглённые уголки */
+		}
+
+		/* «Ползунок» */
+		::-webkit-scrollbar-thumb {
+		  background: #777;       /* цвет ползунка */
+		  border-radius: 4px;     /* скруглённые уголки */
+		}
+
+		/* При наведении на ползунок */
+		::-webkit-scrollbar-thumb:hover {
+		  background: #999;       /* более светлый цвет при наведении */
+		}
+		
+		.pagination .page {
+		  color: gray;
+		  padding: 5px 10px;
+		  cursor: pointer;
+		  border: 1px solid transparent;
+		  border-radius: 4px;
+		  margin: 0 2px;
+		  user-select: none;
+		}
+
+		.pagination .page:hover {
+		  border-color: gray;
+		}
+
+		.pagination .page.active {
+		  border-color: gray;
+		}
+		 .filter-menu {
+      position: absolute;
+      background-color: #303030;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 10px;
+      z-index: 1000;
+      display: none; /* скрыто по умолчанию */
+    }
+	
+	#filterMenu input[type="checkbox"] {
+  accent-color: #184161;
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  border-top-color: #184161;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+	
+    </style>
+</head>
+<body>
+  <!-- Шапка сайта -->
+  <div class="header">
+    <h1>Микроконтроллерная система защиты рудничная МСЗР-380</h1>
+  </div>
+
+  <!-- Основной блок для журнала событий -->
+  <div class="logs-wrapper">
+    <!-- Заголовок журнала и кнопки -->
+    <div class="logs-header">
+      <h2>Журнал событий</h2>
+      <div class="logs-buttons">
+        <!-- Кнопка сортировки с иконкой (стрелки вверх/вниз) -->
+        <button id="field213">
+          <svg class="icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+            <line x1="8" y1="19" x2="8" y2="5"></line>
+            <polyline points="5 8 8 5 11 8"></polyline>
+            <line x1="16" y1="5" x2="16" y2="19"></line>
+            <polyline points="13 16 16 19 19 16"></polyline>
+          </svg>
+          Сортировка
+        </button>
+		
+
+        <!-- Кнопка фильтров с иконкой (фильтр) -->
+        <button id="filtersButton">
+          <svg class="icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+            <path d="M4 4h16l-6 8v6l-4 2v-8z"></path>
+          </svg>
+          Фильтры
+        </button>
+
+        <!-- Кнопка сохранить с иконкой (дискета) -->
+        <button id="saveButton">
+          <svg class="icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+          Сохранить
+        </button>
+      </div>
+      <!-- Контейнер для пагинации -->
+      <div id="paginationControls"></div>
+    </div>
+	
+	<div class="logs-header">
+	  <div class="log-number">№</div>
+	  <div class="log-date">Дата</div>
+	  <div class="log-event">Тип события</div>
+	  <div class="log-description">Описание</div>
+	</div>
+
+    <!-- Контейнер для самих логов (скролл) -->
+    <div class="logs-container" id="logsContainer"></div>
+	
+	<div id="filterMenu" class="filter-menu"></div>
+	
+  </div>
+
+
+ <script src="myScript.js"></script>
+
+</body>
+</html>

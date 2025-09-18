@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Трансмаштомск</title><link rel="stylesheet" href="styles.css" /></head><body><div class="header"><div class="uptime-section"><h2>Микроконтроллерная система защиты рудничная МСЗР-380</h2></div></div><div class="container"><div class="right-section">
+
+	<div class="uptime-section" id="uptime-sectionid">	
+			<p>Ток утечки   <span id="current-value"><!--#AMP--> mA</span> / <span id="threshold-value"><!--#TVALUE--> mA</span></p>	
+			<canvas id="chartCanvas" width="400" height="200"></canvas>
+		</div>	
+		
+			<div class="info-field">
+                <label for="field1">MAC:</label>
+				<div class="input-group">
+                <input type="text" id="field1" name="field1" value="<!--#MAC-->" disabled>
+				</div>
+            </div>
+			
+            <div class="info-field">
+			  <label for="field8">Время работы устройства:</label>
+			  <!-- Контейнер для поля и кнопки -->
+			  <div class="input-group">
+				<input 
+				  type="text" 
+				  id="field8" 
+				  name="field8" 
+				  value="<!--#DAY--> дней / <!--#HOUR--> часов / <!--#MIN--> минут / <!--#SEC--> секунд" 
+				  disabled
+				>
+				<button id="setTimeBtn" class="time-btn" onclick= "give_time()">
+				  <svg class="icon" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round"
+					   stroke-linejoin="round" fill="none" stroke="currentColor"
+					   width="24" height="24">
+					<circle cx="12" cy="12" r="10"></circle>
+					<line x1="12" y1="12" x2="12" y2="6"></line>
+					<line x1="12" y1="12" x2="16" y2="12"></line>
+				  </svg>
+				  Установить время
+				</button>
+				<button id="setTimeBtn" class="time-btn" onclick="go_to_log()">
+				Журнал работы устройства
+				</button>
+			  </div>
+			</div>
+			
+			<div class="info-field">
+                <label for="field9">Серийный номер устройства:</label>
+				<div class="input-group">
+                <input type="text" id="field9" name="field9" value="<!--#SERIAL-->" disabled>
+				</div>
+            </div>
+			
+			<div class="info-field">
+                <label for="field10">Версия ПО:</label>
+				<div class="input-group">
+                <input type="text" id="field10" name="field10" value="<!--#SOFT-->" disabled>
+                <button class="time-btn" id="buttonS" onclick="editbuttoninline()">загрузить новую версию П.О.</button>
+				</div>
+            </div>
+			
+			<div class="info-field">
+                <label for="field11">Подключение RS-485</label>
+				<div class="input-group">
+                <input type="text" id="field11" name="field11" value="<!--#RS485-->" disabled>
+				</div>
+            </div>
+			
+			<button class="button-relay" id="buttonrel" onclick="setrelay()"><!--#RELAY--></button>
+			<button class="button-test" onclick="test()">ТЕСТ</button>
+	</div>
+        <div class="right-section">
+            <div class="info-field">
+
+                <label for="field2">IP:</label>
+				<div class="input-group">
+                <input type="text" id="field2" name="field2" value="<!--#IP-->">
+			</div>
+            </div>
+            <div class="info-field">
+
+                <label for="field3">МАСКА:</label>
+				<div class="input-group">
+                <input type="text" id="field3" name="field3" value="<!--#MASK-->">
+			</div>
+            </div>
+            <div class="info-field">
+
+                <label for="field4">ШЛЮЗ:</label>
+				<div class="input-group">
+                <input type="text" id="field4" name="field4" value="<!--#GETAWEY-->">
+			</div>
+            </div>
+			<div class="info-field">
+
+				<label for="field4-speed">Скорость RS-485:</label>
+				<div class="input-group">
+				<select id="field4-speed" name="field4-speed">
+					<option value="1200">1200</option>
+					<option value="9600">9600</option>
+					<option value="19200">19200</option>
+					<option value="38400">38400</option>
+					<option value="57600">57600</option>
+					<option value="115200">115200</option>
+				</select>
+			</div>
+			</div>
+			<div class="info-field">                
+			
+				<label for="field4-stopbit">Стоп бит:</label>
+				<div class="input-group">
+				<select id="field4-stopbit" name="field4-stopbit">
+					<option value="1">1</option>
+					<option value="2">2</option>
+				</select>
+			</div>
+			</div>
+			<div class="info-field">
+			
+				<label for="field4-parity">Бит четности:</label>
+				<div class="input-group">
+				<select id="field4-parity" name="field4-parity">
+					<option value="none">Нет</option>
+					<option value="even">Четный</option>
+					<option value="odd">Нечетный</option>
+				</select>
+			</div>
+			</div>
+					<div class="info-field" style="display: none;">
+			<input type="hidden" id="field20" name="field20" value="<!--#SPEED-->">
+			</div>
+					<div class="info-field" style="display: none;">
+			<input type="hidden" id="field21" name="field21" value="<!--#PARITY-->">
+			</div>
+					<div class="info-field" style="display: none;">
+			<input type="hidden" id="field22" name="field22" value="<!--#STOPB-->">
+			</div>
+			<div class="info-field">
+                <label for="field5">PIN-код:</label>
+                <input type="text" id="field5" name="field5" maxlength="6" placeholder="Введите 6-значный PIN">
+            </div>
+            <button class="submit-button" onclick="saveChanges()">Изменить данные</button>
+			<button class="submit-button" id="modeButton" onclick="swich_mode()"></button>
+        </div>	
+		
+		
+		
+		
+		    <!-- Модальное окно 1 -->
+		<div class="modal_time" id="time1">
+		  <form class="mac-form">
+			<label class="mac-label">Время:</label>
+			<div class="mac-input">
+			  <h4>Для корректного ведения журнала работы устройства необходимо задать текущее время и дату.</h4>
+			</div>
+			<div class="button-container">
+			  <button type="button" class="action-button cancel-button" onclick="getTimeWindows()">Синхронизировать с ПК</button>
+			  <button type="button" class="action-button ok-button" onclick="show_2st_alert()">Установить вручную</button>
+			</div>
+		  </form>
+		</div>
+		
+		<!-- Модальное окно 2 -->
+		<div class="modal_time" id="time2">
+		  <form class="mac-form">
+			<label class="mac-label">Время:</label>
+			<div class="mac-input">
+			  <input type="text" maxlength="2" pattern="[0-9]{1,2}" required id="hours" placeholder="00">
+			  <input type="text" value="Часов" disabled class="wide-input">
+			  <span> </span>
+			  <input type="text" maxlength="2" pattern="[0-9]{1,2}" required id="minutes" placeholder="00">
+			  <input type="text" value="Минут" disabled class="wide-input">
+			  <span> </span>
+			  <input type="text" maxlength="2" pattern="[0-9]{1,2}" required id="seconds" placeholder="00">
+			  <input type="text" value="Секунд" disabled class="wide-input">
+			</div>
+			<div class="button-container">
+			  <button type="button" class="action-button ok-button" onclick="show_1st_alert()">Назад</button>
+			  <button type="button" class="action-button cancel-button" onclick="show_3st_alert()">Далее</button>
+			</div>
+		  </form>
+		</div>
+		
+		<!-- Модальное окно 3 с календарем -->
+		<div class="modal_time" id="time3">
+		  <form class="mac-form">
+			<label class="mac-label">Дата:</label>
+			<div class="calendar-container">
+			  <div class="calendar-header">
+				<select id="calendar-month">
+				  <option value="1">Январь</option>
+				  <option value="2">Февраль</option>
+				  <option value="3">Март</option>
+				  <option value="4">Апрель</option>
+				  <option value="5">Май</option>
+				  <option value="6">Июнь</option>
+				  <option value="7">Июль</option>
+				  <option value="8">Август</option>
+				  <option value="9">Сентябрь</option>
+				  <option value="10">Октябрь</option>
+				  <option value="11">Ноябрь</option>
+				  <option value="12">Декабрь</option>
+				</select>
+				<select id="calendar-year">
+				  <option value="2023">2023</option>
+				  <option value="2024">2024</option>
+				  <option value="2025">2025</option>
+				  <option value="2026">2026</option>
+				  <option value="2027">2027</option>
+				  <option value="2028">2028</option>
+				  <option value="2029">2029</option>
+				  <option value="2030">2030</option>
+				</select>
+			  </div>
+			  <div class="calendar-days">
+				<!-- 31 день -->
+				<div class="day" data-day="1">1</div>
+				<div class="day" data-day="2">2</div>
+				<div class="day" data-day="3">3</div>
+				<div class="day" data-day="4">4</div>
+				<div class="day" data-day="5">5</div>
+				<div class="day" data-day="6">6</div>
+				<div class="day" data-day="7">7</div>
+				<div class="day" data-day="8">8</div>
+				<div class="day" data-day="9">9</div>
+				<div class="day" data-day="10">10</div>
+				<div class="day" data-day="11">11</div>
+				<div class="day" data-day="12">12</div>
+				<div class="day" data-day="13">13</div>
+				<div class="day" data-day="14">14</div>
+				<div class="day" data-day="15">15</div>
+				<div class="day" data-day="16">16</div>
+				<div class="day" data-day="17">17</div>
+				<div class="day" data-day="18">18</div>
+				<div class="day" data-day="19">19</div>
+				<div class="day" data-day="20">20</div>
+				<div class="day" data-day="21">21</div>
+				<div class="day" data-day="22">22</div>
+				<div class="day" data-day="23">23</div>
+				<div class="day" data-day="24">24</div>
+				<div class="day" data-day="25">25</div>
+				<div class="day" data-day="26">26</div>
+				<div class="day" data-day="27">27</div>
+				<div class="day" data-day="28">28</div>
+				<div class="day" data-day="29">29</div>
+				<div class="day" data-day="30">30</div>
+				<div class="day" data-day="31">31</div>
+			  </div>
+			</div>
+			<div class="button-container">
+			  <button type="button" class="action-button ok-button" onclick="show_2st_alert()">Назад</button>
+			  <button type="button" class="action-button cancel-button" onclick="confirmDate()">Сохранить</button>
+			</div>
+		  </form>
+		</div>
+		
+		
+		
+		
+		<div id="customModal" class="modal">
+			<div class="modal-content">
+				<p>Вы уверены, что хотите изменить данные?</p>
+				<button class="ok-button" onclick="confirmChanges()">OK</button>
+				<button class="cancel-button" onclick="closeCustomModal()">Отмена</button>
+			</div>
+		</div>		
+		<div id="notification" class="modal">
+			<div class="modal-content">
+				<p>Сетевые параметры изменены, через 30 сек. устройство будет перезагружено.<br>Убедитесь что вы записали новые значения</p>
+				<ul id="changed-values"></ul>
+			</div>
+		
+		</div>		
+		<div id="invalid" class="modal">
+			<div class="modal-content">
+				<p>Веденные вами данные недействительны.<br>Убедитесь что вы вписали верные значения</p>
+				<button class="ok-button" onclick="closemodal()">OK</button>
+			</div>		
+		</div>
+		<div id="alertModal" class="modal">
+			<div class="modal-content">
+				<p id="alertMessege">Внимание, устройство заметило резкий рост тока сопротивления!</p>
+				<button class="ok-button" onclick="closeAlertModal()">OK</button>
+			</div>
+		</div>
+	</div>		
+<script src="myScript.js"></script>
+</body>
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+<!--#просто рандомная информация 98089756423984230909980589787474764387548798065906590650964339590905-->
+</html>
