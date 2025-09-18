@@ -145,7 +145,8 @@ struct netconn *newconn = NULL;
 
 const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
-"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "MODE" , "CRCACC", "JSON", "WVALUE", "ALERT", "LOG", "RELTIM"};
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "MODE" 
+, "CRCACC", "JSON", "WVALUE", "ALERT", "LOG", "RELTIM", "LOGRST"};
 
 //---------------------------------------FLASH-OS----------------------------------------------------
 static uint32_t address = 0;
@@ -1276,10 +1277,6 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
   else if(iIndex == 10)
   {
-    if(!first_call)
-    {
-      first_call = 1;
-    }
     if(REGISTERS[2])
     {
       snprintf((char*)buffer, bufferSize, "РЕЛЕ В СОСТОЯНИИ - ВКЛ");
@@ -1399,6 +1396,11 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   {
     snprintf((char*)buffer, bufferSize, "%d", relay_timeout);
   }
+  else if (iIndex == 31) {
+    first_call = 1;          // <-- Сбрасываем тут логи
+    pcInsert[0] = '\0';
+    return 0;
+  }
     
   snprintf(pcInsert, iInsertLen, "%s", buffer);
   return strlen(pcInsert);
@@ -1406,7 +1408,7 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
 
 void httpd_ssi_init(void) 
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 31);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 32);
 }
 
 void log_for_web_init()
@@ -1950,7 +1952,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
 
 const char * JSON_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
 {
-  first_call = 1;
+  //first_call = 1;
   
   return 0; //там просто подставить SSI тег текущего тока
 }

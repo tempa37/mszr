@@ -267,6 +267,11 @@
 	
 	<div id="filterMenu" class="filter-menu"></div>
 	
+	  <div class="serial-input" style="display:none;" >
+            <input id="reley_time_tag" style="display:none;" type="text" value="<!--#LOGRST-->">
+      </div>
+	
+	
   </div>
 
 
