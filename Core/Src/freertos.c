@@ -1874,7 +1874,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     reley_time_flag = 0;
     relay_timeout = *((uint16_t *)FLASH_ADDRESS_RELAY_TIME);
     
-    write_to_log(0x18, (uint8_t *)&relay_timeout, 1);
+    //write_to_log(0x18, (uint8_t *)&relay_timeout, 1);
     taskEXIT_CRITICAL();   
   }
   
