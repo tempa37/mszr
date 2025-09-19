@@ -41,8 +41,13 @@
                     </select>
                 </div>
             </div>
+<<<<<<< HEAD
             <input type="hidden" id="adc-window-hidden" value="<!--#ADCWINDOW-->">
             <input type="hidden" id="adc-exceed-hidden" value="<!--#ADCEXCEED-->">
+=======
+            <input type="hidden" id="adc-window-hidden" value="<!--#ADCWIN-->">
+            <input type="hidden" id="adc-exceed-hidden" value="<!--#ADCEXC-->">
+>>>>>>> pr-4
             <button class="submit-button" id="adc-save-button">Сохранить изменения</button>
         </div>
     </div>
@@ -119,9 +124,29 @@
                 })
                 .then(() => {
                     openModal('adc-success-modal');
+<<<<<<< HEAD
                 })
                 .catch(() => {
                     openModal('adc-error-modal');
+=======
+					
+							setTimeout(function() 
+								{
+									window.location.href = "/index.shtml"; // Перенаправление 
+								}, 5000);
+					
+					
+                })
+                .catch(() => {
+                    openModal('adc-error-modal');
+					
+							setTimeout(function() 
+								{
+									window.location.href = "/index.shtml"; // Перенаправление 
+								}, 5000);
+					
+					
+>>>>>>> pr-4
                 });
             };
 
