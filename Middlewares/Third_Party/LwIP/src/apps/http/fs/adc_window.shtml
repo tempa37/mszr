@@ -31,6 +31,10 @@
             </div>
             <div class="info-field">
                 <label for="adc-exceed-select">Минимум превышений за окно:</label>
+                <div class="tooltip">
+                    ⓘ
+                    <span class="tooltiptext">Сколько превышений в 10мс окнах мы игнорируем</span>
+                </div>
                 <div class="input-group">
                     <select id="adc-exceed-select" name="adc-exceed-select">
                         <option value="0">0</option>
@@ -69,6 +73,14 @@
         </div>
     </div>
 
+    <!-- Модалка ошибки валидации -->
+    <div id="adc-invalid-modal" class="modal">
+        <div class="modal-content">
+            <p>Недопустимая конфигурация.</p>
+            <button class="ok-button" data-close="adc-invalid-modal">OK</button>
+        </div>
+    </div>
+
     <script>
         (function() {
             const sanitizeValue = (value) => value.replace(/<!--.*?-->/g, '').trim();
@@ -83,26 +95,38 @@
 
             const openModal = (modalId) => {
                 const modal = document.getElementById(modalId);
-                if (modal) {
-                    modal.style.display = 'block';
-                }
+                if (modal) modal.style.display = 'block';
             };
 
             const closeModal = (modalId) => {
                 const modal = document.getElementById(modalId);
-                if (modal) {
-                    modal.style.display = 'none';
-                }
+                if (modal) modal.style.display = 'none';
             };
 
             const setInitialValue = (selectElement, hiddenElement) => {
-                if (!selectElement || !hiddenElement) {
-                    return;
-                }
+                if (!selectElement || !hiddenElement) return;
                 const value = sanitizeValue(hiddenElement.value);
-                if (value) {
-                    selectElement.value = value;
-                }
+                if (value) selectElement.value = value;
+            };
+
+
+            // Таблица: максимально допустимое adc-exceed для выбранного adc-window
+            const maxExceedByWindow = {
+                '10': 0,
+                '20': 0,
+                '30': 1,
+                '40': 1,
+                '50': 2,
+                '60': 2,
+                '70': 3,
+                '80': 4
+            };
+
+            const validateSettings = () => {
+                const wnd = sanitizeValue(adcWindowSelect.value);
+                const exceed = parseInt(sanitizeValue(adcExceedSelect.value), 10);
+                const maxAllowed = maxExceedByWindow[wnd];
+                return !(typeof maxAllowed === 'number' && exceed > maxAllowed);
             };
 
             const saveSettings = () => {
@@ -113,28 +137,19 @@
 
                 fetch(`/save?${queryString}`, {
                     method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Content-Type': 'application/json' }
                 })
                 .then(() => {
                     openModal('adc-success-modal');
-					
-							setTimeout(function() 
-								{
-									window.location.href = "/index.shtml"; // Перенаправление 
-								}, 5000);
-					
-					
+                    setTimeout(function() {
+                        window.location.href = "/index.shtml";
+                    }, 5000);
                 })
                 .catch(() => {
                     openModal('adc-error-modal');
-					
-							setTimeout(function() 
-								{
-									window.location.href = "/index.shtml"; // Перенаправление 
-								}, 5000);
-					
+                    setTimeout(function() {
+                        window.location.href = "/index.shtml";
+                    }, 5000);
                 });
             };
 
@@ -146,6 +161,12 @@
             });
 
             confirmOkButton.addEventListener('click', () => {
+                // Проверка перед сохранением
+                if (!validateSettings()) {
+                    closeModal('adc-confirm-modal');
+                    openModal('adc-invalid-modal');
+                    return;
+                }
                 closeModal('adc-confirm-modal');
                 saveSettings();
             });
@@ -158,12 +179,10 @@
             });
 
             window.addEventListener('click', (event) => {
-                [confirmModal, document.getElementById('adc-success-modal'), document.getElementById('adc-error-modal')]
+                [confirmModal, document.getElementById('adc-success-modal'), document.getElementById('adc-error-modal'), document.getElementById('adc-invalid-modal')]
                     .filter(Boolean)
                     .forEach((modal) => {
-                        if (event.target === modal) {
-                            modal.style.display = 'none';
-                        }
+                        if (event.target === modal) modal.style.display = 'none';
                     });
             });
         })();

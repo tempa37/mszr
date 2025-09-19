@@ -344,13 +344,13 @@ static inline uint8_t is_stable_leak(uint32_t threshold_mask, uint8_t write_inde
     // Берём только младшие 8 бит истории
     uint8_t mask = (uint8_t)(threshold_mask & 0xFFu);
 
-    // 3) Суммируем N последних битов, двигаясь назад от (write_index - 1)
+    // Суммируем N последних битов, двигаясь назад от (write_index - 1)
     uint8_t cnt = 0;
     for (uint8_t i = 0; i < N; ++i) {
         uint8_t pos = (uint8_t)((write_index + 8 - 1 - i) & 0x7);
         cnt += (uint8_t)((mask >> pos) & 0x1u);
     }
 
-    // 4) Строгий порог по задаче: считаем утечку устойчивой, если cnt > adc_min_exceed
+    // Строгий порог по задаче: считаем утечку устойчивой, если cnt > adc_min_exceed
     return (uint8_t)(cnt > adc_min_exceed);
 }
