@@ -1913,6 +1913,10 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   {
     taskENTER_CRITICAL();
     uint16_t value = (uint16_t)atoi(adc_window_str);
+    
+    if (value < 10) value = 10;
+    if (value > 80) value = 80; 
+    
     memcpy(output, &value, sizeof(value));
 
     WriteFlash(ADC_WINDOW, output);
@@ -1927,6 +1931,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     taskENTER_CRITICAL();
     output[0] = (uint8_t)atoi(adc_min_exceed_str);
 
+    if (output[0] > 4) output[0] = 4; 
+    
     WriteFlash(ADC_MIN_EXCEED, output);
     memset(output, 0, sizeof(output));
     adc_min_exceed_flag = 0;
