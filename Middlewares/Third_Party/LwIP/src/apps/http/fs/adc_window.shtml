@@ -119,9 +119,23 @@
                 })
                 .then(() => {
                     openModal('adc-success-modal');
+					
+							setTimeout(function() 
+								{
+									window.location.href = "/index.shtml"; // Перенаправление 
+								}, 5000);
+					
+					
                 })
                 .catch(() => {
                     openModal('adc-error-modal');
+					
+							setTimeout(function() 
+								{
+									window.location.href = "/index.shtml"; // Перенаправление 
+								}, 5000);
+					
+					
                 });
             };
 
