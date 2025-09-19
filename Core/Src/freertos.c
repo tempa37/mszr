@@ -107,10 +107,10 @@ uint8_t TARGET_VALUE_DEF = 25;
 uint8_t WARNING_VALUE = 20;
 uint8_t WARNING_VALUE_DEF = 20;
 
-volatile uint16_t ADC_WINDOW_MS = 10;
-uint16_t ADC_WINDOW_MS_DEF = 10;
-volatile uint8_t ADC_MIN_EXCEED = 0;
-uint8_t ADC_MIN_EXCEED_DEF = 0;
+volatile uint16_t adc_window_ms = 10;
+uint16_t adc_window_ms_def = 10;
+volatile uint8_t adc_min_exceed = 0;
+uint8_t adc_min_exceed_def = 0;
 
 //uint8_t hw_protection = 0;
 #define FLASH_ADDRESS_C_PHASE_A 0x0800C0A0
@@ -1410,11 +1410,11 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
   }
   else if(iIndex == 32)
   {
-    snprintf((char*)buffer, bufferSize, "%u", ADC_WINDOW_MS);
+    snprintf((char*)buffer, bufferSize, "%u", adc_window_ms);
   }
   else if(iIndex == 33)
   {
-    snprintf((char*)buffer, bufferSize, "%u", ADC_MIN_EXCEED);
+    snprintf((char*)buffer, bufferSize, "%u", adc_min_exceed);
   }
 
   snprintf(pcInsert, iInsertLen, "%s", buffer);
@@ -1918,7 +1918,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     WriteFlash(ADC_WINDOW, output);
     memset(output, 0, sizeof(output));
     adc_window_flag = 0;
-    ADC_WINDOW_MS = *((uint16_t *)FLASH_ADDRESS_ADC_WINDOW);
+    adc_window_ms = *((uint16_t *)FLASH_ADDRESS_ADC_WINDOW);
     taskEXIT_CRITICAL();
   }
 
@@ -1930,7 +1930,7 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
     WriteFlash(ADC_MIN_EXCEED, output);
     memset(output, 0, sizeof(output));
     adc_min_exceed_flag = 0;
-    ADC_MIN_EXCEED = *((uint8_t *)FLASH_ADDRESS_ADC_MIN_EXCEED);
+    adc_min_exceed = *((uint8_t *)FLASH_ADDRESS_ADC_MIN_EXCEED);
     taskEXIT_CRITICAL();
   }
 
@@ -2417,21 +2417,21 @@ void load_values_from_flash(void)
   temp16 = *(volatile uint16_t *)FLASH_ADDRESS_ADC_WINDOW;
   if (temp16 != 0xFFFF)
   {
-    ADC_WINDOW_MS = temp16;
+    adc_window_ms = temp16;
   }
   else
   {
-    ADC_WINDOW_MS = ADC_WINDOW_MS_DEF;
+    adc_window_ms = adc_window_ms_def;
   }
 
   temp8 = *(volatile uint8_t *)FLASH_ADDRESS_ADC_MIN_EXCEED;
   if (temp8 != 0xFF)
   {
-    ADC_MIN_EXCEED = temp8;
+    adc_min_exceed = temp8;
   }
   else
   {
-    ADC_MIN_EXCEED = ADC_MIN_EXCEED_DEF;
+    adc_min_exceed = adc_min_exceed_def;
   }
 }
 
