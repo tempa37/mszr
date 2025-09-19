@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Трансмаштомск</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <div class="header">
+        <div class="uptime-section">
+            <h2>Микроконтроллерная система защиты рудничная МСЗР-380</h2>
+        </div>
+    </div>
+    <div class="container_admin">
+        <div class="right-section_admin">
+            <div class="info-field">
+                <label for="adc-window-select">Окно выборки, мс:</label>
+                <div class="input-group">
+                    <select id="adc-window-select" name="adc-window-select">
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="30">30</option>
+                        <option value="40">40</option>
+                        <option value="50">50</option>
+                        <option value="60">60</option>
+                        <option value="70">70</option>
+                        <option value="80">80</option>
+                    </select>
+                </div>
+            </div>
+            <div class="info-field">
+                <label for="adc-exceed-select">Минимум превышений за окно:</label>
+                <div class="input-group">
+                    <select id="adc-exceed-select" name="adc-exceed-select">
+                        <option value="0">0</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                    </select>
+                </div>
+            </div>
+            <input type="hidden" id="adc-window-hidden" value="<!--#ADCWIN-->">
+            <input type="hidden" id="adc-exceed-hidden" value="<!--#ADCEXC-->">
+            <button class="submit-button" id="adc-save-button">Сохранить изменения</button>
+        </div>
+    </div>
+
+    <div id="adc-confirm-modal" class="modal">
+        <div class="modal-content">
+            <p>Вы уверены, что хотите сохранить изменения?</p>
+            <button class="ok-button" id="adc-confirm-ok">OK</button>
+            <button class="cancel-button" data-close="adc-confirm-modal">Отмена</button>
+        </div>
+    </div>
+
+    <div id="adc-success-modal" class="modal">
+        <div class="modal-content">
+            <p>Параметры успешно сохранены.</p>
+            <button class="ok-button" data-close="adc-success-modal">OK</button>
+        </div>
+    </div>
+
+    <div id="adc-error-modal" class="modal">
+        <div class="modal-content">
+            <p>Не удалось сохранить параметры. Повторите попытку позже.</p>
+            <button class="ok-button" data-close="adc-error-modal">OK</button>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            const sanitizeValue = (value) => value.replace(/<!--.*?-->/g, '').trim();
+
+            const adcWindowSelect = document.getElementById('adc-window-select');
+            const adcExceedSelect = document.getElementById('adc-exceed-select');
+            const hiddenWindow = document.getElementById('adc-window-hidden');
+            const hiddenExceed = document.getElementById('adc-exceed-hidden');
+            const saveButton = document.getElementById('adc-save-button');
+            const confirmModal = document.getElementById('adc-confirm-modal');
+            const confirmOkButton = document.getElementById('adc-confirm-ok');
+
+            const openModal = (modalId) => {
+                const modal = document.getElementById(modalId);
+                if (modal) {
+                    modal.style.display = 'block';
+                }
+            };
+
+            const closeModal = (modalId) => {
+                const modal = document.getElementById(modalId);
+                if (modal) {
+                    modal.style.display = 'none';
+                }
+            };
+
+            const setInitialValue = (selectElement, hiddenElement) => {
+                if (!selectElement || !hiddenElement) {
+                    return;
+                }
+                const value = sanitizeValue(hiddenElement.value);
+                if (value) {
+                    selectElement.value = value;
+                }
+            };
+
+            const saveSettings = () => {
+                const queryString = new URLSearchParams({
+                    adc_window: adcWindowSelect.value,
+                    adc_min_exceed: adcExceedSelect.value
+                }).toString();
+
+                fetch(`/save?${queryString}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(() => {
+                    openModal('adc-success-modal');
+                })
+                .catch(() => {
+                    openModal('adc-error-modal');
+                });
+            };
+
+            setInitialValue(adcWindowSelect, hiddenWindow);
+            setInitialValue(adcExceedSelect, hiddenExceed);
+
+            saveButton.addEventListener('click', () => {
+                openModal('adc-confirm-modal');
+            });
+
+            confirmOkButton.addEventListener('click', () => {
+                closeModal('adc-confirm-modal');
+                saveSettings();
+            });
+
+            document.querySelectorAll('[data-close]').forEach((button) => {
+                button.addEventListener('click', (event) => {
+                    const modalId = event.currentTarget.getAttribute('data-close');
+                    closeModal(modalId);
+                });
+            });
+
+            window.addEventListener('click', (event) => {
+                [confirmModal, document.getElementById('adc-success-modal'), document.getElementById('adc-error-modal')]
+                    .filter(Boolean)
+                    .forEach((modal) => {
+                        if (event.target === modal) {
+                            modal.style.display = 'none';
+                        }
+                    });
+            });
+        })();
+    </script>
+</body>
+</html>

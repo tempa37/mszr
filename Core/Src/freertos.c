@@ -107,6 +107,11 @@ uint8_t TARGET_VALUE_DEF = 25;
 uint8_t WARNING_VALUE = 20;
 uint8_t WARNING_VALUE_DEF = 20;
 
+volatile uint16_t ADC_WINDOW_MS = 10;
+uint16_t ADC_WINDOW_MS_DEF = 10;
+volatile uint8_t ADC_MIN_EXCEED = 0;
+uint8_t ADC_MIN_EXCEED_DEF = 0;
+
 //uint8_t hw_protection = 0;
 #define FLASH_ADDRESS_C_PHASE_A 0x0800C0A0
 #define FLASH_ADDRESS_R_LEAK_A  0x0800C0B0
@@ -118,6 +123,8 @@ uint8_t WARNING_VALUE_DEF = 20;
 #define FLASH_ADDRESS_HW_PROTECTION 0x0800C110
 #define FLASH_ADDRESS_WARNING_VALUE 0x0800C120
 #define FLASH_ADDRESS_RELAY_TIME 0x0800C130
+#define FLASH_ADDRESS_ADC_WINDOW 0x0800C140
+#define FLASH_ADDRESS_ADC_MIN_EXCEED 0x0800C150
 
 //------------------------------------------------------------------------------
 
@@ -145,8 +152,8 @@ struct netconn *newconn = NULL;
 
 const char *ssi_tags[] = {"MAC", "IP", "MASK", "GETAWEY", "AMP", "SEC", "MIN",
 "HOUR", "DAY", "PIN", "RELAY", "SERIAL", "SOFT", "RS485", "SPEED", "PARITY",
-"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "MODE" 
-, "CRCACC", "JSON", "WVALUE", "ALERT", "LOG", "RELTIM", "LOGRST"};
+"STOPB", "CPHASEA", "RLEAKA", "CPHASEB", "RLEAKB", "CPHASEC", "RLEAKC", "TVALUE", "MODE"
+, "CRCACC", "JSON", "WVALUE", "ALERT", "LOG", "RELTIM", "LOGRST", "ADCWIN", "ADCEXC"};
 
 //---------------------------------------FLASH-OS----------------------------------------------------
 static uint32_t address = 0;
@@ -1401,14 +1408,22 @@ uint16_t ssi_handler(int iIndex, char *pcInsert, int iInsertLen)
     pcInsert[0] = '\0';
     return 0;
   }
-    
+  else if(iIndex == 32)
+  {
+    snprintf((char*)buffer, bufferSize, "%u", ADC_WINDOW_MS);
+  }
+  else if(iIndex == 33)
+  {
+    snprintf((char*)buffer, bufferSize, "%u", ADC_MIN_EXCEED);
+  }
+
   snprintf(pcInsert, iInsertLen, "%s", buffer);
   return strlen(pcInsert);
 }
 
-void httpd_ssi_init(void) 
+void httpd_ssi_init(void)
 {
-  http_set_ssi_handler(ssi_handler, ssi_tags, 32);
+  http_set_ssi_handler(ssi_handler, ssi_tags, 34);
 }
 
 void log_for_web_init()
@@ -1567,7 +1582,9 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   char target_value_str[18] = {0};
   char warning_value_str[18] = {0};
   char date_arr[50] = {0};
-  
+  char adc_window_str[10] = {0};
+  char adc_min_exceed_str[10] = {0};
+
   uint8_t c_phase_a_flag     = 0;
   uint8_t r_leak_a_flag      = 0;
   uint8_t c_phase_b_flag     = 0;
@@ -1578,6 +1595,8 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   uint8_t warning_value_flag = 0;
   uint8_t date_flag          = 0;
   uint8_t reley_time_flag    = 0;
+  uint8_t adc_window_flag    = 0;
+  uint8_t adc_min_exceed_flag = 0;
   
   uint8_t ip_flag = 0;
   uint8_t mask_flag = 0;
@@ -1601,11 +1620,11 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
       strncpy(mask, pcValue[i], sizeof(mask) - 1);
       mask_flag = 1;
     } 
-    else if (strcmp(pcParam[i], "gateway") == 0) 
+    else if (strcmp(pcParam[i], "gateway") == 0)
     {
       strncpy(gateway, pcValue[i], sizeof(gateway) - 1);
       gateway_flag = 1;
-    } 
+    }
     else if (strcmp(pcParam[i], "mac") == 0) 
     {
       strncpy(mac, pcValue[i], sizeof(mac) - 1);
@@ -1725,10 +1744,20 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
         mode = 1;
       }
     }
-    else if (strcmp(pcParam[i], "reley_time") == 0) 
+    else if (strcmp(pcParam[i], "reley_time") == 0)
     {
       strncpy(reley_time, pcValue[i], sizeof(reley_time) - 1);
-      reley_time_flag = 1; 
+      reley_time_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "adc_window") == 0)
+    {
+      strncpy(adc_window_str, pcValue[i], sizeof(adc_window_str) - 1);
+      adc_window_flag = 1;
+    }
+    else if (strcmp(pcParam[i], "adc_min_exceed") == 0)
+    {
+      strncpy(adc_min_exceed_str, pcValue[i], sizeof(adc_min_exceed_str) - 1);
+      adc_min_exceed_flag = 1;
     }
   }
   
@@ -1867,19 +1896,44 @@ const char * SAVE_CGI_Handler(int iIndex, int iNumParams, char *pcParam[], char 
   if(reley_time_flag != 0)
   {
     taskENTER_CRITICAL();
-    
+
     uint16_t value = (uint16_t)atoi(reley_time);   // value = 300
     memcpy(output, &value, sizeof(value));
-    
+
     WriteFlash(Relay_TIME, output);
     memset(output, 0, sizeof(output));
     reley_time_flag = 0;
     relay_timeout = *((uint16_t *)FLASH_ADDRESS_RELAY_TIME);
-    
+
     //write_to_log(0x18, (uint8_t *)&relay_timeout, 1);
-    taskEXIT_CRITICAL();   
+    taskEXIT_CRITICAL();
   }
-  
+
+  if (adc_window_flag != 0)
+  {
+    taskENTER_CRITICAL();
+    uint16_t value = (uint16_t)atoi(adc_window_str);
+    memcpy(output, &value, sizeof(value));
+
+    WriteFlash(ADC_WINDOW, output);
+    memset(output, 0, sizeof(output));
+    adc_window_flag = 0;
+    ADC_WINDOW_MS = *((uint16_t *)FLASH_ADDRESS_ADC_WINDOW);
+    taskEXIT_CRITICAL();
+  }
+
+  if (adc_min_exceed_flag != 0)
+  {
+    taskENTER_CRITICAL();
+    output[0] = (uint8_t)atoi(adc_min_exceed_str);
+
+    WriteFlash(ADC_MIN_EXCEED, output);
+    memset(output, 0, sizeof(output));
+    adc_min_exceed_flag = 0;
+    ADC_MIN_EXCEED = *((uint8_t *)FLASH_ADDRESS_ADC_MIN_EXCEED);
+    taskEXIT_CRITICAL();
+  }
+
   if (pinaccept) {
     taskENTER_CRITICAL();
     if (ip_flag != 0)
@@ -2253,6 +2307,16 @@ void WriteFlash(FlashDataType type, uint8_t* data)
       dataSize = 4;
       break;
     }
+    case ADC_WINDOW:{
+      address = (uint32_t *)FLASH_ADDRESS_ADC_WINDOW;
+      dataSize = 2;
+      break;
+    }
+    case ADC_MIN_EXCEED:{
+      address = (uint32_t *)FLASH_ADDRESS_ADC_MIN_EXCEED;
+      dataSize = 1;
+      break;
+    }
     default: {
       taskEXIT_CRITICAL();
       return;
@@ -2271,7 +2335,9 @@ void WriteFlash(FlashDataType type, uint8_t* data)
 
 void load_values_from_flash(void)
 {
-  uint32_t temp; 
+  uint32_t temp;
+  uint16_t temp16;
+  uint8_t temp8;
   
   // Чтение и проверка C_phase_A
   temp = *(volatile uint32_t *)FLASH_ADDRESS_C_PHASE_A;
@@ -2343,9 +2409,29 @@ void load_values_from_flash(void)
   }
 
   relay_timeout = *(volatile uint16_t *)FLASH_ADDRESS_RELAY_TIME;
-  if (relay_timeout == 0xFFFF) 
+  if (relay_timeout == 0xFFFF)
   {
     relay_timeout = 250;
+  }
+
+  temp16 = *(volatile uint16_t *)FLASH_ADDRESS_ADC_WINDOW;
+  if (temp16 != 0xFFFF)
+  {
+    ADC_WINDOW_MS = temp16;
+  }
+  else
+  {
+    ADC_WINDOW_MS = ADC_WINDOW_MS_DEF;
+  }
+
+  temp8 = *(volatile uint8_t *)FLASH_ADDRESS_ADC_MIN_EXCEED;
+  if (temp8 != 0xFF)
+  {
+    ADC_MIN_EXCEED = temp8;
+  }
+  else
+  {
+    ADC_MIN_EXCEED = ADC_MIN_EXCEED_DEF;
   }
 }
 

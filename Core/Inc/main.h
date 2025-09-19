@@ -81,6 +81,8 @@ typedef enum
   HW_PROTECTION,
   Warning_VALUE,
   Relay_TIME,
+  ADC_WINDOW,
+  ADC_MIN_EXCEED,
   StartPhase
 } FlashDataType;
 
