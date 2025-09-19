@@ -19,6 +19,11 @@ extern uint16_t start;
 extern volatile uint8_t test_leak;
 extern volatile uint8_t mode; 
 
+extern volatile uint16_t adc_window_ms;   // окно анализа в мс (10..80), шаг 10 мс
+extern volatile uint8_t  adc_min_exceed;  // минимальное количество "1" в последних N окнах
+
+
+
 extern float C_phase_A;
 extern float R_leak_A;
 extern float C_phase_B;
@@ -38,6 +43,8 @@ static float calculate_rms(uint16_t rms, float C_phase, float R_leak);
 
 static void vRelayReleaseCallback(void *argument);
 static uint16_t adc_get_rms(uint16_t *arr, uint16_t length);
+
+static inline uint8_t is_stable_leak(uint32_t threshold_mask, uint8_t write_index);
 
 static osTimerId_t xRelayReleaseTimer = NULL;
 volatile uint8_t adc_full_buf = 0;
@@ -233,17 +240,25 @@ void HighPriorityTask(void *argument) {
       }
       
       if ((REGISTERS[1] >= local_TARGET_VALUE) && reley_auto_protection) {
-        threshold_event |= (1 << index);
-        index = (index == 3) ? 0 : index + 1;
-      } else if ((REGISTERS[1] < local_TARGET_VALUE) && reley_auto_protection) {
-        threshold_event &= ~ (1 << index);
-        index = (index == 3) ? 0 : index + 1;
+            // записываем 1 в текущую позицию
+            threshold_event |=  (1u << index);
+      } else if (reley_auto_protection) {
+            // записываем 0 в текущую позицию
+            threshold_event &= ~(1u << index);
       }
       
-      count_event = count_bits_set_parallel(threshold_event);
+      
+      // переходим к следующей позиции
+      index = (uint8_t)((index + 1) & 0x7); 
+      
+      threshold_event &= 0xFFu;
+      
+      //count_event = count_bits_set_parallel(threshold_event);
+      
+      uint8_t stable_leak = is_stable_leak(threshold_event, index);
 
       if ((!mode) && (protection_pause == 0)) {
-        if ((REGISTERS[1] >= local_TARGET_VALUE) /*count_event > 1*/ && reley_auto_protection) {
+        if ((stable_leak) /*count_event > 1*/ && reley_auto_protection) {
           
           osMutexWait(RelayMutexHandle, osWaitForever);
           REGISTERS[2] = 0;
@@ -254,7 +269,7 @@ void HighPriorityTask(void *argument) {
             protection_pause = 1;
             osTimerStart(xRelayReleaseTimer, relay_timeout);
           }
-        } else if ((REGISTERS[1] < local_TARGET_VALUE)/*count_event == 0*/ && reley_auto_protection) {
+        } else if ((!stable_leak)/*count_event == 0*/ && reley_auto_protection) {
           osMutexWait(RelayMutexHandle, osWaitForever);
           REGISTERS[2] = 1;
           osMutexRelease(RelayMutexHandle);
@@ -314,4 +329,28 @@ void HighPriorityTask(void *argument) {
 #endif
     }
   }
+}
+
+
+
+// threshold_mask — 8-битная история окон (младшие биты), write_index — куда запишется СЛЕДУЮЩИЙ бит
+static inline uint8_t is_stable_leak(uint32_t threshold_mask, uint8_t write_index)
+{
+    //фиксим выход за пределы
+    uint8_t N = (uint8_t)(adc_window_ms / 10U);
+    if (N < 1) N = 1;
+    if (N > 8) N = 8;      
+
+    // Берём только младшие 8 бит истории
+    uint8_t mask = (uint8_t)(threshold_mask & 0xFFu);
+
+    // 3) Суммируем N последних битов, двигаясь назад от (write_index - 1)
+    uint8_t cnt = 0;
+    for (uint8_t i = 0; i < N; ++i) {
+        uint8_t pos = (uint8_t)((write_index + 8 - 1 - i) & 0x7);
+        cnt += (uint8_t)((mask >> pos) & 0x1u);
+    }
+
+    // 4) Строгий порог по задаче: считаем утечку устойчивой, если cnt > adc_min_exceed
+    return (uint8_t)(cnt > adc_min_exceed);
 }
