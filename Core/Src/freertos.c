@@ -136,8 +136,10 @@ uint8_t output[200] = {0};
 volatile uint16_t neead_write_flash = 0; //Отложенная запись WriteFlash(0,0)
 
 //-------------------------------------------------------------------
-uint8_t SOFTWARE_VERSION[3] = {1, 1, 9};
+uint8_t SOFTWARE_VERSION[3] = {1, 1, 67};
 uint16_t soft_ver_modbus = 119;
+
+volatile uint8_t test_leak = 0;
 
 extern struct httpd_state *hs;
 
@@ -791,7 +793,7 @@ void StartTask02(void *argument)
   
   static uint8_t flag_1 = 0; // или bool flag_1 = false;
   
-  static uint8_t value_was_changed = 1;
+  //static uint8_t value_was_changed = 1;
   static uint8_t period = 0;
   
   uint8_t data = 0;
@@ -825,20 +827,26 @@ void StartTask02(void *argument)
     }
     
     if (!start) {
+/*      
       //warning 2
-      if (REGISTERS[1] >= WARNING_VALUE) {
+      if (REGISTERS[1] >= WARNING_VALUE && test_leak == LEAK_TEST_OFF) {
         if (value_was_changed == 1) {
-          REGISTERS[4] |= 0x02;
-          data = REGISTERS[1];
+          // set bit 1
+          REGISTERS[4] |= (1 << 1);
+          data = REGISTERS[1];          
+          
           taskENTER_CRITICAL();
           write_to_log(E_WARNING, &data, 1);
           taskEXIT_CRITICAL();
+          
           value_was_changed = 0;
         }
       } else if(REGISTERS[1] < WARNING_VALUE) {
         value_was_changed = 1;
+        // reset bit 1
+        REGISTERS[4] &= ~(1 << 1);
       }
-
+*/
       if (avg1h) {
         // Если мгновенный ток на 10% выше часового среднего и флаг не выставлен – записываем лог
         if ((REGISTERS[1] > (avg1h * 1.1f)) && (flag_1 == 0)) {
@@ -1098,7 +1106,7 @@ void StartTask03(void *argument)
 #define nBLOCK_BUTTON 0
 #define BLOCK_BUTTON 1
 
-volatile uint8_t test_leak = 0;
+
 
 /* USER CODE BEGIN Header_StartTask04 */
 /**

@@ -1,8 +1,8 @@
 ﻿#ifndef __MEASUREMENT_H__
 #define __MEASUREMENT_H__
 
-#define ADC_BUF 500
-#define ADC_HALF_BUF 250
+#define ADC_BUF 472
+#define ADC_HALF_BUF 236
 
 #define SQ3         1.732050807f    // sqrt(3)
 #define COS30       0.866025403f    // cos(30°)

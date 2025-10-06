@@ -11,7 +11,6 @@
 #include "lwip/netif.h"
 #include "timers.h"
 
-
 #ifdef DEBUG
 extern UBaseType_t HighWaterMarkOLED;
 #endif
@@ -62,19 +61,14 @@ uint8_t OLED = 1;
 
 extern UBaseType_t WM_OLED;
 
-
-
 extern uint8_t TARGET_VALUE;
 extern uint8_t WARNING_VALUE;
-
-
-
 
 void OLED_1in5_rgb_run() {
   TimerHandle_t myTimer = xTimerCreate("OneShotTimer", pdMS_TO_TICKS(TIME_RESET_OLED), pdFALSE,(void *) 0, OLED_TimerCallback);
   //
   char cStr[24] = {0};
-
+  
   // display initialization
   OLED_1in5_rgb_Init();  
   osDelay(500);
@@ -88,14 +82,10 @@ void OLED_1in5_rgb_run() {
   Paint_SelectImage(BlackImage);
   // draw image on the screen
   
-  
-  
   WriteReg(0xae);
   osDelay(1000);
   // display on
   WriteReg(0xaf);
-  //
-  
   
   OLED_1in5_rgb_Init();
   OLED_1in5_rgb_Clear();
@@ -119,12 +109,12 @@ void OLED_1in5_rgb_run() {
     sprintf(cStr, "%d.%d.%d.%d",  IP_ADDRESS[0], IP_ADDRESS[1], IP_ADDRESS[2], IP_ADDRESS[3]);
     Paint_DrawString_EN(15, 22, cStr, &Courier12R, WHITE, BACKGROUND_COLOR);
     Paint_DrawLine(0, 40, 128, 40, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
-
+    
     Paint_DrawString_EN(45, 42, "МАСКА", &Courier12R, WHITE, BACKGROUND_COLOR);
     sprintf(cStr, "%d.%d.%d.%d",  NETMASK_ADDRESS[0], NETMASK_ADDRESS[1], NETMASK_ADDRESS[2], NETMASK_ADDRESS[3]);
     Paint_DrawString_EN(15, 62, cStr, &Courier12R, WHITE, BACKGROUND_COLOR);
     Paint_DrawLine(0, 80, 128, 80, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
-  
+    
     Paint_DrawString_EN(45, 82, "ШЛЮЗ", &Courier12R, WHITE, BACKGROUND_COLOR);
     sprintf(cStr, "%d.%d.%d.%d", GATEWAY_ADDRESS[0], GATEWAY_ADDRESS[1], GATEWAY_ADDRESS[2], GATEWAY_ADDRESS[3]);
     Paint_DrawString_EN(15, 102, cStr, &Courier12R, WHITE, BACKGROUND_COLOR);
@@ -147,15 +137,15 @@ void OLED_1in5_rgb_run() {
     const char *string2 = "even";
     const char *string3 = "odd";
     
-    if(strcmp(uartPARITY, string) == 0)
+    if (strcmp(uartPARITY, string) == 0)
     {
       Paint_DrawString_EN(5, 82, "бит четности - No", &Courier12R, WHITE, BACKGROUND_COLOR);
     }
-    else if(strcmp(uartPARITY, string2) == 0)
+    else if (strcmp(uartPARITY, string2) == 0)
     {
       Paint_DrawString_EN(5, 82, "бит четности even", &Courier12R, WHITE, BACKGROUND_COLOR);
     }
-    else if(strcmp(uartPARITY, string3) == 0)
+    else if (strcmp(uartPARITY, string3) == 0)
     {
       Paint_DrawString_EN(5, 82, "бит четности - odd", &Courier12R, WHITE, BACKGROUND_COLOR);
     }
@@ -183,7 +173,7 @@ void OLED_1in5_rgb_run() {
     
     //int OLED_RESET2 = 0;
     
-    if(OLED_RESET == 1) //OLED_RESET2 - OFF  OLED_RESET - ON 
+    if (OLED_RESET == 1) //OLED_RESET2 - OFF  OLED_RESET - ON 
     {
       OLED_1in5_rgb_Init();  
       //osDelay(500);
@@ -195,9 +185,7 @@ void OLED_1in5_rgb_run() {
       Paint_SetScale(65);
       // Select Image
       Paint_SelectImage(BlackImage);
-      // draw image on the screen
-      
-      
+
       WriteReg(0xae);
       osDelay(1000);
       // display on
@@ -232,11 +220,8 @@ void OLED_1in5_rgb_run() {
       xTimerStart(myTimer, 0);
     }
     else if (OLED_RESET == 2) {
-      //uint16_t mA = REGISTERS[1];
-      //char buffer[10] = {0};
       
       OLED_1in5_rgb_Init();  
-      //osDelay(500);
       // clear screen
       OLED_1in5_rgb_Clear();
       // create image
@@ -278,22 +263,21 @@ void OLED_1in5_rgb_run() {
       osDelay(1700);
       OLED_RESET = 0;
       xTimerStart(myTimer, 0);
-      
     }
     
     /*
     for (UBYTE i = 0; i < 32; i++) {
-    Paint_DrawRectangle(0, 4 * i, 127, 4 * (i + 1), i * 1047, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-  }
+      Paint_DrawRectangle(0, 4 * i, 127, 4 * (i + 1), i * 1047, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+    }
     */
-    if(theme == 1) //--------------------------------------------------------------------------------------------------------------
+    if (theme == 1) //--------------------------------------------------------------------------------------------------------------
     {
       Fill_DarkGrayGradient();
       uint16_t mA = REGISTERS[1];
       char buffer[10] = {0};
       uint16_t percent = 0;
       
-      if(mA >= TARGET_VALUE) 
+      if (mA >= TARGET_VALUE) 
       {
         percent = 0;
       }
@@ -305,7 +289,7 @@ void OLED_1in5_rgb_run() {
       
       Paint_DrawString_EN(30, 75, "РЕЛЕ - ", &Courier12R, WHITE, BACKGROUND_COLOR);
       
-      if(REGISTERS[2])
+      if (REGISTERS[2])
       {
         Fill_DarkGrayGradient();
         Paint_DrawString_EN(30, 75, "РЕЛЕ - ", &Courier12R, WHITE, BACKGROUND_COLOR);
@@ -319,7 +303,7 @@ void OLED_1in5_rgb_run() {
       Paint_DrawLine(8, 90, 120, 90, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
       Paint_DrawLine(64, 90, 64, 120, WHITE, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
       
-      if(RS485)
+      if (RS485)
       {
         Paint_DrawString_EN(20, 98, "RS485", &Courier12R, GREEN, BACKGROUND_COLOR);
       }
@@ -328,11 +312,10 @@ void OLED_1in5_rgb_run() {
         Paint_DrawString_EN(20, 98, "RS485", &Courier12R, RED, BACKGROUND_COLOR);
       }
       
-      if(relay_pause)
+      if (relay_pause)
       {
-      Paint_DrawString_EN(60, 35, "$", &Courier12R, YELLOW, BACKGROUND_COLOR );
+        Paint_DrawString_EN(60, 35, "$", &Courier12R, YELLOW, BACKGROUND_COLOR );
       }
-      
       
       Paint_DrawString_EN(44, 51, buffer, &Courier12R, WHITE, BACKGROUND_COLOR );
       sprintf(cStr, "V.%d.%d.%d",  SOFTWARE_VERSION[0], SOFTWARE_VERSION[1], SOFTWARE_VERSION[2]);
@@ -350,7 +333,7 @@ void OLED_1in5_rgb_run() {
     
     osDelay(220);  
     
-    if(theme == 2)
+    if (theme == 2)
     {
       //uint16_t mA = REGISTERS[1];
       //char buffer[10] = {0};
@@ -360,13 +343,10 @@ void OLED_1in5_rgb_run() {
       //Paint_DrawString_EN(40, 45, "! ВНИМАНИЕ !", &Courier12R, BLACK, RED);
       //Paint_DrawString_EN(20, 58, "СРАБОТАЛА ЗАЩИТА", &Courier12R, BLACK, RED);
       
-      
       uint16_t mA = REGISTERS[1];
       char buffer[10] = {0};
       sprintf(buffer, "%u/%umA", mA, TARGET_VALUE);
       Paint_DrawString_EN(40, 43, buffer, &Courier12R, BLACK, RED );
-      
-      
       
       Paint_DrawString_EN(4, 10, "! ВНИМАНИЕ !", &Courier16R, BLACK, RED);
       Paint_DrawString_EN(17, 60, "СРАБОТАЛА", &Courier16R, BLACK, RED);
@@ -376,11 +356,11 @@ void OLED_1in5_rgb_run() {
       
       OLED_1in5_rgb_Display(BlackImage);
       osDelay(200); //the image will be transmitted in ~188ms (for 1.4MBits/sec)
-    }    
+    }
   }
 }
 
-void DrawCenteredSemiCircle() 
+void DrawCenteredSemiCircle()
 {
   UWORD centerX = WIDTH / 2;
   UWORD centerY = HEIGHT / 2; 
@@ -390,7 +370,7 @@ void DrawCenteredSemiCircle()
   Paint_DrawSemiCircle(centerX, centerY, color, lineWidth, 100);
 }
 
-void DrawCenteredSemiCircle2(UWORD percent) 
+void DrawCenteredSemiCircle2(UWORD percent)
 {
   UWORD centerX = WIDTH / 2;
   UWORD centerY = HEIGHT / 2; 
@@ -400,7 +380,7 @@ void DrawCenteredSemiCircle2(UWORD percent)
   Paint_DrawSemiCircle(centerX, centerY, color, lineWidth, percent);
 }
 
-void Fill_DarkGrayGradient() 
+void Fill_DarkGrayGradient()
 {
   UWORD X, Y;
   UWORD Color = BACKGROUND_COLOR;
@@ -411,7 +391,7 @@ void Fill_DarkGrayGradient()
   }
 }
 
-void Fill_RED() 
+void Fill_RED()
 {
   UWORD X, Y;
   UWORD Color = RED;
@@ -422,7 +402,7 @@ void Fill_RED()
   }
 }
 
-void Fill_YELLOW() 
+void Fill_YELLOW()
 {
   UWORD X, Y;
   UWORD Color = YELLOW;

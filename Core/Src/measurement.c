@@ -2,6 +2,7 @@
 #include "main.h"
 #include "math.h"
 #include "cmsis_os.h"
+#include "string.h"
 
 extern void write_to_log(log_code code, uint8_t log_data[], uint16_t copy_len);
 extern void timerStart(void);
@@ -21,8 +22,6 @@ extern volatile uint8_t mode;
 
 extern volatile uint16_t adc_window_ms;   // окно анализа в мс (10..80), шаг 10 мс
 extern volatile uint8_t  adc_min_exceed;  // минимальное количество "1" в последних N окнах
-
-
 
 extern float C_phase_A;
 extern float R_leak_A;
@@ -75,16 +74,25 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
   }  
 }
 
-static uint16_t adc_get_rms(uint16_t *arr, uint16_t length) {
-  float sum_sq = 0.0f;
+// Value of analog voltage supply Vdda (unit: mV)
+#define VDD_APPLI                      ((uint32_t)3300)
 
+// Max value with a full range of 12 bits
+#define RANGE_12BITS                   ((uint32_t)4095)
+
+// Computation of voltage (unit: mV) from ADC measurement digital
+#define COMPUTATION_DIGITAL_12BITS_TO_VOLTAGE(ADC_DATA) \
+  ((ADC_DATA) * VDD_APPLI / RANGE_12BITS)
+
+static uint16_t adc_get_rms(uint16_t *arr, uint16_t length) {
+  uint32_t sum_sq = 0;
   uint16_t cnt = (length < ADC_BUF) ? length : ADC_BUF;
 
   for (uint16_t i = 0; i < cnt; i++) {
-    sum_sq += (float)arr[i] * (float)arr[i];
+    sum_sq += arr[i] * arr[i];
   }
 
-  return (uint16_t)sqrtf(sum_sq / (float)cnt);
+  return (uint16_t)sqrtf((float)sum_sq / (float)cnt);
 }
 
 #if ALGORITHM_COS == 1
@@ -125,7 +133,6 @@ static void vRelayReleaseCallback(void *argument) {
   protection_pause = 0;
 }
 
-
 uint16_t count_bits_set_parallel(uint64_t x) {
   // put count of each 2 bits into those 2 bits
   x -= (x >> 1) & 0x5555555555555555UL;
@@ -141,10 +148,13 @@ uint32_t threshold_event;
 
 #define bitSet(value, bit) ((value) |= (1UL << (bit)))
 
+uint32_t rms_mean[4] = {0};
+
+uint16_t rms = 0;
+uint16_t last_rms = 0;
+
 void HighPriorityTask(void *argument) {
   xRelayReleaseTimer = osTimerNew(vRelayReleaseCallback, osTimerOnce, (void *)0, NULL);
- 
-  uint16_t rms = 0;
 
 #if ALGORITHM_COS == 1 
   float leak_phase_A_macros = 0;
@@ -159,11 +169,24 @@ void HighPriorityTask(void *argument) {
 
   timerCreate();
 
-  uint8_t local_TARGET_VALUE = 25;
+  uint16_t local_TARGET_VALUE = 25;
   
   uint8_t index = 0;
   
-  uint8_t count_event = 0;
+  uint8_t value_was_changed = 1;
+  
+  uint8_t log_write = 0;
+  
+  uint8_t stable_leak = 0;
+   
+  uint8_t rms_index = 0;
+  
+  uint16_t rms_mean_val = 0;
+  
+  float leak_ma = 0;
+  
+#define WR_LOG 1
+#define SK_LOG 0
   
   while (1) {   //--------------------------------------------------------------------------------------------
     
@@ -182,15 +205,14 @@ void HighPriorityTask(void *argument) {
 #endif
         adc_half_buf = 0;
         adc_full_buf = 0;
-        rms = adc_get_rms(adcBuffer, ADC_HALF_BUF);
-        
+        rms = COMPUTATION_DIGITAL_12BITS_TO_VOLTAGE(adc_get_rms(adcBuffer, ADC_HALF_BUF));
       } else if (adc_full_buf) {
 #if TEST_TIME == 1
         code_time[1] = HAL_GetTick();
 #endif
         adc_half_buf = 0;
         adc_full_buf = 0;
-        rms = adc_get_rms((uint16_t *)(adcBuffer + ADC_HALF_BUF), ADC_HALF_BUF);
+        rms = COMPUTATION_DIGITAL_12BITS_TO_VOLTAGE(adc_get_rms((uint16_t *)(adcBuffer + ADC_HALF_BUF), ADC_HALF_BUF));
       }
 #if TEST_TIME == 1
       code_time[2] = code_time[1] - code_time[0];
@@ -209,7 +231,8 @@ void HighPriorityTask(void *argument) {
       
       REGISTERS[1] = max_leak_val;
 #else
-      
+
+      /*
 #define A3_Q20   ( 10)         //  0.00001 * 2^20
 #define A2_Q20   (-2307)       // -0.00220 * 2^20
 #define A1_Q20   (488209)      //  0.46580 * 2^20
@@ -227,26 +250,77 @@ void HighPriorityTask(void *argument) {
       acc = acc * x;
       acc += A0_Q20;
       
-      uint32_t y = (uint32_t)(acc >> Q);   
-      osMutexWait(RelayMutexHandle, osWaitForever);
-      REGISTERS[1] = (y > 65535U) ? 65535U : (uint16_t)y;
-      osMutexRelease(RelayMutexHandle);
+      uint32_t y = (uint32_t)(acc >> Q);
+      
+      //osMutexWait(RelayMutexHandle, osWaitForever);      
+      //REGISTERS[1] = (y > 65535U) ? 65535U : (uint16_t)y;
+      //osMutexRelease(RelayMutexHandle);
+      
+      rms_mean[rms_index] = (y > 65535U) ? 65535U : (uint16_t)y;
+      rms_index = (rms_index + 1 >= 4) ? 0 : rms_index + 1;
+      */
 #endif
+      /*
+      if (rms < 100) {
+        leak_ma = 0;      
+      } else if (rms > 100 && rms < 580) {
+        leak_ma = 0.43001 + 0.08542 * exp(0.01211 * rms);
+        //leak_ma = 0.86916 + 0.03612 * exp(0.00918 * rms);
+      } else if (rms > 580) {
+        //leak_ma = exp(22.35408 - 0.08676 * rms + 0.000098186 * rms * rms);
+        leak_ma = 100;
+      }     
+      */
+      //leak_ma = rms;
+      
+      //rms_mean_val = (leak_ma < 0) ? 0 : (uint16_t)round(leak_ma);
+      
+      //rms_mean_val = (uint16_t)round(leak_ma);
+      
+      //rms_mean[rms_index] = (leak_ma < 0) ? 0 : (uint16_t)round(leak_ma);
+      
+      
+      uint16_t voltage_constant = 220;
+      
+      float voltage_coefficient = 0.0289f * voltage_constant - 6.358f;
+      
+      uint16_t capacitance_constant = 100;
+      
+      float capacity_coefficient = 54.854f * capacitance_constant + 1158.29f;      
+      
+      float coefficient = capacity_coefficient * powf(rms, 0.887);
+
+      rms_mean[rms_index] = (uint16_t)(rms * coefficient); 
+
+      rms_index = (rms_index + 1 >= 2) ? 0 : rms_index + 1;      
+      rms_mean_val = (uint16_t)((rms_mean[0] + rms_mean[1]) >> 1);
+      
+      //rms_index = (rms_index + 1 >= 4) ? 0 : rms_index + 1;      
+      //rms_mean_val = (uint16_t)((rms_mean[0] + rms_mean[1] + rms_mean[2] + rms_mean[3]) >> 2);
+      
+      leak_ma = 12.87569f + 0.0000124037f * expf(0.03517f * rms_mean_val);
+      
+      leak_ma = leak_ma * voltage_coefficient;
+      
+      rms_mean_val = (leak_ma < 0) ? 0 : (uint16_t)round(leak_ma);
+
+      osMutexWait(RelayMutexHandle, osWaitForever);
+      REGISTERS[1] = rms_mean_val;
+      osMutexRelease(RelayMutexHandle);
 
       if (test_leak == 1) {
-          local_TARGET_VALUE = 25;
+        local_TARGET_VALUE = 25;
       } else {
-          local_TARGET_VALUE = TARGET_VALUE;
+        local_TARGET_VALUE = TARGET_VALUE;
       }
       
       if ((REGISTERS[1] >= local_TARGET_VALUE) && reley_auto_protection) {
-            // записываем 1 в текущую позицию
-            threshold_event |=  (1u << index);
+        // записываем 1 в текущую позицию
+        threshold_event |=  (1u << index);
       } else if (reley_auto_protection) {
-            // записываем 0 в текущую позицию
-            threshold_event &= ~(1u << index);
-      }
-      
+        // записываем 0 в текущую позицию
+        threshold_event &= ~(1u << index);
+      }      
       
       // переходим к следующей позиции
       index = (uint8_t)((index + 1) & 0x7); 
@@ -255,10 +329,10 @@ void HighPriorityTask(void *argument) {
       
       //count_event = count_bits_set_parallel(threshold_event);
       
-      uint8_t stable_leak = is_stable_leak(threshold_event, index);
+      stable_leak = is_stable_leak(threshold_event, index);
 
       if ((!mode) && (protection_pause == 0)) {
-        if ((stable_leak) /*count_event > 1*/ && reley_auto_protection) {
+        if ((stable_leak) && reley_auto_protection) {
           
           osMutexWait(RelayMutexHandle, osWaitForever);
           REGISTERS[2] = 0;
@@ -269,11 +343,30 @@ void HighPriorityTask(void *argument) {
             protection_pause = 1;
             osTimerStart(xRelayReleaseTimer, relay_timeout);
           }
-        } else if ((!stable_leak)/*count_event == 0*/ && reley_auto_protection) {
+        } else if (!stable_leak && reley_auto_protection) {
           osMutexWait(RelayMutexHandle, osWaitForever);
           REGISTERS[2] = 1;
           osMutexRelease(RelayMutexHandle);
         }
+       
+      // warning
+      if (/*REGISTERS[1]*/ rms_mean_val >= WARNING_VALUE && stable_leak && test_leak == LEAK_TEST_OFF) {
+        if (value_was_changed == 1) {
+          // set bit 1
+          REGISTERS[4] |= (1 << 1);
+          log_value = /*REGISTERS[1]*/ rms_mean_val;          
+          
+          taskENTER_CRITICAL();
+          write_to_log(E_WARNING, &log_value, 2);
+          taskEXIT_CRITICAL();
+          
+          value_was_changed = 0;
+        }
+      } else if(REGISTERS[1] < WARNING_VALUE) {
+        value_was_changed = 1;
+        // reset bit 1
+        REGISTERS[4] &= ~(1 << 1);
+      }
 
         if ((REGISTERS[2] == 0) && (last_position != REGISTERS[2])) {
           
@@ -284,23 +377,27 @@ void HighPriorityTask(void *argument) {
 #endif
           theme = 2;
           
+          log_write = WR_LOG;
+          
           if (test_leak == LEAK_TEST_ON) {
             test_leak = LEAK_TEST_OFF;
             HAL_GPIO_WritePin(Checking_for_leaks_GPIO_Port, Checking_for_leaks_Pin, GPIO_PIN_RESET);
 
-            log_value = (uint8_t)REGISTERS[1];
+            log_value = /*REGISTERS[1]*/ rms_mean_val;
             taskENTER_CRITICAL();
-            write_to_log(E_TEST, (uint8_t *)&log_value, 1);
+            write_to_log(E_TEST, (uint8_t *)&log_value, 2);
             taskEXIT_CRITICAL();
+            
+            log_write = SK_LOG;
           }
           
-          if (!start && test_leak == LEAK_TEST_OFF) {
+          if (!start && test_leak == LEAK_TEST_OFF && log_write == WR_LOG) {
             timerStart();
             
-            log_value = (uint8_t)REGISTERS[1];
+            log_value = /*REGISTERS[1]*/ rms_mean_val;
             
             taskENTER_CRITICAL();
-            write_to_log(E_PROTECTION_FW, &log_value, 1);
+            write_to_log(E_PROTECTION_FW, &log_value, 2);
             //log_value = 0x01;
             //write_to_log(E_RELAY_CHANGE_STATE, &log_value, 1);
             taskEXIT_CRITICAL();
@@ -330,8 +427,6 @@ void HighPriorityTask(void *argument) {
     }
   }
 }
-
-
 
 // threshold_mask — 8-битная история окон (младшие биты), write_index — куда запишется СЛЕДУЮЩИЙ бит
 static inline uint8_t is_stable_leak(uint32_t threshold_mask, uint8_t write_index)
