@@ -223,6 +223,8 @@ void HighPriorityTask(void *argument) {
 #endif
       
 #if ALGORITHM_COS == 1
+      // переменные взяты для новой формулы
+      /*
       leak_phase_A_macros = calculate_rms(rms, C_phase_A, R_leak_A);
       leak_phase_B_macros = calculate_rms(rms, C_phase_B, R_leak_B);
       leak_phase_C_macros = calculate_rms(rms, C_phase_C, R_leak_C);
@@ -230,6 +232,7 @@ void HighPriorityTask(void *argument) {
       max_leak_val = (uint16_t) fmaxf(fmaxf(leak_phase_A_macros, leak_phase_B_macros), leak_phase_C_macros);
       
       REGISTERS[1] = max_leak_val;
+      */
 #else
 
       /*
@@ -280,11 +283,11 @@ void HighPriorityTask(void *argument) {
       //rms_mean[rms_index] = (leak_ma < 0) ? 0 : (uint16_t)round(leak_ma);
       
       
-      uint16_t voltage_constant = 220;
+      float voltage_constant = C_phase_A;  //220 def   //---------------------------------------------
       
       float voltage_coefficient = 0.0289f * voltage_constant - 6.358f;
       
-      uint16_t capacitance_constant = 100;
+      float capacitance_constant = R_leak_A; //0.1f def  //----------------------------------------------
       
       float capacity_coefficient = 54.854f * capacitance_constant + 1158.29f;      
       

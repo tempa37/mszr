@@ -260,13 +260,14 @@
                 <!-- Изменение: поле фазного напряжения с диапазоном 220-450 В -->
                 <label class="field-label" for="c_phase_a">Фазное напряжение:</label>
                 <div class="serial-input">
-                    <input id="c_phase_a" type="number" min="220" max="450" step="1" value="<!--#CPHASEA-->">
+                    <input id="c_phase_a" type="number" min="220" max="450" step="1" data-raw="<!--#CPHASEA-->">
+
                     <span>Вольт</span>
                 </div>
                 <!-- Изменение: поле паразитной ёмкости со спинбоксом и шагом 0.1 мкФ -->
                 <label class="field-label" for="r_leak_a">Паразитная ёмкость кабеля:</label>
                 <div class="serial-input serial-input--spinner">
-                    <input id="r_leak_a" type="number" min="0" max="1" step="0.1" value="<!--#RLEAKA-->" readonly>
+                    <input id="r_leak_a" type="number" min="0" max="1" step="0.1" data-raw="<!--#RLEAKA-->" readonly>
                     <span class="unit">мкФ</span>
                     <div class="spin up" data-dir="up"><span>▲</span></div>
                     <div class="spin down" data-dir="down"><span>▼</span></div>
@@ -535,15 +536,83 @@
                 });
             });
         }
+		
+		
+		const _decimalsFromStep = s => {
+		  const p = String(s).split('.')[1];
+		  return p ? p.length : 0;
+		};
+
+		/**
+		 * Очистка SSI + округление + запись в input.
+		 * Если передан селектор/элемент — берём сырое значение из data-raw,
+		 * если его нет — из HTML-атрибута value, а НЕ из input.value.
+		 */
+		function cleanSsiNumber(src, { step = 1, decimals, min = -Infinity, max = Infinity, returnNumber = false } = {}) {
+		  const el = typeof src === 'string'
+			? document.querySelector(src)
+			: (src instanceof HTMLElement ? src : null);
+
+		  let raw;
+		  if (el) {
+			raw = el.getAttribute('data-raw');
+			if (raw == null) raw = el.getAttribute('value');  // сырое значение из разметки
+			if (raw == null) raw = '';                        // fallback
+		  } else {
+			raw = String(src ?? '');
+		  }
+
+		  // вырезаем <!-- ... --> и нормализуем разделитель
+		  raw = String(raw).replace(/<!--[\s\S]*?-->/g, '').trim().replace(',', '.');
+
+		  let num = parseFloat(raw);
+		  if (!isFinite(num)) num = 0;
+
+		  // ограничение и округление
+		  if (typeof min === 'number') num = Math.max(min, num);
+		  if (typeof max === 'number') num = Math.min(max, num);
+		  if (step && step > 0) num = Math.round(num / step) * step;
+
+		  const d = (typeof decimals === 'number') ? decimals : _decimalsFromStep(step);
+		  const outStr = num.toFixed(d);
+
+		  if (el) {
+			el.value = outStr;                   // выставляем фактическое значение
+			el.setAttribute('value', outStr);    // синхронизируем атрибут (не обязательно, но полезно)
+			el.removeAttribute('data-raw');      // больше не нужно
+		  }
+
+		  return returnNumber ? num : outStr;
+		}
+		
+		
 
 
         window.addEventListener('DOMContentLoaded', function () {
-            // Автоматическое округление значений
-            var inputs = document.querySelectorAll('input');
-            inputs.forEach(function (input) {
-                input.value = roundValue(input.value);
-            });
+		
+		
+		
+		
+		
+		  //приводим в нормальный вид фазное напряжение
+		  cleanSsiNumber('#c_phase_a', { step: 1, decimals: 0, min: 220, max: 450 });
 
+		  //приводим в нормальный вид паразитную емкость кабеля
+		  cleanSsiNumber('#r_leak_a', { step: 0.1, decimals: 1, min: 0, max: 1 });
+
+		  // init спиннеров после того, как значения адекватны
+		  //setupSpinner({ id: 'reley_time', min: 0, max: 3, step: 0.01, decimals: 2 });
+		  //setupSpinner({ id: 'r_leak_a',   min: 0, max: 1, step: 0.1,  decimals: 1 });
+
+		
+	    var inputs = document.querySelectorAll('input');
+		inputs.forEach(function (input) {
+		  input.value = roundValue(input.value);
+		});
+		
+
+			
+			
             // Изменение: приводим значение спинбокса ёмкости к шагу 0.1 мкФ
             const leakInput = document.getElementById('r_leak_a');
             if (leakInput) {
