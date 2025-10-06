@@ -63,18 +63,25 @@
         /* Стили для спинбокса времени отключения реле */
 		
 		/* скрываем нативные стрелки */
-		#reley_time {
-		  appearance: textfield;
-		  -moz-appearance: textfield;
-		  height: 36px;
-		  line-height: 36px;
-		  padding-right: 72px; /* 28px (кнопка) + 8px (отступ) + ~20px ("с") + запас */
-		}
-		#reley_time::-webkit-inner-spin-button,
-		#reley_time::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+                /* Изменение: единые стили для спинбоксов времени и ёмкости */
+                #reley_time,
+                #r_leak_a {
+                  appearance: textfield;
+                  -moz-appearance: textfield;
+                  height: 36px;
+                  line-height: 36px;
+                  padding-right: 72px; /* 28px (кнопка) + 8px (отступ) + ~20px (подпись) + запас */
+                }
+                #reley_time::-webkit-inner-spin-button,
+                #reley_time::-webkit-outer-spin-button,
+                #r_leak_a::-webkit-inner-spin-button,
+                #r_leak_a::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 		
 		
-		.serial-input { position: relative; }
+                .serial-input { position: relative; }
+
+                /* Изменение: дополнительный класс для наглядности нового спинбокса */
+                .serial-input--spinner { padding-right: 40px; }
 		
 		/* контейнер со своими стрелками */
 		.serial-input { position: relative; }
@@ -246,48 +253,23 @@
     </div>
 
     <div class="container_admin">
+        <!-- Изменение: оставляем только один блок настроек для утечки фазы А -->
         <div class="right-section_admin">
             <h3>Фаза A</h3>
             <form>
-                <label class="field-label" for="c_phase_a">Паразитная емкость кабеля:</label>
+                <!-- Изменение: поле фазного напряжения с диапазоном 220-450 В -->
+                <label class="field-label" for="c_phase_a">Фазное напряжение:</label>
                 <div class="serial-input">
-                    <input id="c_phase_a" type="text" value="<!--#CPHASEA-->">
-                    <span>&mu;F</span>
+                    <input id="c_phase_a" type="number" min="220" max="450" step="1" value="<!--#CPHASEA-->">
+                    <span>Вольт</span>
                 </div>
-                <label class="field-label" for="r_leak_a">Сопротивление изоляции:</label>
-                <div class="serial-input">
-                    <input id="r_leak_a" type="text" value="<!--#RLEAKA-->">
-                    <span>MΩ</span>
-                </div>
-            </form>
-        </div>
-        <div class="right-section_admin">
-            <h3>Фаза B</h3>
-            <form>
-                <label class="field-label" for="c_phase_b">Паразитная емкость кабеля:</label>
-                <div class="serial-input">
-                    <input id="c_phase_b" type="text" value="<!--#CPHASEB-->">
-                    <span>&mu;F</span>
-                </div>
-                <label class="field-label" for="r_leak_b">Сопротивление изоляции:</label>
-                <div class="serial-input">
-                    <input id="r_leak_b" type="text" value ="<!--#RLEAKB-->">
-                    <span>MΩ</span>
-                </div>
-            </form>
-        </div>
-        <div class="right-section_admin">
-            <h3>Фаза C</h3>
-            <form>
-                <label class="field-label" for="c_phase_c">Паразитная емкость кабеля:</label>
-                <div class="serial-input">
-                    <input id="c_phase_c" type="text"  value ="<!--#CPHASEC-->">
-                    <span>&mu;F</span>
-                </div>
-                <label class="field-label" for="r_leak_c">Сопротивление изоляции:</label>
-                <div class="serial-input">
-                    <input id="r_leak_c" type="text"  value ="<!--#RLEAKC-->">
-                    <span>MΩ</span>
+                <!-- Изменение: поле паразитной ёмкости со спинбоксом и шагом 0.1 мкФ -->
+                <label class="field-label" for="r_leak_a">Паразитная ёмкость кабеля:</label>
+                <div class="serial-input serial-input--spinner">
+                    <input id="r_leak_a" type="number" min="0" max="1" step="0.1" value="<!--#RLEAKA-->" readonly>
+                    <span class="unit">мкФ</span>
+                    <div class="spin up" data-dir="up"><span>▲</span></div>
+                    <div class="spin down" data-dir="down"><span>▼</span></div>
                 </div>
             </form>
         </div>
@@ -397,18 +379,27 @@
             return true;
         }
 		
-		function inRange05to10(v) {
-			const n = parseFloat((v + '').replace(',', '.'));
-			return !isNaN(n) && n >= 0.2 && n <= 1.0;
-		}
+        // Изменение: валидация фазного напряжения в пределах 220-450 В
+        function isPhaseVoltageValid(value) {
+            const number = parseFloat(String(value).replace(',', '.'));
+            return !isNaN(number) && number >= 220 && number <= 450;
+        }
+
+        // Изменение: валидация паразитной ёмкости кабеля 0-1.0 мкФ
+        function isLeakCapValid(value) {
+            const number = parseFloat(String(value).replace(',', '.'));
+            if (isNaN(number) || number < 0 || number > 1) {
+                return false;
+            }
+
+            const scaled = Math.round(number * 10);
+            return Math.abs(number - scaled / 10) < 0.0001;
+        }
 
         function saveDataAdmin() {
+            // Изменение: читаем только актуальные поля фазы A
             const cPhaseA = document.getElementById('c_phase_a').value;
             const rLeakA = document.getElementById('r_leak_a').value;
-            const cPhaseB = document.getElementById('c_phase_b').value;
-            const rLeakB = document.getElementById('r_leak_b').value;
-            const cPhaseC = document.getElementById('c_phase_c').value;
-            const rLeakC = document.getElementById('r_leak_c').value;
             const targetValue = document.getElementById('target_value').value;
             const warningValue = document.getElementById('warning_value').value;
             const releyTime = document.getElementById('reley_time').value; // время отключения реле
@@ -417,10 +408,6 @@
 
             if (cPhaseA) updatedData.c_phase_a = cPhaseA;
             if (rLeakA)  updatedData.r_leak_a  = rLeakA;
-            if (cPhaseB) updatedData.c_phase_b = cPhaseB;
-            if (rLeakB)  updatedData.r_leak_b  = rLeakB;
-            if (cPhaseC) updatedData.c_phase_c = cPhaseC;
-            if (rLeakC)  updatedData.r_leak_c  = rLeakC;
             if (targetValue) updatedData.target_value = targetValue;
             if (warningValue) updatedData.warning_value = warningValue;
 
@@ -429,16 +416,22 @@
                 const timeMs = Math.round(parseFloat(timeSec) * 1000); // перевод в миллисекунды
                 updatedData.reley_time = timeMs.toString(); // отправка без точки
             }
-			
+
             if (Object.keys(updatedData).length === 0) {
                 alert('Нет измененных данных для сохранения.');
                 return;
             }
 
-			if (![cPhaseA, cPhaseB, cPhaseC].every(inRange05to10)) {
-				alert('Паразитная ёмкость кабеля должна быть от 0.2 до 1.0 µF');
-				return;
-			}
+            // Изменение: проверяем введённые значения по новым диапазонам
+            if (!isPhaseVoltageValid(cPhaseA)) {
+                alert('Фазное напряжение должно быть от 220 до 450 В.');
+                return;
+            }
+
+            if (!isLeakCapValid(rLeakA)) {
+                alert('Паразитная ёмкость кабеля должна быть от 0 до 1.0 мкФ с шагом 0.1 мкФ.');
+                return;
+            }
 
 
 
@@ -483,6 +476,66 @@
             return fracPart.length > 0 ? intPart + '.' + fracPart : intPart;
         }
 
+        // Изменение: универсальная настройка спинбоксов с кнопками ▲▼
+        function setupSpinner(options) {
+            const input = document.getElementById(options.id);
+            if (!input) {
+                return;
+            }
+
+            const container = input.closest('.serial-input');
+            if (!container) {
+                return;
+            }
+
+            input.addEventListener('wheel', e => e.preventDefault(), { passive: false });
+            input.addEventListener('keydown', e => {
+                if (e.key !== 'Tab') {
+                    e.preventDefault();
+                }
+            });
+
+            const min = options.min ?? Number(input.min || 0);
+            const max = options.max ?? Number(input.max || 0);
+            const step = options.step ?? Number(input.step || 1);
+            const decimals = typeof options.decimals === 'number'
+                ? options.decimals
+                : Math.max(0, (String(step).split('.')[1] || '').length);
+
+            const SCALE = step > 0 ? Math.round(1 / step) : 1;
+            const clamp = value => Math.min(max, Math.max(min, value));
+            const toTicks = value => Math.round(clamp(value) * SCALE);
+            const fromTicks = ticks => ticks / SCALE;
+
+            const read = () => {
+                const parsed = parseFloat(String(input.value).replace(',', '.'));
+                if (isNaN(parsed)) {
+                    return clamp(min);
+                }
+                return clamp(parsed);
+            };
+
+            const write = value => {
+                const normalized = clamp(value);
+                const fixed = Number(normalized.toFixed(decimals));
+                input.value = fixed.toFixed(decimals);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            };
+
+            write(read());
+
+            container.querySelectorAll('.spin').forEach(button => {
+                button.addEventListener('click', () => {
+                    const current = read();
+                    let ticks = toTicks(current);
+                    ticks += button.dataset.dir === 'up' ? 1 : -1;
+                    const next = fromTicks(ticks);
+                    write(next);
+                });
+            });
+        }
+
 
         window.addEventListener('DOMContentLoaded', function () {
             // Автоматическое округление значений
@@ -491,68 +544,35 @@
                 input.value = roundValue(input.value);
             });
 
-            const relayInput = document.getElementById('reley_time');      // сам спинбокс
-			const relayTag   = document.getElementById('reley_time_tag');  // скрытый input
+            // Изменение: приводим значение спинбокса ёмкости к шагу 0.1 мкФ
+            const leakInput = document.getElementById('r_leak_a');
+            if (leakInput) {
+                let rawLeak = extractValue(leakInput.value);
+                let leakNumber = parseFloat(String(rawLeak).replace(',', '.'));
+                if (isNaN(leakNumber)) {
+                    leakNumber = 0;
+                }
+                leakInput.value = leakNumber.toFixed(1);
+            }
 
-			if (relayInput && relayTag) {
-				let raw = extractValue(relayTag.value); // вырезаем <!-- ... -->
+            const relayInput = document.getElementById('reley_time');      // сам спинбокс
+                        const relayTag   = document.getElementById('reley_time_tag');  // скрытый input
+
+                        if (relayInput && relayTag) {
+                                let raw = extractValue(relayTag.value); // вырезаем <!-- ... -->
 				if (parseFloat(raw) > 3) {             // если это миллисекунды
 					raw = (parseFloat(raw) / 1000).toFixed(2); // → секунды с 2 знаками
 				}
-				relayInput.value = raw;                // инициализируем спинбокс
-			}
+                                relayInput.value = raw;                // инициализируем спинбокс
+                        }
+
+            // Изменение: инициализируем спинбоксы после загрузки страницы
+            setupSpinner({ id: 'reley_time', min: 0, max: 3, step: 0.01, decimals: 2 });
+            setupSpinner({ id: 'r_leak_a', min: 0, max: 1, step: 0.1, decimals: 1 });
         });
-		
-		
-		(function () {
-		  const input = document.getElementById('reley_time');
 
-		  // блокируем колесо и клавиатуру (оставим Tab и стрелки для табинга)
-		  input.addEventListener('wheel', e => e.preventDefault(), { passive: false });
-		  input.addEventListener('keydown', e => {
-			if (e.key !== 'Tab') e.preventDefault();
-		  });
 
-		  const min  = Number(input.min || 0);
-		  const max  = Number(input.max || 3);
-		  const step = Number(input.step || 0.01);
-
-		  // масштаб в целые тики (для 0.01 это 100)
-		  const SCALE = Math.round(1 / step);
-
-		  const clamp = v => Math.min(max, Math.max(min, v));
-		  const toTicks = v => Math.round(v * SCALE);
-		  const fromTicks = t => t / SCALE;
-
-		  // читаем текущее значение как число (точка!)
-		  const read = () => {
-			const n = parseFloat(String(input.value).replace(',', '.'));
-			return isNaN(n) ? 0 : n;
-		  };
-
-		  // пишем аккуратное значение: фикс до 2 знаков, БЕЗ запятой
-		  const write = v => {
-			const n = Number(v.toFixed(2));       // убрали хвосты 0.060000000000000005
-			input.value = String(n);              // value остаётся валидным для type=number
-			// если хочешь всегда 2 знака — используй: input.value = n.toFixed(2);
-			input.dispatchEvent(new Event('input',  { bubbles: true }));
-			input.dispatchEvent(new Event('change', { bubbles: true }));
-		  };
-
-		  // собственные кнопки ▲ ▼
-		  document.querySelectorAll('.serial-input .spin').forEach(btn => {
-			btn.addEventListener('click', () => {
-			  const cur = clamp(read());
-			  let ticks = toTicks(cur);
-			  ticks += (btn.dataset.dir === 'up' ? 1 : -1); // один шаг
-			  const next = clamp(fromTicks(ticks));
-			  write(next);
-			});
-		  });
-		})();
-		
-		
-
+        // Изменение: удалён устаревший код инициализации спинбокса reley_time
     </script>
 </body>
 </html>
